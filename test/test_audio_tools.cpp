@@ -17,6 +17,7 @@
 #ifdef _WIN32
 #include <process.h>
 #else
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -59,6 +60,27 @@ void write_text(const fs::path& path, const std::string& text) {
     output << text;
 }
 
+std::string read_text(const fs::path& path) {
+    std::ifstream input(path);
+    REQUIRE(input.good());
+    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
+std::string json_escape(std::string_view text) {
+    std::string out;
+    for (char ch : text) {
+        switch (ch) {
+            case '\\': out += "\\\\"; break;
+            case '"': out += "\\\""; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            default: out += ch; break;
+        }
+    }
+    return out;
+}
+
 pulp::audio::AudioFileData make_audio(uint32_t sample_rate, uint64_t frame_count) {
     pulp::audio::AudioFileData data;
     data.sample_rate = sample_rate;
@@ -67,6 +89,19 @@ pulp::audio::AudioFileData make_audio(uint32_t sample_rate, uint64_t frame_count
     samples.resize(static_cast<std::size_t>(frame_count));
     for (std::size_t i = 0; i < samples.size(); ++i)
         samples[i] = static_cast<float>((i % 97) / 97.0);
+    return data;
+}
+
+pulp::audio::AudioFileData make_stereo_audio(uint32_t sample_rate, uint64_t frame_count) {
+    pulp::audio::AudioFileData data;
+    data.sample_rate = sample_rate;
+    data.channels.resize(2);
+    data.channels[0].resize(static_cast<std::size_t>(frame_count));
+    data.channels[1].resize(static_cast<std::size_t>(frame_count));
+    for (std::size_t i = 0; i < static_cast<std::size_t>(frame_count); ++i) {
+        data.channels[0][i] = static_cast<float>(i) / static_cast<float>(frame_count);
+        data.channels[1][i] = 1.0f - data.channels[0][i];
+    }
     return data;
 }
 
@@ -234,6 +269,33 @@ TEST_CASE("audio model registry preserves direct HTTP URLs byte-for-byte",
     REQUIRE(resolve_checkpoint_url("https://huggingface.co/org/repo/resolve/main/model.pt")
             == "https://huggingface.co/org/repo/resolve/main/model.pt");
     REQUIRE(resolve_checkpoint_url("https://example.test/").ends_with('/'));
+}
+
+TEST_CASE("audio model registry preserves URL bytes and rejects partial protocols",
+          "[audio][tools][model-registry][coverage]") {
+    REQUIRE(resolve_checkpoint_url("https://cdn.example.test/model.pt#sha256")
+            == "https://cdn.example.test/model.pt#sha256");
+    REQUIRE(resolve_checkpoint_url("http://localhost:8080/checkpoints/music.pt?download=1")
+            == "http://localhost:8080/checkpoints/music.pt?download=1");
+    REQUIRE(resolve_checkpoint_url("hf://org/repo/a/b/c/model.ckpt")
+            == "https://huggingface.co/org/repo/resolve/main/a/b/c/model.ckpt");
+
+    REQUIRE(resolve_checkpoint_url("hf:/org/repo/model.pt").empty());
+    REQUIRE(resolve_checkpoint_url("://org/repo/model.pt").empty());
+    REQUIRE(resolve_checkpoint_url("org/repo/model.pt").empty());
+    REQUIRE(resolve_checkpoint_url("hf://org//model.pt").empty());
+    REQUIRE(resolve_checkpoint_url("hf://org/repo/").empty());
+}
+
+TEST_CASE("audio model registry preserves concrete Hugging Face file paths",
+          "[audio][tools][model-registry][coverage][requested]") {
+    REQUIRE(resolve_checkpoint_url(" hf://org/repo/model.pt").empty());
+    REQUIRE(resolve_checkpoint_url("hf://org/repo//")
+            == "https://huggingface.co/org/repo/resolve/main//");
+    REQUIRE(resolve_checkpoint_url("hf://org/repo/\t")
+            == "https://huggingface.co/org/repo/resolve/main/\t");
+    REQUIRE(resolve_checkpoint_url("hf://org/repo/model.pt")
+            == "https://huggingface.co/org/repo/resolve/main/model.pt");
 }
 
 TEST_CASE("audio model store reads legacy metadata and malformed records fail closed",
@@ -1563,6 +1625,274 @@ TEST_CASE("excerpt find reports unsupported inputs after model resolution",
     auto json = to_json(result);
     REQUIRE(json.find("\"ok\": false") != std::string::npos);
     REQUIRE(json.find("unsupported; WAV only") != std::string::npos);
+}
+
+TEST_CASE("excerpt find records unreadable WAV inputs without writing dry-run bundles",
+          "[audio][tools][excerpt-service][coverage][requested]") {
+    TempDir temp;
+    auto checkpoint = install_active_clap_model(temp);
+    auto corrupt_wav = temp.path / "corrupt.wav";
+    write_text(corrupt_wav, "not a wav payload");
+
+    ExcerptFindRequest request;
+    request.text = "corrupt input";
+    request.input_path = corrupt_wav;
+    request.top_k = 2;
+    request.window_ms = 1000;
+    request.hop_ms = 1000;
+    request.max_candidates_per_file = 2;
+    request.dry_run = true;
+
+    auto result = run_excerpt_find(request, temp.path);
+
+    REQUIRE(result.ok);
+    REQUIRE(result.bundle_path.empty());
+    REQUIRE(result.requested_model_id == "clap_music_audioset_v1");
+    REQUIRE(result.loaded_model_id == "clap_music_audioset_v1");
+    REQUIRE(result.backend == "null");
+    REQUIRE(result.resolved_checkpoint_path == checkpoint);
+    REQUIRE(result.scanned_file_count == 1);
+    REQUIRE(result.results.empty());
+    REQUIRE(result.skipped_files.size() == 1);
+    REQUIRE(result.skipped_files[0].find("corrupt.wav") != std::string::npos);
+    REQUIRE(result.skipped_files[0].find("failed to read") != std::string::npos);
+}
+
+TEST_CASE("excerpt find reports bundle directory creation failures after ranking",
+          "[audio][tools][excerpt-service][coverage]") {
+    TempDir temp;
+    install_active_clap_model(temp);
+    auto input = temp.path / "input.wav";
+    REQUIRE(pulp::audio::write_wav_file(input.string(), make_audio(48000, 48000)));
+    auto occupied = temp.path / "occupied";
+    write_text(occupied, "not a directory");
+
+    ExcerptFindRequest request;
+    request.text = "bundle failure";
+    request.input_path = input;
+    request.bundle_out = occupied;
+    request.top_k = 1;
+    request.window_ms = 1000;
+    request.hop_ms = 1000;
+    request.max_candidates_per_file = 1;
+
+    auto result = run_excerpt_find(request, temp.path);
+
+    REQUIRE_FALSE(result.ok);
+    REQUIRE(result.error.find("failed to create bundle directories") != std::string::npos);
+    REQUIRE(result.bundle_path.string().find("occupied") != std::string::npos);
+    REQUIRE(result.scanned_file_count == 1);
+    REQUIRE(result.results.size() == 1);
+    REQUIRE(result.results[0].rank == 1);
+    REQUIRE(result.results[0].excerpt_file.empty());
+}
+
+TEST_CASE("excerpt find JSON serializer preserves failure diagnostics",
+          "[audio][tools][excerpt-service][coverage]") {
+    ExcerptFindResult result;
+    result.query = "missing model";
+    result.requested_model_id = "clap_music_audioset_v1";
+    result.backend = "null";
+    result.scanned_file_count = 4;
+    result.error = "model is not installed: clap_music_audioset_v1";
+    result.skipped_files.push_back("notes.txt (unsupported; WAV only)");
+
+    auto json = to_json(result);
+
+    REQUIRE(json.find("\"ok\": false") != std::string::npos);
+    REQUIRE(json.find("\"query\": \"missing model\"") != std::string::npos);
+    REQUIRE(json.find("\"requested_model_id\": \"clap_music_audioset_v1\"")
+            != std::string::npos);
+    REQUIRE(json.find("\"backend\": \"null\"") != std::string::npos);
+    REQUIRE(json.find("\"scanned_file_count\": 4") != std::string::npos);
+    REQUIRE(json.find("\"results\": []") != std::string::npos);
+    REQUIRE(json.find("notes.txt (unsupported; WAV only)") != std::string::npos);
+    REQUIRE(json.find("model is not installed: clap_music_audioset_v1")
+            != std::string::npos);
+}
+
+TEST_CASE("excerpt find JSON serializer preserves ranked bundle metadata",
+          "[audio][tools][excerpt-service][coverage][requested]") {
+    ExcerptFindResult result;
+    result.ok = true;
+    result.bundle_path = "/tmp/pulp-audio-bundle";
+    result.query = "tight snare";
+    result.requested_model_id = "clap_music_audioset_v1";
+    result.loaded_model_id = "clap_music_audioset_v1";
+    result.backend = "null";
+    result.resolved_checkpoint_path = "/models/clap.pt";
+    result.scanned_file_count = 2;
+
+    BundleResult item;
+    item.rank = 1;
+    item.score = 0.875;
+    item.source_file = "/audio/loop.wav";
+    item.source_duration_ms = 250.0;
+    item.start_ms = 1000.0;
+    item.end_ms = 1250.0;
+    item.excerpt_file = "excerpts/rank-01-loop-1.000-1.250.wav";
+    result.results.push_back(item);
+    result.skipped_files.push_back("/audio/readme.txt (unsupported; WAV only)");
+
+    auto json = to_json(result);
+
+    REQUIRE(json.find("\"ok\": true") != std::string::npos);
+    REQUIRE(json.find("\"bundle_path\": \"/tmp/pulp-audio-bundle\"") != std::string::npos);
+    REQUIRE(json.find("\"requested_model_id\": \"clap_music_audioset_v1\"")
+            != std::string::npos);
+    REQUIRE(json.find("\"loaded_model_id\": \"clap_music_audioset_v1\"")
+            != std::string::npos);
+    REQUIRE(json.find("\"resolved_checkpoint_path\": \"/models/clap.pt\"")
+            != std::string::npos);
+    REQUIRE(json.find("\"scanned_file_count\": 2") != std::string::npos);
+    REQUIRE(json.find("\"rank\": 1") != std::string::npos);
+    REQUIRE(json.find("\"score\": 0.875") != std::string::npos);
+    REQUIRE(json.find("\"source_file\": \"/audio/loop.wav\"") != std::string::npos);
+    REQUIRE(json.find("\"source_duration_ms\": 250") != std::string::npos);
+    REQUIRE(json.find("\"start_ms\": 1000") != std::string::npos);
+    REQUIRE(json.find("\"end_ms\": 1250") != std::string::npos);
+    REQUIRE(json.find("\"excerpt_file\": \"excerpts/rank-01-loop-1.000-1.250.wav\"")
+            != std::string::npos);
+    REQUIRE(json.find("/audio/readme.txt (unsupported; WAV only)") != std::string::npos);
+}
+
+TEST_CASE("excerpt find bundle metadata falls back to registered model fields",
+          "[audio][tools][excerpt-service][model-registry][coverage][requested]") {
+    TempDir temp;
+    auto checkpoint = temp.path / "models" / "clap.pt";
+    write_text(checkpoint, "stub");
+    write_text(temp.path / "audio" / "models" / "clap_music_audioset_v1.json", R"JSON({
+  "backend": "clap",
+  "resolved_checkpoint_path": ")JSON" + checkpoint.generic_string() + R"JSON("
+}
+)JSON");
+    write_text(temp.path / "audio" / "model-state.json", R"JSON({
+  "active_model_id": "clap_music_audioset_v1"
+}
+)JSON");
+
+    auto input = temp.path / "fallback.wav";
+    REQUIRE(pulp::audio::write_wav_file(input.string(), make_audio(48000, 48000)));
+
+    ExcerptFindRequest request;
+    request.text = "fallback metadata";
+    request.input_path = input;
+    request.bundle_out = temp.path / "bundles";
+    request.top_k = 1;
+    request.window_ms = 1000;
+    request.hop_ms = 1000;
+    request.max_candidates_per_file = 1;
+
+    auto result = run_excerpt_find(request, temp.path);
+
+    REQUIRE(result.ok);
+    REQUIRE(result.requested_model_id == "clap_music_audioset_v1");
+    REQUIRE(result.loaded_model_id == "clap_music_audioset_v1");
+    REQUIRE(result.resolved_checkpoint_path == checkpoint);
+    REQUIRE(result.results.size() == 1);
+
+    auto bundle = read_excerpt_bundle(result.bundle_path);
+    REQUIRE(bundle.ok);
+    REQUIRE(bundle.requested_model_id == "clap_music_audioset_v1");
+    REQUIRE(bundle.loaded_model_id == "clap_music_audioset_v1");
+    REQUIRE(bundle.backend == "null");
+
+    auto model_json = read_text(result.bundle_path / "model.json");
+    REQUIRE(model_json.find("\"checkpoint_ref\": \"hf://lukewys/laion_clap/music.pt\"")
+            != std::string::npos);
+    REQUIRE(model_json.find("\"resolved_checkpoint_path\": \""
+                            + json_escape(checkpoint.string()) + "\"")
+            != std::string::npos);
+}
+
+#if !defined(_WIN32)
+TEST_CASE("excerpt find rejects special files before model resolution",
+          "[audio][tools][excerpt-service][coverage][requested]") {
+    TempDir temp;
+    auto pipe_path = temp.path / "input.wav";
+    REQUIRE(::mkfifo(pipe_path.c_str(), 0600) == 0);
+
+    ExcerptFindRequest request;
+    request.text = "special input";
+    request.input_path = pipe_path;
+    request.model_id = "not_a_model";
+
+    auto result = run_excerpt_find(request, temp.path);
+
+    REQUIRE_FALSE(result.ok);
+    REQUIRE(result.error.find("input path must be a file or directory") != std::string::npos);
+    REQUIRE(result.error.find(pipe_path.string()) != std::string::npos);
+    REQUIRE(result.requested_model_id.empty());
+    REQUIRE(result.loaded_model_id.empty());
+    REQUIRE(result.scanned_file_count == 0);
+    REQUIRE(result.results.empty());
+    REQUIRE(result.skipped_files.empty());
+}
+#endif
+
+TEST_CASE("excerpt find writes stereo excerpt audio and manifest sidecars",
+          "[audio][tools][excerpt-service][coverage][requested]") {
+    TempDir temp;
+    auto checkpoint = install_active_clap_model(temp);
+    auto input = temp.path / "Stereo Loop!.wav";
+    auto source = make_stereo_audio(48000, 48000);
+    REQUIRE(pulp::audio::write_wav_file(input.string(), source));
+
+    ExcerptFindRequest request;
+    request.text = "stereo texture";
+    request.input_path = input;
+    request.bundle_out = temp.path / "bundles";
+    request.top_k = 1;
+    request.window_ms = 1000;
+    request.hop_ms = 1000;
+    request.max_candidates_per_file = 1;
+
+    auto result = run_excerpt_find(request, temp.path);
+
+    REQUIRE(result.ok);
+    REQUIRE(result.error.empty());
+    REQUIRE(result.resolved_checkpoint_path == checkpoint);
+    REQUIRE(result.scanned_file_count == 1);
+    REQUIRE(result.skipped_files.empty());
+    REQUIRE(result.results.size() == 1);
+    REQUIRE(result.results[0].rank == 1);
+    REQUIRE(result.results[0].source_file == input.string());
+    REQUIRE(result.results[0].start_ms == Catch::Approx(0.0));
+    REQUIRE(result.results[0].end_ms == Catch::Approx(1000.0));
+    REQUIRE(result.results[0].source_duration_ms == Catch::Approx(1000.0));
+    REQUIRE(result.results[0].excerpt_file.find("stereo-loop") != std::string::npos);
+
+    auto excerpt_path = result.bundle_path / result.results[0].excerpt_file;
+    auto excerpt = pulp::audio::read_audio_file(excerpt_path.string());
+    REQUIRE(excerpt.has_value());
+    REQUIRE(excerpt->sample_rate == 48000);
+    REQUIRE(excerpt->channels.size() == 2);
+    REQUIRE(excerpt->num_frames() == 48000);
+    REQUIRE(excerpt->channels[0].front() == Catch::Approx(source.channels[0].front()).margin(0.0001f));
+    REQUIRE(excerpt->channels[1].front() == Catch::Approx(source.channels[1].front()).margin(0.0001f));
+    REQUIRE(excerpt->channels[0].back() == Catch::Approx(source.channels[0].back()).margin(0.0001f));
+    REQUIRE(excerpt->channels[1].back() == Catch::Approx(source.channels[1].back()).margin(0.0001f));
+
+    auto manifest = read_excerpt_bundle(result.bundle_path);
+    REQUIRE(manifest.ok);
+    REQUIRE(manifest.result_count == 1);
+    REQUIRE(manifest.results.size() == 1);
+    REQUIRE(manifest.results[0].source_file == input.string());
+    REQUIRE(manifest.results[0].excerpt_file == result.results[0].excerpt_file);
+
+    auto inputs_json = read_text(result.bundle_path / "inputs.json");
+    REQUIRE(inputs_json.find("\"recursive\": false") != std::string::npos);
+    REQUIRE(inputs_json.find(json_escape(input.string())) != std::string::npos);
+    REQUIRE(inputs_json.find("\"skipped_files\": []") != std::string::npos);
+
+    auto model_json = read_text(result.bundle_path / "model.json");
+    REQUIRE(model_json.find("\"backend_package\": \"null_backend\"") != std::string::npos);
+    REQUIRE(model_json.find("\"backend_package_version\": \"phase14\"") != std::string::npos);
+
+    auto log = read_text(result.bundle_path / "logs" / "runtime.log");
+    REQUIRE(log.find("requested_model_id=clap_music_audioset_v1") != std::string::npos);
+    REQUIRE(log.find("loaded_model_id=clap_music_audioset_v1") != std::string::npos);
+    REQUIRE(log.find("scanned_files=1") != std::string::npos);
 }
 
 #if !defined(_WIN32)

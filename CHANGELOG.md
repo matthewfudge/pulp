@@ -8,6 +8,96 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02721"></a>
+## [0.272.1] - 2026-05-28
+
+- fix(auv3): open fixed-design editors at design size ([#3109](https://github.com/danielraffel/pulp/pull/3109))
+- test(scan-worker): cover path normalization contracts ([#3110](https://github.com/danielraffel/pulp/pull/3110))
+- test(audio): cover excerpt bundle edge contracts ([#3111](https://github.com/danielraffel/pulp/pull/3111))
+- test(cli): cover sdk status contracts ([#3108](https://github.com/danielraffel/pulp/pull/3108))
+- test(tools): cover inspect mcp screenshot design contracts ([#3107](https://github.com/danielraffel/pulp/pull/3107))
+- test(tools): cover audio linux package contracts ([#3105](https://github.com/danielraffel/pulp/pull/3105))
+- test(platform): cover bridge signing contracts ([#3104](https://github.com/danielraffel/pulp/pull/3104))
+- test(tools): cover import scan contracts ([#3103](https://github.com/danielraffel/pulp/pull/3103))
+
+<a id="v02720"></a>
+## [0.272.0] - 2026-05-28
+
+- feat(ios): Phase iOS-D.1 — minimal 2D GPU AUv3 proof + FindSkia iOS framework split + GPU-required hard-fail ([#3100](https://github.com/danielraffel/pulp/pull/3100))
+- test(tools): cover requested debug surfaces ([#3102](https://github.com/danielraffel/pulp/pull/3102))
+- fix(ios): AUv3 audio path — MH_EXECUTE binary, .loadOutOfProcess host load, MIDI event wiring ([#3095](https://github.com/danielraffel/pulp/pull/3095))
+- test(python): cover binding export contracts ([#3099](https://github.com/danielraffel/pulp/pull/3099))
+- test(coverage): cover requested surfaces batch ([#3096](https://github.com/danielraffel/pulp/pull/3096))
+
+<a id="v02710"></a>
+## [0.271.0] - 2026-05-28
+
+- test(inspect): cover inspector public contracts ([#3094](https://github.com/danielraffel/pulp/pull/3094))
+- test(coverage): cover requested tool contracts ([#3093](https://github.com/danielraffel/pulp/pull/3093))
+- test(coverage): cover requested Swift and Python binding gaps ([#3092](https://github.com/danielraffel/pulp/pull/3092))
+- test(coverage): cover requested tool and platform edges ([#3084](https://github.com/danielraffel/pulp/pull/3084))
+
+<a id="v02704"></a>
+## [0.270.4] - 2026-05-27
+
+- fix(view): unblock full iOS Simulator build of pulp-view-* lib chain + flip smoke to true build ([#3088](https://github.com/danielraffel/pulp/pull/3088))
+- feature/coverage mcp requested 20260527 ([#3083](https://github.com/danielraffel/pulp/pull/3083))
+- test: cover requested packaging and import surfaces ([#3082](https://github.com/danielraffel/pulp/pull/3082))
+- test(inspect): cover overlay color hex formatting ([#3075](https://github.com/danielraffel/pulp/pull/3075))
+- test(coverage): cover bridge and python binding edges ([#3073](https://github.com/danielraffel/pulp/pull/3073))
+
+<a id="v02702"></a>
+## [0.270.2] - 2026-05-27
+
+- feat(ios): scaffold AUv3 HostApp via pulp_add_ios_host_app helper (Phase iOS-B) ([#3059](https://github.com/danielraffel/pulp/pull/3059))
+- test(screenshot): cover unknown backend rejection ([#3067](https://github.com/danielraffel/pulp/pull/3067))
+- test(import-design): cover benchmark lane contracts ([#3065](https://github.com/danielraffel/pulp/pull/3065))
+
+<a id="v02701"></a>
+## [0.270.1] - 2026-05-26
+
+- feat(format): 4 iPlug2-audit DAW quirks (REAPER AUv3, Studio One, DP, Cubase 13+) ([#3053](https://github.com/danielraffel/pulp/pull/3053))
+- test(import-design): cover detector edge contracts ([#3063](https://github.com/danielraffel/pulp/pull/3063))
+- test(cli): cover audio command contracts ([#3048](https://github.com/danielraffel/pulp/pull/3048))
+
+<a id="v02700"></a>
+## [0.270.0] - 2026-05-26
+
+- feat(ship): wire App Store Connect API key flow into pulp ship notarize ([#3054](https://github.com/danielraffel/pulp/pull/3054))
+
+<a id="v02691"></a>
+## [0.269.1] - 2026-05-27
+
+- feat(core): batch-ship 5 gap-doc tail items — URL/MAC/Result/OSC-colour/StateTree-clone ([#3049](https://github.com/danielraffel/pulp/pull/3049))
+
+<a id="v02681"></a>
+## [0.268.1] - 2026-05-26
+
+- fix(skia): correct linux-arm64 Skia SHA-256 (#3036 follow-up) ([#3041](https://github.com/danielraffel/pulp/pull/3041))
+- docs: surface community help-wanted issues in README + CONTRIBUTING ([#3043](https://github.com/danielraffel/pulp/pull/3043))
+- ci(skia): backfill real SHA-256 for linux-arm64 Skia asset ([#3036](https://github.com/danielraffel/pulp/pull/3036))
+
+<a id="v02680"></a>
+## [0.268.0] - 2026-05-26
+
+- ci(skia): publish linux-arm64 Skia release asset (#47) ([#3030](https://github.com/danielraffel/pulp/pull/3030))
+
+<a id="v02660"></a>
+## [0.266.0] - 2026-05-26
+
+- feat(view): CodeEditor tokenizers + PropertyPanel variants + BubbleMessage + styled AlertWindow ([#3026](https://github.com/danielraffel/pulp/pull/3026))
+- test(inspect): cover domain helper contracts ([#3034](https://github.com/danielraffel/pulp/pull/3034))
+
+<a id="v02641"></a>
+## [0.264.1] - 2026-05-26
+
+- fix: sweep Codex P1+P2 review comments from /goal-run PRs #2985-#3022 ([#3032](https://github.com/danielraffel/pulp/pull/3032))
+
+<a id="v02640"></a>
+## [0.264.0] - 2026-05-26
+
+- test(cli): run ship shellouts against C++ delegate ([#3023](https://github.com/danielraffel/pulp/pull/3023))
+
 <a id="v02630"></a>
 ## [0.263.0] - 2026-05-26
 
@@ -3040,6 +3130,19 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.272.1]: https://github.com/danielraffel/pulp/releases/tag/v0.272.1
+[0.272.0]: https://github.com/danielraffel/pulp/releases/tag/v0.272.0
+[0.271.0]: https://github.com/danielraffel/pulp/releases/tag/v0.271.0
+[0.270.4]: https://github.com/danielraffel/pulp/releases/tag/v0.270.4
+[0.270.2]: https://github.com/danielraffel/pulp/releases/tag/v0.270.2
+[0.270.1]: https://github.com/danielraffel/pulp/releases/tag/v0.270.1
+[0.270.0]: https://github.com/danielraffel/pulp/releases/tag/v0.270.0
+[0.269.1]: https://github.com/danielraffel/pulp/releases/tag/v0.269.1
+[0.268.1]: https://github.com/danielraffel/pulp/releases/tag/v0.268.1
+[0.268.0]: https://github.com/danielraffel/pulp/releases/tag/v0.268.0
+[0.266.0]: https://github.com/danielraffel/pulp/releases/tag/v0.266.0
+[0.264.1]: https://github.com/danielraffel/pulp/releases/tag/v0.264.1
+[0.264.0]: https://github.com/danielraffel/pulp/releases/tag/v0.264.0
 [0.263.0]: https://github.com/danielraffel/pulp/releases/tag/v0.263.0
 [0.262.0]: https://github.com/danielraffel/pulp/releases/tag/v0.262.0
 [0.261.0]: https://github.com/danielraffel/pulp/releases/tag/v0.261.0

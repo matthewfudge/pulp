@@ -233,6 +233,35 @@ TEST_CASE("InspectorServer honors PULP_INSPECTOR_PORT when starting with zero",
     std::filesystem::remove_all(tmp);
 }
 
+TEST_CASE("InspectorServer ignores malformed PULP_INSPECTOR_PORT values",
+          "[inspect][server][coverage][requested]") {
+    const auto tmp = std::filesystem::temp_directory_path() /
+                     ("pulp-inspector-invalid-env-test-" +
+                      std::to_string(socket_port_seed()));
+    std::filesystem::create_directories(tmp);
+    ScopedEnv tmpdir(discovery_env_name());
+    ScopedEnv port_env("PULP_INSPECTOR_PORT");
+    tmpdir.set(tmp.string());
+    port_env.set("not-a-port");
+
+    InspectorServer server;
+    if (!server.start(0)) {
+        std::filesystem::remove_all(tmp);
+        SKIP("default inspector port is already in use");
+    }
+
+    REQUIRE(server.port() == 9147);
+
+    const auto file = inspector_port_file(tmp);
+    std::ifstream in(file);
+    std::string contents;
+    in >> contents;
+    REQUIRE(contents == "9147");
+
+    server.stop();
+    std::filesystem::remove_all(tmp);
+}
+
 TEST_CASE("InspectorServer rejects a port already owned by another server",
           "[inspect][server]") {
     InspectorServer first;
@@ -307,6 +336,36 @@ TEST_CASE("InspectorServer dispatches requests through the configured handler",
         const auto request_json = choc::json::parse(seen_params);
         REQUIRE(std::string(request_json["detail"].getString()) == "full");
     }
+
+    client.conn.disconnect();
+    server.stop();
+}
+
+TEST_CASE("InspectorServer uses the latest installed request handler",
+          "[inspect][server][coverage][requested]") {
+    InspectorServer server;
+    auto port = start_inspector_server(server);
+    REQUIRE(port.has_value());
+
+    server.set_request_handler([](const InspectorMessage& request) {
+        return make_response(request.id, R"({"value":"first"})");
+    });
+    server.set_request_handler([](const InspectorMessage& request) {
+        return make_response(request.id, R"({"value":"second"})");
+    });
+
+    RecordingClient client;
+    REQUIRE(client.connect(*port));
+    REQUIRE(wait_for_client_count(server, 1));
+
+    REQUIRE(client.conn.send_message(encode_message(make_request(17, "Echo.latest"))));
+
+    InspectorMessage message;
+    REQUIRE(decode_message(client.wait_for_message(0), message));
+    REQUIRE(message.id == 17);
+    REQUIRE_FALSE(message.is_error);
+    const auto response_json = choc::json::parse(message.params_json);
+    REQUIRE(std::string(response_json["value"].getString()) == "second");
 
     client.conn.disconnect();
     server.stop();
@@ -445,6 +504,38 @@ TEST_CASE("InspectorServer returns protocol errors for invalid JSON frames",
     REQUIRE(response.params_json == "Invalid JSON message");
 
     client.conn.disconnect();
+    server.stop();
+}
+
+TEST_CASE("InspectorServer drops valid requests when no handler is installed",
+          "[inspect][server][coverage][requested]") {
+    InspectorServer server;
+    auto port = start_inspector_server(server);
+    REQUIRE(port.has_value());
+
+    RecordingClient client;
+    REQUIRE(client.connect(*port));
+    REQUIRE(wait_for_client_count(server, 1));
+    REQUIRE(server.client_count() == 1);
+
+    REQUIRE(client.conn.send_message(encode_message(
+        make_request(88, "Inspector.unhandled", R"({"quiet":true})"))));
+
+    REQUIRE_FALSE(client.wait_for_message_count(1));
+    REQUIRE(client.message_count() == 0);
+    REQUIRE(server.client_count() == 1);
+
+    server.broadcast(make_event("Inspector.afterUnhandled", R"({"ok":true})"));
+
+    InspectorMessage event;
+    REQUIRE(decode_message(client.wait_for_message(0), event));
+    REQUIRE(event.id == 0);
+    REQUIRE(event.method == "Inspector.afterUnhandled");
+    const auto event_json = choc::json::parse(event.params_json);
+    REQUIRE(event_json["ok"].getBool());
+
+    client.conn.disconnect();
+    REQUIRE(wait_for_client_count(server, 0));
     server.stop();
 }
 

@@ -294,16 +294,167 @@ pulp_add_ios_auv3(
 )
 ```
 
-Builds the `.appex` only. The App Store container host-app target is authored separately — `templates/ios-auv3/HostApp/` has a SwiftUI host you can copy into Xcode. Auto-generating the host target is follow-on work.
+Builds the `.appex` only. iOS App-Store policy requires the `.appex` to ship inside a containing HostApp `.app` — pair the call above with `pulp_add_ios_host_app(...)` below to get an installable Simulator / device bundle.
+
+## `pulp_add_ios_host_app()` helper (Phase iOS-B)
+
+`pulp_add_ios_host_app(...)` (in `tools/cmake/PulpIosHostApp.cmake`) builds a SwiftUI HostApp `.app` and embeds the AUv3 `.appex` into `${target}.app/PlugIns/`.
+
+```cmake
+pulp_add_ios_host_app(PulpSineSynth_HostApp
+    AUV3_EXTENSION    PulpSineSynth_AUv3        # must exist; pulp_add_ios_auv3 sets up
+    BUNDLE_ID         com.pulp.examples.sinesynth.host
+    NAME              "PulpSineSynth"           # display name (defaults to target)
+    VERSION           0.1.0                       # defaults to "1.0.0"
+    DEPLOYMENT_TARGET 16.4                        # defaults to 16.0
+    # SOURCES ...                                 # optional override; default is the
+                                                  # shipped HostApp/ SwiftUI template
+)
+```
+
+### How the helper works
+
+1. **Reads the AudioComponentDescription off the `.appex` target.** `_pulp_add_auv3_ios(...)` stashes `PULP_AUV3_MANUFACTURER_CODE` / `_SUBTYPE_CODE` / `_AU_TYPE` / `_VERSION_INT` / `_PLUGIN_NAME` / `_MANUFACTURER_NAME` as target properties when it creates the `.appex` target. The HostApp helper reads them back so the HostApp's `Info.plist AudioComponents` entry matches the extension exactly. **Descriptor drift between the HostApp and the extension silently breaks `AVAudioUnitComponentManager.components(matching:)`** — the helper enforces parity by reading from one source of truth.
+2. **Generates the HostApp `Info.plist`** from `templates/ios-auv3/HostApp/Info.plist.in` — declares `LSRequiresIPhoneOS`, the audio background mode, supported orientations, `NSMicrophoneUsageDescription`, and the mirrored `AudioComponents` block.
+3. **Embeds via a sentinel target.** `${target}_Embed` is an `ALL`-dep custom target whose sentinel depends on the `.appex` bundle output, so a `.appex`-only rebuild forces a re-embed even when the HostApp itself didn't relink. The macOS framework + appex container does the same thing for the same reason (see `PulpAuv3.cmake` comments).
+
+### Deploy recipe
+
+See `docs/getting-started/ios-deployment.md` for the full end-to-end: Simulator install + launch via `xcrun simctl install` / `launch`, physical-iPad install via `xcrun devicectl device install app` (Xcode 15+), GarageBand iOS validation checklist for Phase iOS-C.
+
+### Quick reference — exact commands
+
+```bash
+# Simulator
+cmake -S . -B build-ios-sim -G Xcode \
+  -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphonesimulator \
+  -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=16.4 \
+  -DPULP_ENABLE_GPU=OFF -DPULP_BUILD_TESTS=OFF
+cmake --build build-ios-sim --target PulpSineSynth_HostApp --config Release -- -sdk iphonesimulator
+xcrun simctl boot "iPad Pro 13-inch (M5)"
+xcrun simctl install booted build-ios-sim/AUv3/Release-iphonesimulator/PulpSineSynth.app
+xcrun simctl launch --console booted com.pulp.examples.sinesynth.host
+
+# Physical iPad (signed)
+# Prefer the validated sourceable helper — it errors clearly on missing
+# keys / unfilled placeholders. See docs/guides/ios-dev-signing.md for
+# the full reusable dev-signing stub (schema template + one-time setup).
+. tools/scripts/source_dev_creds.sh
+cmake -S . -B build-ios-device -G Xcode \
+  -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos \
+  -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=16.4 \
+  -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_IDENTITY="Apple Development" \
+  -DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM="${PULP_TEAM_ID}" \
+  -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGN_STYLE="Automatic"
+cmake --build build-ios-device --target PulpSineSynth_HostApp --config Release -- -sdk iphoneos
+xcrun devicectl device install app --device <DEVICE_UDID> \
+  build-ios-device/AUv3/Release-iphoneos/PulpSineSynth.app
+```
+
+### Smoke test coverage
+
+`test/cmake/test_ios_auv3_configure.sh` exercises both helpers:
+- Default behavior (since 2026-05-27): configures + builds both the AUv3 `.appex` and the HostApp `.app`, asserts the `.appex` is embedded under `PlugIns/`, and validates the HostApp `Info.plist` carries the matching `AudioComponents.subtype`. This catches link-time regressions that configure-only smoke cannot — for example a missing `pulp::audio` PUBLIC link in `core/view` or an unguarded `<pulp/host/*>` include in a view header (both real iPad-walkthrough regressions).
+- Override with `PULP_IOS_AUV3_SMOKE_BUILD=0` to fall back to configure-only when iterating locally on a slow machine.
+
+`test/cmake/test_ios_hostapp_links.sh` is the companion link-time
+regression test — it always builds the HostApp and asserts the
+produced bundle has a real Info.plist (lint-clean, non-empty
+`CFBundleIdentifier`), a real Mach-O executable at
+`CFBundleExecutable`, and an embedded `.appex` under `PlugIns/`. Use
+this script directly when triaging a "configure smoke is green but
+the user's iPad has no plugin" report.
 
 ## Follow-ups / Known Gaps
 
-- Full `pulp-view` iOS build requires gating `hot_reload.hpp`.
-- `pulp_add_ios_auv3()` ships the `.appex`; host-app target generation (consuming `templates/ios-auv3/HostApp/`) is follow-on.
+- ~~Full `pulp-view` iOS build requires gating `hot_reload.hpp`.~~ Done 2026-05-27: `choc::file::Watcher` (FSEventStream-based) is now `#if !TARGET_OS_IPHONE`-gated and `HotReloader` ships a no-op iOS stub.
+- ~~`pulp_add_ios_auv3()` ships the `.appex`; host-app target generation~~ Done in Phase iOS-B via `pulp_add_ios_host_app()`.
 - Device-target code signing is documented but not scripted.
 - Visual regression for iOS UIs not wired up yet (see #330, #249).
 
 ## Gotchas
+
+### Cross-subsystem deps in `pulp-view-core` must hold on iOS
+
+`pulp::host` is intentionally not added on iOS (App Store policy plus
+`std::format` / `long double to_chars` libc++ availability on the
+iPhoneSimulator SDK). That guard lives in the root `CMakeLists.txt`
+and in `core/view/CMakeLists.txt`'s `pulp-view-core` link list. Two
+follow-on contracts must hold for `pulp-view-core` to actually link
+on iOS:
+
+1. Every `pulp::*` library that a view source `#include`s must be in
+   the PUBLIC link list. The iOS lane catches this only if the smoke
+   actually builds the HostApp (it does as of 2026-05-27). A real
+   regression from PR #3059 was `visualizers.cpp` including
+   `<pulp/audio/audio_thumbnail.hpp>` without `pulp::audio` being
+   linked.
+2. Any view header that includes `<pulp/host/...>` must wrap that
+   include in `#if defined(__has_include) && __has_include(<pulp/host/...>)`
+   so transitive consumers on iOS get a clean "feature absent" macro
+   rather than a "file not found" error. Affected headers today:
+   `core/view/include/pulp/view/widgets/graph_editor_view.hpp`,
+   `core/view/include/pulp/view/plugin_manager_panel.hpp`,
+   `core/view/include/pulp/view/hosted_editor_attachment.hpp`. Each
+   defines a `PULP_VIEW_HAS_*` companion macro downstream code can
+   key off.
+
+If you add a new view source or header that pulls from `pulp::audio`,
+`pulp::host`, or any other subsystem that may be conditionally
+absent, the iOS HostApp link smoke
+(`test/cmake/test_ios_hostapp_links.sh`) is the canonical local
+reproducer.
+
+### `add_compile_options(-Wall ...)` must be gated to C/C++/ObjC languages
+
+The Swift driver rejects clang's `-Wall` / `-Wextra` / `-Wpedantic`
+flags with `Driver threw unknown argument: '-Wall' without emitting
+errors`. The root `CMakeLists.txt` adds these via `add_compile_options`,
+which (without a language genex) attaches them to **every** language in
+the build — including any Swift target like the iOS HostApp's
+`PulpHostApp.swift`. Always wrap with
+`$<$<COMPILE_LANGUAGE:C,CXX,OBJC,OBJCXX>:-Wall>` etc. so Swift sees
+only the flags it understands.
+
+### iOS deployment target must be ≥ 16.3 for `std::format`
+
+The iPhoneSimulator26.x SDK's libc++ marks `std::to_chars` for floating-
+point types as `introduced in iOS 16.3 simulator`. `std::format`
+unconditionally instantiates `to_chars` for `float` / `double` / `long
+double` as part of its formatter type list, so any TU that includes
+`<pulp/runtime/log.hpp>` (which uses `std::format`) fails to compile if
+the active `IPHONEOS_DEPLOYMENT_TARGET` is below 16.3 — even when the
+caller passes only strings. `pulp_add_ios_auv3()` and
+`pulp_add_ios_host_app()` both default to the user-supplied
+`CMAKE_OSX_DEPLOYMENT_TARGET` when present, otherwise pin to `16.3`.
+Don't lower either floor below 16.3 unless `std::format` is removed
+from `core/runtime/log.hpp` first.
+
+### iOS link line: don't link `CoreAudioTypes` standalone
+
+On macOS, `CoreAudioTypes` ships as
+`/System/Library/Frameworks/CoreAudioTypes.framework`. On iOS it
+**does not exist as a top-level framework** — the same headers ship
+inside `AudioToolbox.framework`. Linking it standalone fails with
+`framework 'CoreAudioTypes' not found` on `iphonesimulator26.x`.
+Link `AudioToolbox` only; the `AudioComponentDescription` /
+`AVAudioUnitComponent` types resolve through that.
+
+### `FileDialog` / `PopupMenu` stubs must compile on iOS
+
+`core/platform/src/file_dialog_stub.cpp` defines
+`FileDialog::open_file` / `save_file` / `choose_folder` under
+`#if !defined(__APPLE__)` and `core/platform/src/popup_menu_stub.cpp`
+defines `PopupMenu::show` / `show_at_view` under the same guard.
+macOS has native impls in `file_dialog_mac.mm` / `popup_menu_mac.mm`;
+iOS has neither (UIDocumentPicker + UIMenu wiring are
+follow-ups). Without an explicit iOS branch the link step fails on
+`Undefined symbols` for any iOS bundle that pulls `pulp-view-core`
+(WidgetBridge wires both into the JS bridge). The fix is to widen the
+`#if` to also include iOS:
+`#if !defined(__APPLE__) || (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE)`.
+Callers see `nullopt` / empty results — honest "unsupported" signaling
+— until the native UIDocumentPicker impl lands.
 
 ### `PulpAUViewController::dealloc` — never call `_bridge->close()` explicitly
 
@@ -370,6 +521,107 @@ GPU-plugin-view-host work):
   pumps `idle_callback_` first (the idle-pump-in-tick contract — keep it), then frame clock
   + CSS animations; liveness token; GpuSurface resized PHYSICAL, SkiaSurface
   LOGICAL+scale; CPU fallback in the factory when `is_gpu_backed()` is false.
+
+### Sim audio loop validation — recordVideo does NOT capture audio
+
+`xcrun simctl io booted recordVideo` produces a video-only `.mov` —
+the Simulator routes audio natively through the Mac's output device
+but never into the recording. This caught the 2026-05-27 iOS AUv3
+audio-path bringup loop: HostApp launched cleanly, all `PULP_` triage
+prints showed `INSTANTIATE_OK`/`NOTE: ON`/`engine.start`-succeeded,
+but the recorded video file was silent. Don't waste cycles trying to
+get audio out of `recordVideo`.
+
+Options for audio-path validation on iOS:
+
+1. **Trust the wiring proof.** When the HostApp prints
+   `PULP_INSTANTIATE_OK`, `PULP_MIDI_BLOCK: ready`,
+   `PULP_NOTE: ON`, and `engine.start()` returns without throwing,
+   the audio path is wired. The Sim renders through CoreAudio →
+   Mac output device → host speakers; an empty audio buffer would
+   manifest as `engine.start` failing or `INSTANTIATE_ERROR`. For
+   most regressions this proof is sufficient.
+2. **Mac audio routing tool.** BlackHole or Loopback can capture the
+   Mac's output device into an audio file; combine with `recordVideo`
+   for an A/V record. Worth the setup time only for true audio QA.
+3. **Real device + headphone jack / mic.** Authoritative — installs
+   the same `.appex` PluginKit registers on real iOS, plays through
+   the device's own audio hardware. Required for any audio-quality
+   judgement (the Sim's `mainMixerNode` resamples; not a faithful
+   reproduction of the device).
+
+When debugging "did the plug-in actually produce sound?" prefer
+option 1 + option 3 over chasing a Sim audio capture. See
+`.agents/skills/auv3/SKILL.md` "iOS AUv3 diagnostic recipe" for the
+chain of `PULP_` prints to grep.
+
+### iOS GPU (Skia/Dawn) header-namespace gotcha — Phase iOS-D.1
+
+When the iOS configure first turns on Skia (i.e.
+`PULP_ENABLE_GPU=ON` + `PULP_HAS_SKIA` is set), two pre-existing bugs
+in `core/view/platform/ios/{window_host,plugin_view_host}_ios.mm`
+surfaced — they were inert because no prior iOS build had ever defined
+`PULP_HAS_SKIA`:
+
+1. **Skia / Dawn / Metal headers `#include`d inside an open
+   `namespace pulp::view {`.** Symptom is a wall of compile errors
+   from Apple's Metal headers — "Objective-C declarations may only
+   appear in global scope" on every `@protocol`. Cause: the open
+   namespace nests every header symbol under `pulp::view`, and
+   `@protocol` outside the global scope is a hard syntax error.
+   Fix: close the namespace before the `#include` block, reopen it
+   after.
+
+2. **`std::make_unique<render::GpuSurface>()` /
+   `<render::SkiaSurface>()`.** Both classes are abstract — use the
+   factories `render::GpuSurface::create_dawn()` and
+   `render::SkiaSurface::create(GpuSurface&, Config)`. The Config
+   struct exposes only `width` / `height` / `scale_factor`; Dawn
+   device/queue/instance are queried from the GpuSurface internally.
+
+3. **`pulp::render` was not linked into `pulp-view-core` on iOS.** The
+   mac branch in `core/view/CMakeLists.txt` linked `pulp::render`
+   under `if(PULP_HAS_SKIA)`; the iOS branch did not. Phase iOS-D.1
+   adds the same gate.
+
+### iOS GPU AUv3 acceptance log markers — Phase iOS-D.1
+
+A GPU-backed AUv3 view that's actually using Skia/Dawn on iOS emits a
+specific log sequence (see
+`planning/2026-05-28-ios-d-gpu-auv3-crosscheck.md`):
+
+```
+[plugin-gpu-host] adapter mode=custom use_gpu=true ... requires_gpu_host=true
+GpuSurface: created Metal surface from CAMetalLayer
+GpuSurface: Dawn initialized (surface: presentable)
+GpuSurface: backend_type=Metal     ← added by Phase iOS-D.1
+AU iOS: view controller loaded, ... mode=custom, gpu=true
+```
+
+Capture with:
+
+```bash
+xcrun simctl spawn booted log stream \
+  --predicate 'process == "<AppName>" OR eventMessage CONTAINS "GpuSurface" OR eventMessage CONTAINS "[plugin-gpu-host]" OR eventMessage CONTAINS "AU iOS"' \
+  --level debug
+```
+
+Missing `backend_type=Metal` (or `backend_type=Null` / `OpenGL`)
+means GPU init silently fell back to a non-Metal adapter — treat
+that as a P0 since the AUv3 is then rendering through software. The
+first frame may also log a benign
+`WebGPU error (2): First instance (1) must be zero` — that's an
+upstream Skia/Dawn first-frame issue, not a Pulp regression.
+
+### iOS GPU configure hard-fail — `PULP_REQUIRE_GPU_FOR_SDK`
+
+Phase iOS-D.1 extends the existing release-lane guard (pulp #1817) so
+the contradiction `PULP_REQUIRE_GPU_FOR_SDK=ON + PULP_ENABLE_GPU=OFF`
+hard-fails at configure time. Test:
+`bash test/cmake/test_require_gpu_for_sdk.sh <pulp-src>` — three
+cases (REQUIRE+ENABLE+missing-Skia fail; REQUIRE off succeeds;
+REQUIRE on + ENABLE off fails). Add a case here whenever a new flag
+contradicts an existing one.
 
 ## See Also
 

@@ -27,3 +27,16 @@ pulp_add_ios_auv3(
         src/sine_synth.hpp
         src/au_v3_entry.cpp
 )
+
+# Phase iOS-B HostApp wrapper — required for iOS Simulator install +
+# physical iPad deployment. Embeds the AUv3 .appex into a SwiftUI HostApp
+# whose ContentView instantiates the plug-in via AVAudioUnitComponentManager
+# so end-to-end discovery + audio render is verifiable outside GarageBand.
+# See docs/getting-started/ios-deployment.md for the deploy recipe.
+pulp_add_ios_host_app(PulpSineSynth_HostApp
+    AUV3_EXTENSION    PulpSineSynth_AUv3
+    BUNDLE_ID         com.pulp.examples.sinesynth.host
+    NAME              "PulpSineSynth"
+    VERSION           0.1.0
+    DEPLOYMENT_TARGET 16.4
+)

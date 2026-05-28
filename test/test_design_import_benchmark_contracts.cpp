@@ -37,6 +37,12 @@ std::optional<Config> parse_args_vec(std::vector<std::string> args) {
     return parse_args(static_cast<int>(argv.size()), argv.data());
 }
 
+int run_benchmark_main(std::vector<std::string> args) {
+    auto argv = argv_from(args);
+    return pulp_design_import_benchmark_main_for_test(static_cast<int>(argv.size()),
+                                                      argv.data());
+}
+
 const IRNode* find_ir_node(const IRNode& node, std::string_view id) {
     if (node.stable_anchor_id == id) return &node;
     for (const auto& child : node.children) {
@@ -91,6 +97,14 @@ TEST_CASE("design-import benchmark parse_int accepts complete integers only",
     REQUIRE_FALSE(parse_int("12ms", value));
     REQUIRE_FALSE(parse_int("1.5", value));
     REQUIRE_FALSE(parse_int("abc", value));
+    REQUIRE(parse_int(" 12", value));
+    REQUIRE(value == 12);
+    REQUIRE_FALSE(parse_int("12 ", value));
+    REQUIRE(parse_int("+12", value));
+    REQUIRE(value == 12);
+    REQUIRE_FALSE(parse_int("999999999999999999999999", value));
+    REQUIRE_FALSE(parse_int("0x10", value));
+    REQUIRE_FALSE(parse_int("--1", value));
 }
 
 TEST_CASE("design-import benchmark argument parser supports split and equals forms",
@@ -118,12 +132,27 @@ TEST_CASE("design-import benchmark argument parser supports split and equals for
 TEST_CASE("design-import benchmark argument parser rejects invalid shapes",
           "[design-import][benchmark][coverage]") {
     REQUIRE_FALSE(parse_args_vec({"bench", "--lane=nope"}).has_value());
+    REQUIRE_FALSE(parse_args_vec({"bench", "--lane="}).has_value());
     REQUIRE_FALSE(parse_args_vec({"bench", "--lane"}).has_value());
+    REQUIRE_FALSE(parse_args_vec({"bench", "--idle-ms="}).has_value());
     REQUIRE_FALSE(parse_args_vec({"bench", "--idle-ms=1x"}).has_value());
+    REQUIRE_FALSE(parse_args_vec({"bench", "--interactive-ms="}).has_value());
     REQUIRE_FALSE(parse_args_vec({"bench", "--interactive-ms"}).has_value());
+    REQUIRE_FALSE(parse_args_vec({"bench", "--target-fps="}).has_value());
     REQUIRE_FALSE(parse_args_vec({"bench", "--target-fps=fast"}).has_value());
     REQUIRE_FALSE(parse_args_vec({"bench", "--output"}).has_value());
     REQUIRE_FALSE(parse_args_vec({"bench", "--unknown"}).has_value());
+}
+
+TEST_CASE("design-import benchmark argument parser preserves explicit empty output",
+          "[design-import][benchmark][coverage][requested]") {
+    auto config = parse_args_vec({"bench", "--output="});
+    REQUIRE(config.has_value());
+    CHECK(config->lane == "live");
+    CHECK(config->output_path == std::filesystem::path(""));
+    CHECK(config->idle_ms == 60000);
+    CHECK(config->interactive_ms == 60000);
+    CHECK(config->target_fps == 60);
 }
 
 TEST_CASE("design-import benchmark argument parser clamps timing knobs",
@@ -135,6 +164,27 @@ TEST_CASE("design-import benchmark argument parser clamps timing knobs",
     REQUIRE(config->idle_ms == 0);
     REQUIRE(config->interactive_ms == 0);
     REQUIRE(config->target_fps == 1);
+}
+
+TEST_CASE("design-import benchmark argument parser uses last explicit option",
+          "[design-import][benchmark][coverage][requested]") {
+    auto config = parse_args_vec({"bench",
+                                  "--lane", "live",
+                                  "--lane=baked-cpp",
+                                  "--idle-ms=10",
+                                  "--idle-ms", "20",
+                                  "--interactive-ms=30",
+                                  "--interactive-ms", "40",
+                                  "--target-fps=60",
+                                  "--target-fps", "120",
+                                  "--output", "first.json",
+                                  "--output=second.json"});
+    REQUIRE(config.has_value());
+    REQUIRE(config->lane == "baked-cpp");
+    REQUIRE(config->idle_ms == 20);
+    REQUIRE(config->interactive_ms == 40);
+    REQUIRE(config->target_fps == 120);
+    REQUIRE(config->output_path == std::filesystem::path("second.json"));
 }
 
 TEST_CASE("design-import benchmark JSON report contains escaped config and metrics",
@@ -169,6 +219,64 @@ TEST_CASE("design-import benchmark JSON report contains escaped config and metri
     REQUIRE(json.find("\"first_frame_paint_commands\": 33") != std::string::npos);
     REQUIRE(json.find("\"idle\": {") != std::string::npos);
     REQUIRE(json.find("\"interactive\": {") != std::string::npos);
+}
+
+TEST_CASE("design-import benchmark JSON report includes complete phase fields",
+          "[design-import][benchmark][coverage]") {
+    Config config;
+    config.lane = "baked-native";
+    config.target_fps = 90;
+
+    StartupMetrics startup;
+    startup.build_ms = 11.5;
+    startup.first_frame_ms = 22.25;
+    startup.first_frame_render_ms = 3.75;
+    startup.first_frame_paint_commands = 123;
+    startup.rss_after_first_frame_bytes = 456789;
+
+    PhaseMetrics idle;
+    idle.duration_ms = 100;
+    idle.samples = 4;
+    idle.cpu_ms = 5.5;
+    idle.cpu_frame_ms_median = 1.25;
+    idle.cpu_frame_ms_p99 = 2.5;
+    idle.frame_ms_median = 16.0;
+    idle.frame_ms_p99 = 17.5;
+    idle.frame_ms_max = 20.0;
+    idle.rss_median_bytes = 1000;
+    idle.rss_p99_bytes = 2000;
+    idle.rss_peak_bytes = 3000;
+    idle.paint_commands_last = 44;
+    idle.js_evaluations = 7;
+
+    PhaseMetrics interactive = idle;
+    interactive.duration_ms = 200;
+    interactive.samples = 8;
+    interactive.paint_commands_last = 88;
+    interactive.js_evaluations = 14;
+
+    auto json = make_json(config, startup, idle, interactive);
+    REQUIRE(json.find("\"lane\": \"baked-native\"") != std::string::npos);
+    REQUIRE(json.find("\"fixture\": \"phase5-imported-plugin-panel\"") != std::string::npos);
+    REQUIRE(json.find("\"host\": \"") != std::string::npos);
+    REQUIRE(json.find("\"platform\": \"") != std::string::npos);
+    REQUIRE(json.find("\"target_fps\": 90") != std::string::npos);
+    REQUIRE(json.find("\"build_ms\": 11.5000") != std::string::npos);
+    REQUIRE(json.find("\"first_frame_ms\": 22.2500") != std::string::npos);
+    REQUIRE(json.find("\"first_frame_render_ms\": 3.7500") != std::string::npos);
+    REQUIRE(json.find("\"first_frame_paint_commands\": 123") != std::string::npos);
+    REQUIRE(json.find("\"rss_after_first_frame_bytes\": 456789") != std::string::npos);
+    REQUIRE(json.find("\"cpu_frame_ms_median\": 1.2500") != std::string::npos);
+    REQUIRE(json.find("\"cpu_frame_ms_p99\": 2.5000") != std::string::npos);
+    REQUIRE(json.find("\"frame_ms_median\": 16.0000") != std::string::npos);
+    REQUIRE(json.find("\"frame_ms_p99\": 17.5000") != std::string::npos);
+    REQUIRE(json.find("\"frame_ms_max\": 20.0000") != std::string::npos);
+    REQUIRE(json.find("\"rss_median_bytes\": 1000") != std::string::npos);
+    REQUIRE(json.find("\"rss_p99_bytes\": 2000") != std::string::npos);
+    REQUIRE(json.find("\"rss_peak_bytes\": 3000") != std::string::npos);
+    REQUIRE(json.find("\"paint_commands_last\": 88") != std::string::npos);
+    REQUIRE(json.find("\"js_evaluations_total\": 14") != std::string::npos);
+    REQUIRE(json.find("\"interaction_model\": \"value drag plus overflow-panel scroll offset;") != std::string::npos);
 }
 
 TEST_CASE("design-import benchmark write_file handles stdout sentinel and nested paths",
@@ -252,6 +360,16 @@ TEST_CASE("design-import benchmark fixture factory and render path are determini
     REQUIRE(render_frame(fixture->root()) == initial_commands);
 }
 
+TEST_CASE("design-import benchmark fixture factory creates the baked-native lane",
+          "[design-import][benchmark][coverage]") {
+    auto baked_native = make_fixture("baked-native");
+    REQUIRE(baked_native != nullptr);
+    REQUIRE(baked_native->root().id() == "bench-root");
+    REQUIRE(render_frame(baked_native->root()) > 0);
+    baked_native->step(12);
+    REQUIRE(baked_native->js_evaluation_count() == 0);
+}
+
 TEST_CASE("design-import benchmark run_phase records idle and interactive contracts",
           "[design-import][benchmark][coverage]") {
     CountingFixture fixture;
@@ -274,4 +392,25 @@ TEST_CASE("design-import benchmark run_phase records idle and interactive contra
     REQUIRE(interactive.samples > 0);
     REQUIRE(fixture.steps == interactive.samples);
     REQUIRE(fixture.last_frame == interactive.samples - 1);
+}
+
+TEST_CASE("design-import benchmark main writes reports and rejects invalid args",
+          "[design-import][benchmark][coverage]") {
+    auto output = temp_path("main-report");
+    std::filesystem::remove(output);
+
+    REQUIRE(run_benchmark_main({"bench", "--lane", "baked-cpp",
+                                "--idle-ms", "0",
+                                "--interactive-ms", "0",
+                                "--target-fps", "30",
+                                "--output", output.string()}) == 0);
+    REQUIRE(std::filesystem::is_regular_file(output));
+    auto report = read_text(output);
+    REQUIRE(report.find("\"schema\": \"pulp-design-import-benchmark-v1\"") != std::string::npos);
+    REQUIRE(report.find("\"lane\": \"baked-cpp\"") != std::string::npos);
+    REQUIRE(report.find("\"samples\": 0") != std::string::npos);
+
+    REQUIRE(run_benchmark_main({"bench", "--lane", "invalid"}) == 2);
+
+    std::filesystem::remove(output);
 }

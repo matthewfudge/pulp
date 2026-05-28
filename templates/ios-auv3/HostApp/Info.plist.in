@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- iOS HostApp Info.plist template for Pulp AUv3 host containers.
+     Variables like @PLUGIN_NAME@ are substituted by CMake at configure
+     time via pulp_add_ios_host_app(). The AudioComponents entry mirrors
+     the matching AUv3 extension's Info.plist so AVAudioUnitComponentManager
+     filters in ContentView return the embedded plug-in. -->
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleDisplayName</key>
+    <string>@PLUGIN_NAME@</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleIdentifier</key>
+    <string>@PLUGIN_BUNDLE_ID@</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>@PLUGIN_NAME@</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>@PLUGIN_VERSION@</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSRequiresIPhoneOS</key>
+    <true/>
+    <key>MinimumOSVersion</key>
+    <string>@PLUGIN_DEPLOYMENT_TARGET@</string>
+    <key>UILaunchScreen</key>
+    <dict/>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UIDeviceFamily</key>
+    <array>
+        <integer>1</integer>
+        <integer>2</integer>
+    </array>
+    <key>UIBackgroundModes</key>
+    <array>
+        <string>audio</string>
+    </array>
+    <!-- Mirror the embedded AUv3 extension's AudioComponent so the
+         HostApp's AVAudioUnitComponentManager filter resolves the
+         right plug-in. These fields are populated from the AUv3
+         extension target's properties by pulp_add_ios_host_app(). -->
+    <key>AudioComponents</key>
+    <array>
+        <dict>
+            <key>description</key>
+            <string>@PLUGIN_AU_PLUGIN_NAME@</string>
+            <key>factoryFunction</key>
+            <string></string>
+            <key>manufacturer</key>
+            <string>@PLUGIN_MANUFACTURER_CODE@</string>
+            <key>name</key>
+            <string>@PLUGIN_MANUFACTURER@: @PLUGIN_AU_PLUGIN_NAME@</string>
+            <key>sandboxSafe</key>
+            <true/>
+            <key>subtype</key>
+            <string>@PLUGIN_SUBTYPE_CODE@</string>
+            <key>type</key>
+            <string>@PLUGIN_AU_TYPE@</string>
+            <key>version</key>
+            <integer>@PLUGIN_AU_VERSION_INT@</integer>
+        </dict>
+    </array>
+    <!-- AVAudioSession needs a microphone-usage description on iOS 17+
+         even for effects that only use AVAudioEngine.inputNode in a host
+         context. Without it the engine throws on .start(). -->
+    <key>NSMicrophoneUsageDescription</key>
+    <string>@PLUGIN_NAME@ uses the microphone to feed audio through the loaded Audio Unit.</string>
+</dict>
+</plist>

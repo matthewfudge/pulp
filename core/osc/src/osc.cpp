@@ -35,6 +35,12 @@ std::string Message::get_string(size_t i, const std::string& def) const {
     return def;
 }
 
+ColourRgba Message::get_colour(size_t i, ColourRgba def) const {
+    if (i >= args.size()) return def;
+    if (auto* v = std::get_if<ColourRgba>(&args[i])) return *v;
+    return def;
+}
+
 // ── OSC encoding helpers ─────────────────────────────────────────────────────
 
 // Pad to 4-byte boundary
@@ -82,6 +88,7 @@ std::vector<uint8_t> encode(const Message& msg) {
         else if (std::holds_alternative<float>(arg)) tags += 'f';
         else if (std::holds_alternative<std::string>(arg)) tags += 's';
         else if (std::holds_alternative<std::vector<uint8_t>>(arg)) tags += 'b';
+        else if (std::holds_alternative<ColourRgba>(arg)) tags += 'r';
     }
     write_string(buf, tags);
 
@@ -91,6 +98,11 @@ std::vector<uint8_t> encode(const Message& msg) {
         else if (auto* v = std::get_if<float>(&arg)) write_float32(buf, *v);
         else if (auto* v = std::get_if<std::string>(&arg)) write_string(buf, *v);
         else if (auto* v = std::get_if<std::vector<uint8_t>>(&arg)) write_blob(buf, *v);
+        else if (auto* v = std::get_if<ColourRgba>(&arg)) {
+            // OSC 'r' encodes RGBA as a packed big-endian uint32.
+            uint8_t packed[4] = {v->r, v->g, v->b, v->a};
+            buf.insert(buf.end(), packed, packed + 4);
+        }
     }
 
     return buf;
@@ -152,6 +164,14 @@ Message decode(const uint8_t* data, size_t size) {
             case 'f': msg.args.emplace_back(read_float32(data, size, offset)); break;
             case 's': msg.args.emplace_back(read_string(data, size, offset)); break;
             case 'b': msg.args.emplace_back(read_blob(data, size, offset)); break;
+            case 'r': {
+                if (offset + 4 > size) break;
+                ColourRgba c{data[offset], data[offset + 1],
+                             data[offset + 2], data[offset + 3]};
+                offset += 4;
+                msg.args.emplace_back(c);
+                break;
+            }
             default: break;
         }
     }

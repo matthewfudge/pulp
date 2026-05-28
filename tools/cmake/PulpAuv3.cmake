@@ -110,6 +110,11 @@ function(_pulp_add_auv3_macos_framework target name bundle_id version auv3_entry
         "-framework Cocoa"
     )
     target_include_directories(${fw_target} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    _pulp_apply_macho_exports(${fw_target} "${fw_target}"
+        "_OBJC_CLASS_$_PulpAUMacViewController"
+        "_OBJC_METACLASS_$_PulpAUMacViewController"
+        "_OBJC_CLASS_$_PulpAudioUnit"
+        "_OBJC_METACLASS_$_PulpAudioUnit")
 
     # Framework Info.plist
     set(PLUGIN_NAME "${name}")
@@ -300,7 +305,13 @@ endfunction()
 
 # ── iOS monolithic .appex (legacy Phase 3 shape) ──────────────────────────
 function(_pulp_add_auv3_ios target name bundle_id version manufacturer manufacturer_code plugin_code au_type au_tag au_version_int auv3_entry)
-    add_library(${target}_AUv3 MODULE
+    # iOS App Extension target: MUST be add_executable (MH_EXECUTE) not
+    # add_library MODULE (MH_BUNDLE). PluginKit posix_spawn's the .appex's
+    # binary directly; a bundle Mach-O triggers ENOEXEC ("Exec format
+    # error") at launch time, surfacing as OSStatus 4 from
+    # AVAudioUnit.instantiate. Use NSExtensionMain as the entry point —
+    # standard iOS App Extension convention.
+    add_executable(${target}_AUv3
         ${PULP_${target}_CORE_OBJECTS}
         ${_PULP_FORMAT_SOURCE_DIR}/au_adapter.mm
         ${_PULP_FORMAT_SOURCE_DIR}/au_entry.mm
@@ -317,7 +328,18 @@ function(_pulp_add_auv3_ios target name bundle_id version manufacturer manufactu
         "-framework CoreAudioKit"
         "-framework UIKit"
     )
+    # Entry point: NSExtensionMain (provided by Foundation on iOS app
+    # extensions). -e _NSExtensionMain replaces the default _main entry.
+    target_link_options(${target}_AUv3 PRIVATE
+        "-e" "_NSExtensionMain"
+        "-fapplication-extension"
+    )
     target_include_directories(${target}_AUv3 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    _pulp_apply_macho_exports(${target}_AUv3 "${target}_AUv3"
+        "_OBJC_CLASS_$_PulpAUViewController"
+        "_OBJC_METACLASS_$_PulpAUViewController"
+        "_OBJC_CLASS_$_PulpAudioUnit"
+        "_OBJC_METACLASS_$_PulpAudioUnit")
 
     set(PLUGIN_NAME "${name}")
     set(PLUGIN_BUNDLE_ID "${bundle_id}")
@@ -339,6 +361,21 @@ function(_pulp_add_auv3_ios target name bundle_id version manufacturer manufactu
         )
         set_target_properties(${target}_AUv3 PROPERTIES
             MACOSX_BUNDLE_INFO_PLIST "${CMAKE_BINARY_DIR}/AUv3/${target}.appex/Info.plist"
+            # When the target is `add_executable` + `XCODE_PRODUCT_TYPE
+            # app-extension`, Xcode's default is `GENERATE_INFOPLIST_FILE=YES`,
+            # which synthesizes a fresh Info.plist and overrides our
+            # MACOSX_BUNDLE_INFO_PLIST setting on older Xcode versions
+            # (observed on Xcode 16 / iOS SDK 18.5 — the github-hosted
+            # macos-15 runner). The synthesized plist drops the custom
+            # NSExtension dict the AUv3 host needs to register the audio
+            # component, which then makes
+            # `AVAudioUnitComponentManager.components(matching:)` return
+            # zero matches and the host can never instantiate the AU.
+            # Force-disable INFOPLIST generation AND set the file
+            # explicitly via the XCODE_ATTRIBUTE so both old and new
+            # Xcode honor the same template.
+            XCODE_ATTRIBUTE_GENERATE_INFOPLIST_FILE "NO"
+            XCODE_ATTRIBUTE_INFOPLIST_FILE "${CMAKE_BINARY_DIR}/AUv3/${target}.appex/Info.plist"
         )
     endif()
 
@@ -369,15 +406,43 @@ function(_pulp_add_auv3_ios target name bundle_id version manufacturer manufactu
                 "${CMAKE_BINARY_DIR}/AUv3/${target}.entitlements")
     endif()
 
+    # iOS deployment target: prefer the user-supplied
+    # CMAKE_OSX_DEPLOYMENT_TARGET (e.g. -DCMAKE_OSX_DEPLOYMENT_TARGET=16.4)
+    # so the .appex matches the rest of the build. Fall back to 16.3 — the
+    # minimum the iPhoneSimulator26.x SDK's libc++ allows for `std::format`
+    # / `std::to_chars` floating-point overloads (older targets fail with
+    # "'to_chars' is unavailable: introduced in iOS 16.3 simulator" when
+    # any TU instantiates std::format, e.g. core/runtime/log.hpp).
+    if(CMAKE_OSX_DEPLOYMENT_TARGET)
+        set(_pulp_ios_min "${CMAKE_OSX_DEPLOYMENT_TARGET}")
+    else()
+        set(_pulp_ios_min "16.3")
+    endif()
     set_target_properties(${target}_AUv3 PROPERTIES
         BUNDLE TRUE
         BUNDLE_EXTENSION "appex"
+        XCODE_PRODUCT_TYPE "com.apple.product-type.app-extension"
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/AUv3"
         LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/AUv3"
         OUTPUT_NAME "${name}"
         PREFIX ""
-        SUFFIX ".appex"
         XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
-        XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "16.0"
+        XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "${_pulp_ios_min}"
+        XCODE_ATTRIBUTE_WRAPPER_EXTENSION "appex"
+        # Stash the AudioComponentDescription on the target so
+        # pulp_add_ios_host_app(...) can read them back without
+        # re-deriving from the Info.plist on disk. This is the
+        # single source of truth for HostApp/Extension descriptor
+        # parity — drift between them silently breaks
+        # AVAudioUnitComponentManager.components(matching:).
+        PULP_AUV3_PLUGIN_NAME       "${name}"
+        PULP_AUV3_MANUFACTURER_NAME "${manufacturer}"
+        PULP_AUV3_MANUFACTURER_CODE "${manufacturer_code}"
+        PULP_AUV3_SUBTYPE_CODE      "${plugin_code}"
+        PULP_AUV3_AU_TYPE           "${au_type}"
+        PULP_AUV3_AU_TAG            "${au_tag}"
+        PULP_AUV3_VERSION_INT       "${au_version_int}"
+        PULP_AUV3_BUNDLE_ID         "${bundle_id}"
     )
 
     if(COMMAND target_copy_webgpu_binaries)

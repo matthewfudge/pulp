@@ -34,6 +34,19 @@ ScreenshotCliOptions parse_args(std::initializer_list<const char*> args) {
     return parse_options(static_cast<int>(argv.size()), argv.data());
 }
 
+int run_screenshot_cli(std::initializer_list<const char*> args) {
+    std::vector<std::string> storage;
+    storage.reserve(args.size() + 1);
+    storage.emplace_back("pulp-screenshot");
+    for (const char* arg : args) storage.emplace_back(arg);
+
+    std::vector<char*> argv;
+    argv.reserve(storage.size());
+    for (auto& arg : storage) argv.push_back(arg.data());
+
+    return pulp_screenshot_main_for_test(static_cast<int>(argv.size()), argv.data());
+}
+
 }  // namespace
 
 TEST_CASE("pulp-screenshot base64 encoder handles RFC 4648 padding cases",
@@ -294,4 +307,104 @@ TEST_CASE("pulp-screenshot backend normalization rejects unavailable explicit Sk
 #else
     REQUIRE(default_backend.backend_name == "coregraphics");
 #endif
+}
+
+TEST_CASE("pulp-screenshot option parser handles malformed non-help invocations",
+          "[tools][screenshot][coverage]") {
+    REQUIRE_THROWS(parse_args({"--width", "wide"}));
+    REQUIRE_THROWS(parse_args({"--height", "tall"}));
+    REQUIRE_THROWS(parse_args({"--scale", "large"}));
+
+    auto ignored_unknown = parse_args({"--unknown", "--width=640"});
+    REQUIRE(ignored_unknown.width == 400);
+    REQUIRE(ignored_unknown.output_path == "screenshot.png");
+
+    auto incomplete_options = parse_args({"--script", "--output", "--backend"});
+    REQUIRE(incomplete_options.script_path == "--output");
+#ifdef PULP_HAS_SKIA
+    REQUIRE(incomplete_options.backend_name == "skia");
+#else
+    REQUIRE(incomplete_options.backend_name == "coregraphics");
+#endif
+    REQUIRE(incomplete_options.backend_was_defaulted);
+
+    auto explicit_default = parse_args({"--backend", "default"});
+    REQUIRE(explicit_default.backend_name == "default");
+    REQUIRE_FALSE(explicit_default.backend_was_defaulted);
+    REQUIRE(normalize_backend(explicit_default));
+    REQUIRE(explicit_default.backend_name == "default");
+}
+
+TEST_CASE("pulp-screenshot main rejects unknown backend before rendering",
+          "[tools][screenshot][coverage]") {
+    auto exit_code = run_screenshot_cli({"--demo", "--backend", "metal"});
+    REQUIRE(exit_code == 1);
+}
+
+TEST_CASE("pulp-screenshot main handles early non-render exits",
+          "[tools][screenshot][coverage]") {
+    REQUIRE(run_screenshot_cli({"--help"}) == 0);
+    REQUIRE(run_screenshot_cli({"--width", "bad", "--help"}) == 0);
+    REQUIRE(run_screenshot_cli({}) == 1);
+
+    auto missing_script = temp_file_path("missing-script.js");
+    std::filesystem::remove(missing_script);
+    const auto missing_arg = missing_script.string();
+    REQUIRE(run_screenshot_cli({"--script", missing_arg.c_str()}) == 1);
+}
+
+TEST_CASE("pulp-screenshot main renders demo files and base64 output",
+          "[tools][screenshot][coverage][requested]") {
+    auto output = temp_file_path("demo-output.png");
+    std::filesystem::remove(output);
+    const auto output_arg = output.string();
+
+    REQUIRE(run_screenshot_cli({
+        "--demo",
+        "--output", output_arg.c_str(),
+        "--width", "96",
+        "--height", "64",
+        "--scale", "1",
+        "--theme", "light",
+        "--backend", "default"
+    }) == 0);
+    REQUIRE(std::filesystem::is_regular_file(output));
+    REQUIRE(std::filesystem::file_size(output) > 8);
+
+    REQUIRE(run_screenshot_cli({
+        "--demo",
+        "--base64",
+        "--width", "48",
+        "--height", "32",
+        "--scale", "1",
+        "--backend", "default"
+    }) == 0);
+
+    std::filesystem::remove(output);
+}
+
+TEST_CASE("pulp-screenshot main renders script files through the CLI path",
+          "[tools][screenshot][coverage][requested]") {
+    auto script = temp_file_path("script-render.js");
+    auto output = temp_file_path("script-output.png");
+    std::filesystem::remove(script);
+    std::filesystem::remove(output);
+    write_bytes(script, "createLabel('title', 'Script Render', 4, 4, 120, 24);\n");
+
+    const auto script_arg = script.string();
+    const auto output_arg = output.string();
+    REQUIRE(run_screenshot_cli({
+        "--script", script_arg.c_str(),
+        "--output", output_arg.c_str(),
+        "--width", "160",
+        "--height", "64",
+        "--scale", "1",
+        "--theme", "dark",
+        "--backend", "default"
+    }) == 0);
+    REQUIRE(std::filesystem::is_regular_file(output));
+    REQUIRE(std::filesystem::file_size(output) > 8);
+
+    std::filesystem::remove(script);
+    std::filesystem::remove(output);
 }

@@ -156,7 +156,12 @@ not apply — `_bridge` is a C++ struct). The block:
 
 1. Zeroes outputs and returns `noErr` if the Processor is null (host
    calling render before `allocateRenderResources` succeeded).
-2. Points `output_ptrs[i]` at `outputData->mBuffers[i].mData`.
+2. Rejects `frameCount > maximumFramesToRender` with
+   `kAudioUnitErr_TooManyFramesToProcess`. If a host or validator
+   passes null or undersized `outputData->mBuffers[i].mData`, the
+   adapter assigns slices from `AUBridge::output_storage`, which is
+   pre-sized in `allocateRenderResources`. Do not heap-allocate in the
+   steady-state render path.
 3. Pulls the main input via `pullInputBlock(…, 0, &input_abl)`. This
    reuses the **output** buffers as the input destination — in-place
    processing is allowed (`canProcessInPlace` returns `YES`).
@@ -212,6 +217,113 @@ extension's loaded `AUAudioUnit` once KVO fires on
 `self.audioUnit`. Extension principal class registration is via
 `NSExtensionMain`-style Info.plist — see `docs/guides/ios-auv3-guidance.md`
 and the `ios` skill for the extension target wiring.
+
+### iOS AUv3 spawn-chain gotchas (learned the hard way 2026-05-27)
+
+iOS AUv3 was historically "scaffolded but never actually loaded" — the
+CMake helper and HostApp template both had multiple bugs that silently
+prevented `AVAudioUnit.instantiate` from succeeding. The chain that has
+to be right end-to-end:
+
+1. **`.appex` binary type must be `MH_EXECUTE`, not `MH_BUNDLE`.**
+   `add_library(... MODULE ...)` produces `MH_BUNDLE`. PluginKit's
+   `posix_spawn` rejects bundles with **`ENOEXEC` ("Exec format
+   error")**, surfaced to the host as **OSStatus 4** from
+   `AVAudioUnit.instantiate`. Fix in `tools/cmake/PulpAuv3.cmake`
+   `_pulp_add_auv3_ios`:
+   ```cmake
+   add_executable(${target}_AUv3 ...)
+   target_link_options(${target}_AUv3 PRIVATE
+       "-e" "_NSExtensionMain" "-fapplication-extension")
+   set_target_properties(${target}_AUv3 PROPERTIES
+       XCODE_PRODUCT_TYPE "com.apple.product-type.app-extension"
+       XCODE_ATTRIBUTE_WRAPPER_EXTENSION "appex"
+       BUNDLE TRUE BUNDLE_EXTENSION "appex"
+       RUNTIME_OUTPUT_DIRECTORY "...")
+   ```
+   Verify with `file <appex>/<exec>` — must say `Mach-O 64-bit executable`,
+   NOT `Mach-O 64-bit bundle`.
+
+2. **HostApp must use `.loadOutOfProcess` on iOS.** The default
+   in-process load is unsupported for AUv3 extensions on iOS;
+   `AVAudioUnit.instantiate(with: desc, options: [])` returns OSStatus 4.
+   Use `.loadOutOfProcess` (Apple's "Incorporating Audio Effects and
+   Instruments" sample documents this in a comment).
+
+3. **HostApp's `AudioComponentDescription` filter must match the
+   extension exactly.** The shipped template literally filtered for
+   `kAudioUnitType_Effect` + subtype `Pu_E` — would never find any
+   instrument plug-in. Plug-in authors copying the template must update
+   the four-CC values to match their own AUv3's Info.plist
+   `AudioComponents` entry. Better fix: derive these from
+   `AVAudioUnitComponentManager.components(matching:)` against a
+   permissive description.
+
+4. **Embedded `.appex` bundle ID must be a child of the HostApp's bundle
+   ID.** Apple enforces parent-child: extension bundle ID must START
+   with the containing app's bundle ID + `.` + suffix. Otherwise install
+   fails with **"Mismatched bundle IDs"**. The Pulp helper currently
+   derives the `.appex` bundle ID from the AUv3 target's `BUNDLE_ID` —
+   plug-in authors must set that arg to a child of the HostApp's
+   bundle ID, not to a sibling.
+
+5. **HostApp entitlements containing `com.apple.security.application-groups`
+   require an explicit (non-wildcard) App ID with App Groups capability
+   enabled in Apple Developer**. Wildcard App IDs cannot use App Groups.
+   For pure plug-in development testing, strip the entitlement.
+
+6. **Instruments (aumu) need MIDI to make sound.** Discovery + load is
+   not enough; the host must call `audioUnit.scheduleMIDIEventBlock`
+   with a `noteOn` byte sequence (`0x90, <key>, <vel>`). Apple's
+   `SimplePlayEngine.InstrumentPlayer` is the reference. Without this,
+   `engine.start()` succeeds but the synth sits silently waiting for
+   MIDI input.
+
+7. **Simulator PluginKit caches stale registrations between launches.**
+   After a successful `INSTANTIATE_OK` once, a `terminate + relaunch`
+   without `uninstall + install` may flip to `INSTANTIATE_ERROR Code=4`
+   because PluginKit's database points at the old install UUID. **Real
+   device audio validation is authoritative; Sim is for build/discovery
+   smoke only.**
+
+### iOS AUv3 diagnostic recipe
+
+When the HostApp shows "(no AUv3 found)" or instantiate fails silently:
+
+```swift
+// Drop these prints into ContentView.discover():
+let components = AVAudioUnitComponentManager.shared().components(matching: desc)
+print("PULP_DISCOVER: matching=\(components.count) type=\(...) sub=\(...) mfr=\(...)")
+let all = AVAudioUnitComponentManager.shared().components(matching: AudioComponentDescription())
+print("PULP_DISCOVER_ALL: \(all.count) total")
+for c in all where c.manufacturerName == "Pulp" { print("PULP_DISCOVER_ALL_PULP: \(c.name)") }
+AVAudioUnit.instantiate(with: desc, options: .loadOutOfProcess) { node, error in
+    if let e = error { print("PULP_INSTANTIATE_ERROR: \(e)") }
+    guard let node = node else { return }
+    print("PULP_INSTANTIATE_OK: \(node.auAudioUnit.componentName ?? "?")")
+}
+```
+
+Then launch via XcodeBuildMCP `launch_app_sim` (returns `runtimeLogPath`
+capturing stdout); `grep PULP_ <runtimeLogPath>` shows the chain.
+
+If `matching=0` → check #3 (descriptor mismatch).
+If `matching=N` but `INSTANTIATE_ERROR Code=4` →
+  - Check #1 (`file <appex>/<exec>` says `bundle` not `executable`).
+  - Check #2 (`options: []` instead of `.loadOutOfProcess`).
+  - Check spawn errors: `xcrun simctl spawn booted log show --last 30s
+    --predicate 'eventMessage CONTAINS "PulpSineSynth" AND (eventMessage
+    CONTAINS "Exec format" OR eventMessage CONTAINS "posix_spawn")'`.
+
+### iOS AUv3 audio validation
+
+Simulator does NOT capture audio in `simctl io booted recordVideo`
+(video-only). For audio verification you need either:
+- Real device + headphones / mic capture
+- Sim audio loopback via a Mac audio routing tool (BlackHole, Loopback)
+- Or accept that "PULP_INSTANTIATE_OK + PULP_NOTE: ON + engine.start
+  succeeded" proves the wiring; trust the synth code path that's
+  already tested at the unit level
 
 ### Two CMake entry points: keep signatures in lockstep
 
@@ -353,6 +465,12 @@ You MUST:
 
 The full recipe is in `tools/scripts/sign-notarize-auv3-mac.sh`.
 
+For the reusable dev-signing cred layout that step 5 consumes
+(`PULP_TEAM_ID` / `PULP_NOTARY_*`), see
+[`docs/guides/ios-dev-signing.md`](../../../docs/guides/ios-dev-signing.md) —
+schema template + sourceable helper, no per-user identifiers in
+committed code.
+
 **Diagnostic for silent Pluginkit rejection:**
 
 ```bash
@@ -467,11 +585,33 @@ directly while cfprefsd is killed.
 `set_fixed_aspect_ratio(w/h)` so the editor paints at design size and
 host-driven window resize is letterboxed proportionally.
 
+On macOS, the view controller's root view must be created at the
+compile-time design size when `PULP_PLUGIN_DESIGN_W/H` are available.
+REAPER can choose the initial AUv3 container from `loadView` /
+`viewDidLoad` before `createAudioUnit` provides the processor; falling
+back to `400x300` there opens imported/scripted UIs in a small padded
+window even though the later `ViewBridge` reports the correct design
+size.
+
+REAPER can also shrink the controller view after the first editor build
+on its in-process AUv3 path. The macOS controller has a one-shot initial
+size sync after attaching `PluginViewHost`: if the first live layout is
+smaller than the design viewport, it re-applies `preferredContentSize`,
+expands the host window by the exact view delta, and resizes the root
+view to the design. Keep this limited to initial attach; manual host
+resize must continue through `viewDidLayout` without being forced back.
+
 `PulpAudioUnit::supportedViewConfigurations:` accepts configurations
-within ~5% aspect tolerance of the design (a JUCE forum thread
-documents that Logic 10.6.1 probes 1024x768 / 1366x1024 — accepting
-at least one fixes a known Logic reopen-size bug). Falls back to
-accepting all configurations if none match the aspect floor.
+within ~5% aspect tolerance of the design only when they are also large
+enough to contain that design (a JUCE forum thread documents that Logic
+10.6.1 probes 1024x768 / 1366x1024 — accepting at least one fixes a
+known Logic reopen-size bug). If any aspect-correct, large-enough
+configuration exists, return only those; wrong-aspect "large enough"
+configs are fallbacks, otherwise Logic/REAPER can choose one first and
+open fixed-design editors with avoidable top/bottom padding. If every
+candidate is undersized for a fixed-design editor, return an empty set
+so CoreAudioKit falls back to the largest available view configuration
+instead of treating the tiny default as supported.
 
 Padding at the top/bottom (or left/right) of the editor in a host
 window is the **expected letterbox** when the host gives us a window

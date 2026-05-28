@@ -1,4 +1,5 @@
 #import <AudioToolbox/AudioToolbox.h>
+#import <CoreAudioKit/CoreAudioKit.h>
 #import <Foundation/Foundation.h>
 
 #include <catch2/catch_test_macros.hpp>
@@ -127,12 +128,23 @@ public:
     std::string plugin_state;
 };
 
+class TestAUWideEditorProcessor : public TestAUEffectProcessor {
+public:
+    pulp::format::ViewSize view_size() const override {
+        return pulp::format::view_size_from_design(900, 520);
+    }
+};
+
 std::unique_ptr<pulp::format::Processor> create_effect_processor() {
     return std::make_unique<TestAUEffectProcessor>();
 }
 
 std::unique_ptr<pulp::format::Processor> create_instrument_processor() {
     return std::make_unique<TestAUInstrumentProcessor>();
+}
+
+std::unique_ptr<pulp::format::Processor> create_wide_editor_processor() {
+    return std::make_unique<TestAUWideEditorProcessor>();
 }
 
 void require_plst_blob(const uint8_t* bytes, std::size_t size) {
@@ -372,6 +384,115 @@ TEST_CASE("AU v3 render events preserve parameter sample offsets and update Stat
         REQUIRE_THAT([unit pulpLastParameterEventValueAtIndex:1], WithinAbs(-12.0f, 1e-6f));
 
         [unit deallocateRenderResources];
+        [unit release];
+    }
+}
+
+TEST_CASE("AU v3 render block rejects frame counts above maximumFramesToRender",
+          "[au][auv3][render][bounds]") {
+    @autoreleasepool {
+        AudioComponentDescription desc{};
+        desc.componentType = kAudioUnitType_Effect;
+        desc.componentSubType = 'TstE';
+        desc.componentManufacturer = 'Plup';
+
+        ScopedFactoryRegistration registration(create_effect_processor);
+
+        NSError* error = nil;
+        PulpAudioUnit* unit =
+            [[PulpAudioUnit alloc] initWithComponentDescription:desc
+                                                       options:0
+                                                         error:&error];
+        REQUIRE(unit != nil);
+        REQUIRE(error == nil);
+
+        auto* processor = g_last_effect_processor;
+        REQUIRE(processor != nullptr);
+
+        NSError* allocate_error = nil;
+        REQUIRE([unit allocateRenderResourcesAndReturnError:&allocate_error]);
+        REQUIRE(allocate_error == nil);
+
+        AudioBufferList output{};
+        output.mNumberBuffers = 1;
+        AudioUnitRenderActionFlags flags = 0;
+        AudioTimeStamp timestamp{};
+        AUInternalRenderBlock block = [unit internalRenderBlock];
+        REQUIRE(block != nil);
+
+        const AUAudioFrameCount too_many = unit.maximumFramesToRender + 1;
+        auto status = block(&flags,
+                            &timestamp,
+                            too_many,
+                            0,
+                            &output,
+                            nullptr,
+                            nil);
+        REQUIRE(status == kAudioUnitErr_TooManyFramesToProcess);
+        REQUIRE(processor->process_count == 0);
+
+        [unit deallocateRenderResources];
+        [unit release];
+    }
+}
+
+TEST_CASE("AU v3 render block substitutes scratch output buffers when host buffers are absent",
+          "[au][auv3][render][scratch]") {
+    @autoreleasepool {
+        AudioComponentDescription desc{};
+        desc.componentType = kAudioUnitType_Effect;
+        desc.componentSubType = 'TstE';
+        desc.componentManufacturer = 'Plup';
+
+        ScopedFactoryRegistration registration(create_effect_processor);
+
+        NSError* error = nil;
+        PulpAudioUnit* unit =
+            [[PulpAudioUnit alloc] initWithComponentDescription:desc
+                                                       options:0
+                                                         error:&error];
+        REQUIRE(unit != nil);
+        REQUIRE(error == nil);
+
+        auto* processor = g_last_effect_processor;
+        REQUIRE(processor != nullptr);
+
+        constexpr UInt32 kFrames = 8;
+        float undersized = 0.0f;
+        struct StereoBufferList {
+            AudioBufferList list;
+            AudioBuffer extra[1];
+        } output{};
+        output.list.mNumberBuffers = 2;
+        output.list.mBuffers[0].mNumberChannels = 2;
+        output.list.mBuffers[0].mDataByteSize = 0;
+        output.list.mBuffers[0].mData = nullptr;
+        output.list.mBuffers[1].mNumberChannels = 2;
+        output.list.mBuffers[1].mDataByteSize = sizeof(float);
+        output.list.mBuffers[1].mData = &undersized;
+
+        AudioUnitRenderActionFlags flags = 0;
+        AudioTimeStamp timestamp{};
+        AUInternalRenderBlock block = [unit internalRenderBlock];
+        REQUIRE(block != nil);
+
+        auto status = block(&flags,
+                            &timestamp,
+                            kFrames,
+                            0,
+                            &output.list,
+                            nullptr,
+                            nil);
+        REQUIRE(status == noErr);
+        REQUIRE(processor->process_count == 1);
+
+        for (UInt32 i = 0; i < output.list.mNumberBuffers; ++i) {
+            REQUIRE(output.list.mBuffers[i].mNumberChannels == 1);
+            REQUIRE(output.list.mBuffers[i].mDataByteSize == kFrames * sizeof(float));
+            REQUIRE(output.list.mBuffers[i].mData != nullptr);
+        }
+        REQUIRE(output.list.mBuffers[1].mData != &undersized);
+
         [unit release];
     }
 }
@@ -845,6 +966,77 @@ TEST_CASE("AU v3 per-method audit invariants",
         // drift bug the AU v2 path used to hit.
         REQUIRE([unit pulpProcessor] != nullptr);
         REQUIRE([unit pulpStore] != nullptr);
+
+        [unit release];
+    }
+}
+
+TEST_CASE("AU v3 view configurations prefer aspect-correct editor sizes",
+          "[au][auv3][view-config][resize]") {
+    @autoreleasepool {
+        AudioComponentDescription desc{};
+        desc.componentType = kAudioUnitType_Effect;
+        desc.componentSubType = 'TstE';
+        desc.componentManufacturer = 'Plup';
+
+        ScopedFactoryRegistration registration(create_wide_editor_processor);
+
+        NSError* err = nil;
+        PulpAudioUnit* unit =
+            [[PulpAudioUnit alloc] initWithComponentDescription:desc
+                                                       options:0
+                                                         error:&err];
+        REQUIRE(unit != nil);
+        REQUIRE(err == nil);
+
+        NSArray<AUAudioUnitViewConfiguration*>* mixedConfigs = @[
+            [[[AUAudioUnitViewConfiguration alloc] initWithWidth:486
+                                                          height:290
+                                               hostHasController:NO] autorelease],
+            [[[AUAudioUnitViewConfiguration alloc] initWithWidth:1024
+                                                          height:768
+                                               hostHasController:NO] autorelease],
+            [[[AUAudioUnitViewConfiguration alloc] initWithWidth:900
+                                                          height:520
+                                               hostHasController:NO] autorelease],
+            [[[AUAudioUnitViewConfiguration alloc] initWithWidth:1366
+                                                          height:1024
+                                               hostHasController:NO] autorelease],
+        ];
+
+        NSIndexSet* supported = [unit supportedViewConfigurations:mixedConfigs];
+        REQUIRE(supported != nil);
+        REQUIRE([supported containsIndex:2]);
+        REQUIRE_FALSE([supported containsIndex:0]);
+        REQUIRE_FALSE([supported containsIndex:1]);
+        REQUIRE_FALSE([supported containsIndex:3]);
+
+        NSArray<AUAudioUnitViewConfiguration*>* noAspectMatchConfigs = @[
+            [[[AUAudioUnitViewConfiguration alloc] initWithWidth:1024
+                                                          height:768
+                                               hostHasController:NO] autorelease],
+            [[[AUAudioUnitViewConfiguration alloc] initWithWidth:1366
+                                                          height:1024
+                                               hostHasController:NO] autorelease],
+        ];
+
+        NSIndexSet* fallback = [unit supportedViewConfigurations:noAspectMatchConfigs];
+        REQUIRE(fallback != nil);
+        REQUIRE([fallback containsIndex:0]);
+        REQUIRE([fallback containsIndex:1]);
+
+        NSArray<AUAudioUnitViewConfiguration*>* undersizedConfigs = @[
+            [[[AUAudioUnitViewConfiguration alloc] initWithWidth:486
+                                                          height:290
+                                               hostHasController:NO] autorelease],
+            [[[AUAudioUnitViewConfiguration alloc] initWithWidth:640
+                                                          height:370
+                                               hostHasController:NO] autorelease],
+        ];
+
+        NSIndexSet* undersized = [unit supportedViewConfigurations:undersizedConfigs];
+        REQUIRE(undersized != nil);
+        REQUIRE(undersized.count == 0u);
 
         [unit release];
     }

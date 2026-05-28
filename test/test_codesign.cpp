@@ -87,6 +87,15 @@ TEST_CASE("notarization staple on nonexistent path is false",
     REQUIRE_FALSE(notarize_staple("/nonexistent/binary"));
 }
 
+TEST_CASE("ASC notarization submit fails closed for missing inputs",
+          "[ship][codesign][coverage][requested]") {
+    auto request = notarize_submit_asc("/nonexistent/archive.zip",
+                                       "/nonexistent/AuthKey_TEST.p8",
+                                       "TESTKEY123",
+                                       "12345678-1234-1234-1234-123456789abc");
+    REQUIRE_FALSE(request.has_value());
+}
+
 TEST_CASE("create_pkg on nonexistent component is false",
           "[ship][codesign][coverage][issue-644]") {
     auto output = (fs::temp_directory_path() / "pulp-missing-component.pkg").string();
@@ -193,12 +202,22 @@ TEST_CASE("combined pkg rejects empty and missing component inputs",
     const auto empty_output = temp.path / "empty.pkg";
     const auto missing_output = temp.path / "missing.pkg";
 
+#ifdef __APPLE__
+    const auto staging_dir = fs::temp_directory_path()
+        / ("pulp-pkg-staging-" + std::to_string(getpid()));
+    std::error_code cleanup_ec;
+    fs::remove_all(staging_dir, cleanup_ec);
+#endif
+
     REQUIRE_FALSE(fs::exists(empty_output));
     REQUIRE_FALSE(create_combined_pkg({},
                                       empty_output.string(),
                                       "dev.pulp.tests.empty",
                                       "2.0.0"));
     REQUIRE_FALSE(fs::exists(empty_output));
+#ifdef __APPLE__
+    REQUIRE_FALSE(fs::exists(staging_dir));
+#endif
 
     std::vector<InstallComponent> components{
         {(temp.path / "missing-a.component").string(), "/Library/Audio/Plug-Ins/Components"},
@@ -212,6 +231,9 @@ TEST_CASE("combined pkg rejects empty and missing component inputs",
                                       "2.0.0",
                                       "Developer ID Installer: Missing"));
     REQUIRE_FALSE(fs::exists(missing_output));
+#ifdef __APPLE__
+    REQUIRE_FALSE(fs::exists(staging_dir));
+#endif
     REQUIRE(components[0].install_location.find("Components") != std::string::npos);
     REQUIRE(components[1].install_location.find("VST3") != std::string::npos);
 }
@@ -263,6 +285,14 @@ Runtime Version=15.0.0
         "TeamIdentifier=VWXYZ98765\n");
     REQUIRE(missing_identity.identity.empty());
     REQUIRE(missing_identity.team_id == "VWXYZ98765");
+
+    auto first_authority = pulp::ship::detail::parse_codesign_details(R"(
+Authority=Developer ID Application: First Team (FIRST12345)
+Authority=Developer ID Application: Second Team (SECOND12345)
+TeamIdentifier=FIRST12345
+)");
+    REQUIRE(first_authority.identity == "Developer ID Application: First Team (FIRST12345)");
+    REQUIRE(first_authority.team_id == "FIRST12345");
 #endif
 }
 
@@ -282,8 +312,42 @@ Submission ID received
     REQUIRE(lower.has_value());
     REQUIRE(*lower == "abcdefab-1234-5678-9abc-def012345678");
 
+    auto upper = pulp::ship::detail::parse_notarytool_submit_id(
+        "id: ABCDEFAB-1234-5678-9ABC-DEF012345678\nstatus: Accepted");
+    REQUIRE(upper.has_value());
+    REQUIRE(*upper == "ABCDEFAB-1234-5678-9ABC-DEF012345678");
+
+    REQUIRE_FALSE(pulp::ship::detail::parse_notarytool_submit_id("id: abc").has_value());
+    REQUIRE_FALSE(pulp::ship::detail::parse_notarytool_submit_id(
+        "id: abcdefab-1234-5678-9abc-def012345678-extra").has_value());
+    REQUIRE_FALSE(pulp::ship::detail::parse_notarytool_submit_id(
+        "id: abcdefab-1234-5678-9abc-def01234567g").has_value());
     REQUIRE_FALSE(pulp::ship::detail::parse_notarytool_submit_id("id: NOT-A-UUID").has_value());
     REQUIRE_FALSE(pulp::ship::detail::parse_notarytool_submit_id("status: Invalid").has_value());
+#endif
+}
+
+TEST_CASE("notarytool submit parser keeps UUID boundaries strict",
+          "[ship][codesign][coverage][requested]") {
+#ifdef __APPLE__
+    auto tab_boundary = pulp::ship::detail::parse_notarytool_submit_id(
+        "id: 12345678-abcd-4abc-9def-123456789abc\tstatus: Accepted");
+    REQUIRE(tab_boundary.has_value());
+    REQUIRE(*tab_boundary == "12345678-abcd-4abc-9def-123456789abc");
+
+    auto trailing_newline = pulp::ship::detail::parse_notarytool_submit_id(
+        "createdDate: today\nid: 87654321-abcd-4abc-9def-123456789abc\n");
+    REQUIRE(trailing_newline.has_value());
+    REQUIRE(*trailing_newline == "87654321-abcd-4abc-9def-123456789abc");
+
+    REQUIRE_FALSE(pulp::ship::detail::parse_notarytool_submit_id(
+        "request id: 12345678-abcd-4abc-9def-123456789abc").has_value());
+    REQUIRE_FALSE(pulp::ship::detail::parse_notarytool_submit_id(
+        "id:12345678-abcd-4abc-9def-123456789abc").has_value());
+    REQUIRE_FALSE(pulp::ship::detail::parse_notarytool_submit_id(
+        "id: 12345678-abcd-4abc-9def-123456789abc-extra").has_value());
+    REQUIRE_FALSE(pulp::ship::detail::parse_notarytool_submit_id(
+        "id: 12345678-abcd-4abc-9def-123456789ab").has_value());
 #endif
 }
 
@@ -312,6 +376,28 @@ TEST_CASE("notarytool status parser classifies terminal states",
 #endif
 }
 
+TEST_CASE("notarytool status parser preserves raw diagnostic output",
+          "[ship][codesign][coverage][requested]") {
+#ifdef __APPLE__
+    const std::string invalid_log = R"(status: Invalid
+issues:
+  - path: Pulp.vst3
+    message: unsigned nested helper
+)";
+    auto invalid = pulp::ship::detail::parse_notarytool_status(invalid_log);
+    REQUIRE(invalid.complete);
+    REQUIRE_FALSE(invalid.success);
+    REQUIRE(invalid.message == invalid_log);
+    REQUIRE(invalid.message.find("unsigned nested helper") != std::string::npos);
+
+    const std::string uploaded_log = "status: Uploaded\nid: pending";
+    auto uploaded = pulp::ship::detail::parse_notarytool_status(uploaded_log);
+    REQUIRE_FALSE(uploaded.complete);
+    REQUIRE_FALSE(uploaded.success);
+    REQUIRE(uploaded.message == uploaded_log);
+#endif
+}
+
 TEST_CASE("security identity parser preserves quoted display names",
           "[ship][codesign][coverage][phase3]") {
 #ifdef __APPLE__
@@ -337,5 +423,57 @@ TEST_CASE("security identity parser preserves quoted display names",
 
     auto none = pulp::ship::detail::parse_signing_identities("0 valid identities found\n");
     REQUIRE(none.empty());
+
+    auto unbalanced = pulp::ship::detail::parse_signing_identities(R"IDENTITIES(
+  1) AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA "Missing close
+  2) BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB No opening quote"
+)IDENTITIES");
+    REQUIRE(unbalanced.empty());
+#endif
+}
+
+TEST_CASE("security identity parser ignores unquoted validity summaries",
+          "[ship][codesign][coverage][requested]") {
+#ifdef __APPLE__
+    auto identities = pulp::ship::detail::parse_signing_identities(R"IDENTITIES(
+Policy: Code Signing
+  1) ABCDEFABCDEFABCDEFABCDEFABCDEFABCDEFABCD "Developer ID Application: Pulp, Inc. (ABCDE12345)"
+  2) FEDCBAFEDCBAFEDCBAFEDCBAFEDCBAFEDCBAFEDC "Apple Development: Local Tester (VWXYZ98765)"
+     2 valid identities found
+     0 revoked identities found
+)IDENTITIES");
+    REQUIRE(identities.size() == 2);
+    REQUIRE(identities[0] == "Developer ID Application: Pulp, Inc. (ABCDE12345)");
+    REQUIRE(identities[1] == "Apple Development: Local Tester (VWXYZ98765)");
+
+    auto quoted_summary = pulp::ship::detail::parse_signing_identities(
+        "     \"summary in quotes\" should be preserved by the low-level parser\n");
+    REQUIRE(quoted_summary.size() == 1);
+    REQUIRE(quoted_summary[0] == "summary in quotes");
+#endif
+}
+
+TEST_CASE("mac codesign parsers ignore unrelated command noise",
+          "[ship][codesign][coverage][requested]") {
+#ifdef __APPLE__
+    auto details = pulp::ship::detail::parse_codesign_details(R"DETAILS(
+warning: unable to build chain to self-signed root
+Executable=/tmp/Pulp.app/Contents/MacOS/Pulp
+Authority=Developer ID Application: Pulp Audio LLC (ABCDE12345)
+note: some unrelated diagnostic
+TeamIdentifier=ABCDE12345
+)DETAILS");
+    REQUIRE(details.identity == "Developer ID Application: Pulp Audio LLC (ABCDE12345)");
+    REQUIRE(details.team_id == "ABCDE12345");
+
+    REQUIRE_FALSE(pulp::ship::detail::parse_notarytool_submit_id(R"NOTARY(
+id = 12345678-abcd-4abc-9def-123456789abc
+status: Accepted
+)NOTARY").has_value());
+
+    auto pending = pulp::ship::detail::parse_notarytool_status("status: Uploaded\nstatusSummary: In progress");
+    REQUIRE_FALSE(pending.complete);
+    REQUIRE_FALSE(pending.success);
+    REQUIRE(pending.message.find("Uploaded") != std::string::npos);
 #endif
 }

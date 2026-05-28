@@ -645,10 +645,15 @@ honoring the `PULP_DISABLE_PLUGIN_GPU` runtime opt-out. Hardcoding
 back to the AutoUi CPU path (the GPU-plugin-view-host work, 2026-05).
 
 Rules when touching an adapter's editor-attach path:
-- A custom `Processor::create_view()` that paints via the GPU (scripted React
-  UI, WebGPU/Three.js canvas) MUST call `view->set_requires_gpu_host(true)` on
-  its root, or `decide_gpu_host` returns `mode=autoui` and it gets CPU. The
-  framework scripted-UI root (`editor_ui.hpp`) already sets it.
+- A custom `Processor::create_view()` that owns a `ScriptedUiSession` MUST
+  override `Processor::active_scripted_ui()` so `ViewBridge` reports
+  `uses_script_ui()`, adapters log `mode=scripted`, select the GPU host, and
+  `make_scripted_idle_pump` can poll that session. Chainer-style generated
+  processors use this path.
+- A custom non-scripted GPU view (WebGPU/Three.js canvas, hand-built Skia view)
+  MUST call `view->set_requires_gpu_host(true)` on its root, or
+  `decide_gpu_host` returns `mode=autoui` and it gets CPU. The framework
+  scripted-UI root (`editor_ui.hpp`) already sets it.
 - After `PluginViewHost::create(...)`, call
   `format::warn_if_unexpected_cpu_fallback(decision, host.get())` — it screams
   (`runtime::log_error`) if GPU was requested but the host fell back to CPU.
@@ -701,6 +706,19 @@ Per-format wiring:
   the design aspect; `onSize`'s existing `host->set_size(...)` path
   resizes surfaces; `attached()` (or first `onSize`) calls
   `host->set_design_viewport(...)`.
+- **macOS AUv3** — no CLAP/VST3-style drag constraint callback.
+  `PulpAUMacViewController` must create its initial root view at the
+  compile-time design size when `PULP_PLUGIN_DESIGN_W/H` are available,
+  then call `host->set_design_viewport(...)` after `ViewBridge` opens.
+  `supportedViewConfigurations:` should return aspect-correct host
+  configs first, but only if they are large enough for the design;
+  wrong-aspect "large enough" configs are fallbacks. Undersized fixed-
+  design configs should be rejected so CoreAudioKit can choose the
+  largest available configuration. REAPER's in-process AUv3 path can
+  still shrink the first live layout after attach, so the macOS
+  controller has a one-shot initial size sync that expands the host
+  window by the view delta and reapplies the design size before normal
+  `viewDidLayout` resize takes over.
 - **AU v2** — cannot offer this; the DAW resizes the returned NSView
   directly with no host-side resize-hint analogue.
 

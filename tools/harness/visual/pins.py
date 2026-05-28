@@ -29,6 +29,9 @@ FONT_SHA256 = {
 }
 
 RELEASE_ASSET_SHA256 = {
+    "linux-arm64": (
+        "4a6a99a7abefdaae83b864f2103bebdcf7c1455a20f726f2cdba44f51d52bf05"
+    ),
     "linux-x64": (
         "53e2bfb5225148311da9bbcb7e65da4479acf774bc3d40b0341530cdc48e97b6"
     ),

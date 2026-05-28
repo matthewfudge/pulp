@@ -126,6 +126,68 @@ TEST_CASE("pulp_motion_publish_components emits sorted multi-component events",
     REQUIRE(baseline->components[1].first == "y");
 }
 
+TEST_CASE("pulp_motion_publish_components tolerates empty and null inputs",
+          "[motion][swift-bridge][coverage]") {
+    BridgeFixture fx;
+
+    const char* keys[1] = {"x"};
+    const double vals[1] = {1.0};
+    pulp_motion_publish_components("Card", "p", keys, vals, 0, 0.001, 3);
+    pulp_motion_publish_components("Card", "p", keys, vals, -1, 0.001, 3);
+    pulp_motion_publish_components("Card", "p", nullptr, vals, 1, 0.001, 3);
+    pulp_motion_publish_components("Card", "p", keys, nullptr, 1, 0.001, 3);
+
+    REQUIRE(count_kind(fx.buffer, SampleEvent::Kind::Baseline, "p") == 0);
+}
+
+TEST_CASE("pulp_motion bridge normalizes null C strings",
+          "[motion][swift-bridge][coverage][requested]") {
+    BridgeFixture fx;
+
+    pulp_motion_publish_value(nullptr, nullptr, 0.0, 0.001, 3);
+    pulp_motion_publish_value(nullptr, nullptr, 1.0, 0.001, 3);
+
+    const auto* baseline = first_of(fx.buffer, SampleEvent::Kind::Baseline);
+    REQUIRE(baseline != nullptr);
+    REQUIRE(baseline->view_name.empty());
+    REQUIRE(baseline->metric_name.empty());
+}
+
+TEST_CASE("pulp_motion bridge normalizes null provenance and geometry names",
+          "[motion][swift-bridge][coverage][requested]") {
+    BridgeFixture fx;
+
+    pulp_motion_set_ambient_provenance(nullptr, nullptr, nullptr, 0);
+    pulp_motion_publish_value("Card", "opacity", 0.0, 0.001, 3);
+    pulp_motion_publish_value("Card", "opacity", 1.0, 0.001, 3);
+
+    const auto* opacity = first_of(fx.buffer, SampleEvent::Kind::Baseline, "opacity");
+    REQUIRE(opacity != nullptr);
+    REQUIRE(opacity->view_name == "Card");
+    REQUIRE(opacity->provenance.source_kind.empty());
+    REQUIRE(opacity->provenance.source_id.empty());
+    REQUIRE(opacity->provenance.source_file.empty());
+    REQUIRE(opacity->provenance.source_line == 0);
+
+    const int id = pulp_motion_register_geometry_trace(nullptr, -10);
+    REQUIRE(id > 0);
+
+    pulp_motion_update_geometry(id, "bounds", 1.0, 2.0, 3.0, 4.0);
+    pulp_motion_update_geometry(id, "bounds", 5.0, 6.0, 7.0, 8.0);
+
+    const auto* bounds = first_of(fx.buffer, SampleEvent::Kind::Baseline, "bounds");
+    REQUIRE(bounds != nullptr);
+    REQUIRE(bounds->view_name == "swiftui");
+    REQUIRE(bounds->metric_name == "bounds");
+    REQUIRE(bounds->components.size() == 4);
+    REQUIRE(bounds->components[0].first == "height");
+    REQUIRE(bounds->components[1].first == "minX");
+    REQUIRE(bounds->components[2].first == "minY");
+    REQUIRE(bounds->components[3].first == "width");
+
+    pulp_motion_detach_trace(id);
+}
+
 // ── Ambient provenance ────────────────────────────────────────────────
 
 TEST_CASE("pulp_motion_set_ambient_provenance stamps subsequent publishes",
@@ -226,7 +288,69 @@ TEST_CASE("pulp_motion_update_geometry with a non-default metric also emits",
     pulp_motion_update_geometry(id, "scroll", 0.0, 100.0, 320.0, 480.0);
     pulp_motion_update_geometry(id, "scroll", 0.0, 200.0, 320.0, 480.0);
 
-    REQUIRE(count_kind(fx.buffer, SampleEvent::Kind::Baseline, "scroll") >= 1);
+    const auto* baseline = first_of(fx.buffer, SampleEvent::Kind::Baseline, "scroll");
+    REQUIRE(baseline != nullptr);
+    REQUIRE(baseline->view_name == "ScrollView");
+    REQUIRE(baseline->components.size() == 4);
+    REQUIRE(baseline->components[0].first == "height");
+    REQUIRE(baseline->components[1].first == "minX");
+    REQUIRE(baseline->components[2].first == "minY");
+    REQUIRE(baseline->components[3].first == "width");
 
     pulp_motion_detach_trace(id);
+}
+
+TEST_CASE("pulp_motion_update_geometry keeps frame metrics on the sampled trace only",
+          "[motion][swift-bridge][coverage][requested]") {
+    BridgeFixture fx;
+
+    const int id = pulp_motion_register_geometry_trace("FrameOnly", 60);
+    REQUIRE(id > 0);
+
+    pulp_motion_update_geometry(id, "frame", 1.0, 2.0, 3.0, 4.0);
+    REQUIRE(count_kind(fx.buffer, SampleEvent::Kind::Baseline, "frame") == 0);
+
+    fx.clock.tick(1.0f / 60.0f);
+    REQUIRE(count_kind(fx.buffer, SampleEvent::Kind::Baseline, "frame") == 1);
+    const auto* baseline = first_of(fx.buffer, SampleEvent::Kind::Baseline, "frame");
+    REQUIRE(baseline != nullptr);
+    REQUIRE(baseline->view_name == "FrameOnly");
+    REQUIRE(baseline->components.size() == 4);
+
+    pulp_motion_detach_trace(id);
+}
+
+TEST_CASE("pulp_motion geometry registry survives coordinator reset",
+          "[motion][swift-bridge][coverage]") {
+    BridgeFixture fx;
+
+    const int first = pulp_motion_register_geometry_trace("ViewA", 30);
+    const int second = pulp_motion_register_geometry_trace("ViewB", 30);
+    REQUIRE(first > 0);
+    REQUIRE(second > 0);
+
+    pulp_motion_update_geometry(first, "frame", 0.0, 0.0, 100.0, 100.0);
+    pulp_motion_update_geometry(second, "frame", 10.0, 20.0, 50.0, 50.0);
+    for (int i = 0; i < 3; ++i) fx.clock.tick(1.0f / 60.0f);
+
+    Coordinator::instance().reset();
+    Coordinator::instance().bind(fx.clock);
+    Coordinator::instance().set_firehose(true);
+    Coordinator::instance().set_tracing_enabled(true);
+
+    const int fresh = pulp_motion_register_geometry_trace("ViewC", 30);
+    REQUIRE(fresh > 0);
+    pulp_motion_detach_trace(fresh);
+}
+
+TEST_CASE("pulp_motion geometry bridge ignores unknown trace ids",
+          "[motion][swift-bridge][coverage][requested]") {
+    BridgeFixture fx;
+
+    pulp_motion_update_geometry(123456, "frame", 1.0, 2.0, 3.0, 4.0);
+    pulp_motion_detach_trace(123456);
+    for (int i = 0; i < 4; ++i) fx.clock.tick(1.0f / 60.0f);
+
+    REQUIRE(count_kind(fx.buffer, SampleEvent::Kind::Baseline, "frame") == 0);
+    REQUIRE(count_kind(fx.buffer, SampleEvent::Kind::Start, "frame") == 0);
 }

@@ -277,7 +277,6 @@ target_sources(pulp-view-core PRIVATE
     src/accessibility_tree.cpp
     src/image_cache.cpp
     src/resizable_shell.cpp
-    src/graph_editor_view.cpp
     src/theme.cpp
     src/theme_contrast.cpp
     src/theme_presets.cpp
@@ -336,6 +335,7 @@ target_sources(pulp-view-core PRIVATE
     src/file_browser.cpp
     src/file_chooser.cpp
     src/code_editor.cpp
+    src/code_editor_tokenizer.cpp
     src/table.cpp
     src/toolbar.cpp
     src/concertina_panel.cpp
@@ -345,6 +345,7 @@ target_sources(pulp-view-core PRIVATE
     src/command_registry.cpp
     src/key_mapping_editor.cpp
     src/window_classes.cpp
+    src/bubble_message.cpp
 )
 
 target_sources(pulp-view-script PRIVATE
@@ -399,6 +400,9 @@ endif()
 option(PULP_BUILD_WEBVIEW "Include native WebView support (WebKit / WebView2 / WebKitGTK)" OFF)
 if(PULP_BUILD_WEBVIEW)
     target_sources(pulp-view-core PRIVATE src/web_view.cpp)
+    # PUBLIC so tests and downstream callers see the same value the
+    # detector TU was compiled with.
+    target_compile_definitions(pulp-view-core PUBLIC PULP_BUILD_WEBVIEW=1)
     if(APPLE AND NOT PULP_IOS)
         target_link_libraries(pulp-view-core PRIVATE "-framework WebKit")
     elseif(UNIX AND NOT APPLE AND NOT ANDROID)
@@ -408,6 +412,12 @@ if(PULP_BUILD_WEBVIEW)
         target_link_libraries(pulp-view-core PRIVATE PkgConfig::GTK3 PkgConfig::WEBKIT2GTK)
     # Android: WebView is handled by the Kotlin layer, not native GTK
     endif()
+else()
+    # Backend detector honors the documented "none if disabled" contract
+    # (Codex PR #3016 P2): when WebView is excluded from the build,
+    # detect_webview_backend() must return "none" so callers can
+    # distinguish "build excluded WebView" from "OS has no WebView".
+    target_compile_definitions(pulp-view-core PUBLIC PULP_BUILD_WEBVIEW=0)
 endif()
 
 # Backend detection TUs — always compiled into pulp-view-core regardless
@@ -433,7 +443,7 @@ foreach(_pulp_view_target pulp-view-core pulp-view-script)
 endforeach()
 unset(_pulp_view_target)
 
-target_link_libraries(pulp-view-core PUBLIC pulp::canvas pulp::events pulp::state pulp::signal pulp::platform)
+target_link_libraries(pulp-view-core PUBLIC pulp::canvas pulp::events pulp::state pulp::signal pulp::platform pulp::audio)
 # pulp::host is iOS-restricted: iOS sandbox disallows dlopen of arbitrary
 # third-party plugins (no VST3 / CLAP / LV2 hosting), and pulling host into
 # the link line on iOS surfaces a `long double to_chars` libc++ availability
@@ -445,6 +455,13 @@ target_link_libraries(pulp-view-core PUBLIC pulp::canvas pulp::events pulp::stat
 # 2026-05-24 iOS AUv3 validation Phase iOS-A build smoke.
 if(NOT IOS)
     target_link_libraries(pulp-view-core PUBLIC pulp::host)
+    # graph_editor_view.cpp uses host::SignalGraph / host::Connection / host::GraphNode
+    # directly, so its translation unit only compiles when pulp::host is linked.
+    # iOS skips the source entirely; the header is also iOS-guarded so any
+    # downstream consumer that includes <pulp/view/widgets/graph_editor_view.hpp>
+    # on iOS gets a clean compile-time skip rather than a "file not found" on
+    # <pulp/host/signal_graph.hpp>.
+    target_sources(pulp-view-core PRIVATE src/graph_editor_view.cpp)
 endif()
 target_link_libraries(pulp-view-script PUBLIC pulp::view-core)
 # pulp #468 — design_import.cpp uses pulp::runtime::base64_decode +
@@ -510,6 +527,17 @@ if(APPLE)
             "-framework CoreGraphics"
             "-framework QuartzCore"
         )
+        # Phase iOS-D.1 — wire iOS GPU window host (window_host_ios.mm's
+        # IOSGpuWindowHost branch). Mirrors the mac branch below:
+        # `pulp::render` exposes Dawn / Skia Graphite + the GpuSurface
+        # interface, and the Metal framework backs the CAMetalLayer.
+        # `pulp::render` is gated by PULP_HAS_SKIA so a no-Skia iOS
+        # configure (CG-only) still links cleanly.
+        if(PULP_HAS_SKIA)
+            target_link_libraries(pulp-view-core PRIVATE pulp::render
+                "-framework Metal"
+            )
+        endif()
     else()
         target_sources(pulp-view-core PRIVATE
             platform/mac/window_host_mac.mm

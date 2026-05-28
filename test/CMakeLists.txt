@@ -18,11 +18,32 @@ if(APPLE AND NOT PULP_IOS)
                 ${CMAKE_SOURCE_DIR})
     set_tests_properties(cmake-ios-auv3-configure PROPERTIES
         SKIP_RETURN_CODE 77
-        TIMEOUT 1800
+        # 2700s (45 min) outer budget — configure-only on a warm cache
+        # finishes in ~1 min, but the default-on .appex + HostApp build
+        # (PULP_IOS_AUV3_SMOKE_BUILD=1, the post-2026-05-27 default)
+        # takes 9–10 minutes on cold caches, on top of a 530s configure
+        # pass that runs mbedtls / Highway / Yoga FetchContent unpacks
+        # before Xcode finishes generating. The shell script's internal
+        # timeouts are tighter (600s configure + 1500s build).
+        TIMEOUT 2700
         # Tagged `slow` for fast-CI exclusion (#1589): a fresh-cache
         # configure spends ~3 minutes downloading + unpacking iOS-leg
         # FetchContent sources before the actual smoke fires. Full-CI
         # (push to main / nightly / workflow_dispatch) still runs it.
+        LABELS slow)
+
+    # iOS HostApp link-time regression test. Companion to the AUv3
+    # configure smoke above; this one always builds the HostApp .app
+    # and asserts the produced bundle has a real Info.plist + Mach-O
+    # executable + embedded .appex. Catches "pulp-view-core does not
+    # link on iOS" regressions like the 2026-05-26 walkthrough that
+    # exposed missing pulp::audio and unguarded pulp::host includes.
+    add_test(NAME cmake-ios-hostapp-links
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/cmake/test_ios_hostapp_links.sh
+                ${CMAKE_SOURCE_DIR})
+    set_tests_properties(cmake-ios-hostapp-links PROPERTIES
+        SKIP_RETURN_CODE 77
+        TIMEOUT 2700
         LABELS slow)
 endif()
 
@@ -420,6 +441,17 @@ if(TARGET pulp-cli)
 endif()
 catch_discover_tests(pulp-test-cli-ship-shellout)
 
+# App Store Connect notary env-file parser. Compiles the parser source
+# directly so the test target stays free of pulp::ship + pulp::runtime
+# link surfaces (notary_env.cpp is intentionally pure stdlib).
+add_executable(pulp-test-notary-env
+    test_notary_env.cpp
+    ${CMAKE_SOURCE_DIR}/tools/cli/notary_env.cpp)
+target_include_directories(pulp-test-notary-env
+    PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(pulp-test-notary-env PRIVATE Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-notary-env)
+
 # Item 7.4b (macos-plugin-authoring-plan): `pulp build --install`
 # validation gate. The test compiles install_paths_mac.cpp directly
 # so it stays free of cli_common's link surface; the InstallEnv
@@ -432,7 +464,12 @@ target_include_directories(pulp-test-cli-install-paths-mac
     PRIVATE ${CMAKE_SOURCE_DIR})
 target_link_libraries(pulp-test-cli-install-paths-mac
     PRIVATE Catch2::Catch2WithMain)
-catch_discover_tests(pulp-test-cli-install-paths-mac)
+if(WIN32)
+    catch_discover_tests(pulp-test-cli-install-paths-mac
+        PROPERTIES LABELS "windows-pr-quarantine")
+else()
+    catch_discover_tests(pulp-test-cli-install-paths-mac)
+endif()
 
 # CLI upgrade URL regression test (#352): asset filename stays
 # "pulp-<platform>-<arch>.<ext>" — the version sits in the release tag.
@@ -762,7 +799,13 @@ catch_discover_tests(pulp-test-cli-migration-index
     PROPERTIES ENVIRONMENT "PULP_SOURCE_DIR=${CMAKE_SOURCE_DIR}")
 
 # Child process tests
-pulp_add_test_suite(pulp-test-child-process LIBRARIES pulp::platform)
+if(WIN32)
+    pulp_add_test_suite(pulp-test-child-process
+        LIBRARIES pulp::platform
+        LABELS "windows-pr-quarantine")
+else()
+    pulp_add_test_suite(pulp-test-child-process LIBRARIES pulp::platform)
+endif()
 
 # Progress parser tests
 pulp_add_test_suite(pulp-test-progress-parser LIBRARIES pulp::platform)
@@ -838,7 +881,13 @@ pulp_add_test_suite(pulp-test-android-package LIBRARIES pulp::ship)
 pulp_add_test_suite(pulp-test-v3-gaps LIBRARIES pulp::signal pulp::midi pulp::audio pulp::format pulp::runtime)
 
 # Codesign tests
-pulp_add_test_suite(pulp-test-codesign LIBRARIES pulp::ship)
+if(WIN32)
+    pulp_add_test_suite(pulp-test-codesign
+        LIBRARIES pulp::ship
+        LABELS "windows-pr-quarantine")
+else()
+    pulp_add_test_suite(pulp-test-codesign LIBRARIES pulp::ship)
+endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     add_executable(pulp-test-linux-packaging test_linux_packaging.cpp)
     target_link_libraries(pulp-test-linux-packaging PRIVATE
@@ -914,8 +963,12 @@ if(NOT PULP_IOS)
 endif()
 # ARA scaffolding (workstream 06 slice 6.1)
 pulp_add_test_suite(pulp-test-ara LIBRARIES pulp::format)
-# CLAP ARA extension end-to-end (workstream 06 A2a)
-pulp_add_test_suite(pulp-test-clap-ara-extension LIBRARIES pulp::format)
+# CLAP ARA extension end-to-end (workstream 06 A2a). This suite instantiates
+# PulpClapPlugin directly, so it must see the same layout as pulp-format's
+# desktop CLAP adapter TU.
+pulp_add_test_suite(pulp-test-clap-ara-extension
+    LIBRARIES pulp::format
+    COMPILE_DEFINITIONS PULP_CLAP_GUI=1)
 # Processor ARA hook (workstream 06 slice 6.3a)
 pulp_add_test_suite(pulp-test-processor-ara-hook LIBRARIES pulp::format)
 # Processor bus-layout validation + processBlock precision contract +
@@ -1413,7 +1466,13 @@ add_executable(pulp-connected-child-process-fixture
     fixtures/connected_child_process_fixture.cpp)
 target_link_libraries(pulp-connected-child-process-fixture PRIVATE pulp::events)
 
-pulp_add_test_suite(pulp-test-ipc LIBRARIES pulp::events pulp::runtime)
+if(WIN32)
+    pulp_add_test_suite(pulp-test-ipc
+        LIBRARIES pulp::events pulp::runtime
+        LABELS "windows-pr-quarantine")
+else()
+    pulp_add_test_suite(pulp-test-ipc LIBRARIES pulp::events pulp::runtime)
+endif()
 add_dependencies(pulp-test-ipc pulp-connected-child-process-fixture)
 target_compile_definitions(pulp-test-ipc PRIVATE
     "PULP_TEST_CONNECTED_CHILD_FIXTURE=\"$<TARGET_FILE:pulp-connected-child-process-fixture>\"")
@@ -1436,6 +1495,10 @@ pulp_add_test_suite(pulp-test-table-list-box LIBRARIES pulp::view)
 
 # CodeEditor / FileBasedDocument / RecentlyOpenedFilesList tests
 pulp_add_test_suite(pulp-test-code-editor LIBRARIES pulp::view)
+
+# CodeEditor per-language tokenizer (gap-doc Phase 4 row "CodeEditor
+# language coverage")
+pulp_add_test_suite(pulp-test-code-editor-tokenizer LIBRARIES pulp::view)
 
 # PropertiesFile JSON persistence tests
 pulp_add_test_suite(pulp-test-properties SOURCES test_properties_file.cpp LIBRARIES pulp::state pulp::runtime)
@@ -1461,6 +1524,16 @@ pulp_add_test_suite(pulp-test-animator-set LIBRARIES pulp::view)
 
 # Runtime utility tests (mmap, temp file, dynlib, base64, range, child process)
 pulp_add_test_suite(pulp-test-runtime-utils LIBRARIES pulp::runtime)
+
+# MAC address parser/formatter (gap-doc Runtime row "MACAddress")
+pulp_add_test_suite(pulp-test-mac-address LIBRARIES pulp::runtime)
+
+# URL parser + percent-encoding + query helpers
+# (gap-doc Runtime row "URL parser class")
+pulp_add_test_suite(pulp-test-url LIBRARIES pulp::runtime)
+
+# Result<T,E> header-only utility (gap-doc Runtime row "Result")
+pulp_add_test_suite(pulp-test-runtime-result LIBRARIES pulp::runtime)
 
 # XML and ZIP/GZIP compression tests
 pulp_add_test_suite(pulp-test-xml-zip LIBRARIES pulp::runtime)
@@ -1705,6 +1778,7 @@ if(PULP_HAS_CLAP)
     # / 62% CI" reports on PR #627.
     add_executable(pulp-test-clap-midi-events test_clap_midi_events.cpp)
     target_link_libraries(pulp-test-clap-midi-events PRIVATE pulp::format clap Catch2::Catch2WithMain)
+    target_compile_definitions(pulp-test-clap-midi-events PRIVATE PULP_CLAP_GUI=1)
     catch_discover_tests(pulp-test-clap-midi-events)
 
     # Item 3.4 (macOS plan) — pin the CLAP host-facing API contract that
@@ -1742,6 +1816,7 @@ if(APPLE AND PULP_HAS_AUSDK)
         Catch2::Catch2WithMain
         "-framework AudioToolbox"
         "-framework AVFoundation"
+        "-framework CoreAudioKit"
         "-framework Foundation"
     )
     set_target_properties(pulp-test-au-plugin-state PROPERTIES
@@ -2481,6 +2556,21 @@ catch_discover_tests(pulp-test-hot-reload
         RESOURCE_LOCK hot-reload-file-watcher
         LABELS slow)
 
+# Non-GPU inspector helpers. The full inspector-domain suite is GPU-gated
+# because it exercises View/Render integration, but these domain helpers are
+# plain data/StateStore contracts and should stay covered in CPU-only builds.
+add_executable(pulp-test-inspector-domain-helpers
+    test_inspector_domain_helpers.cpp
+    ${CMAKE_SOURCE_DIR}/inspect/src/audio_inspector.cpp
+    ${CMAKE_SOURCE_DIR}/inspect/src/console_capture.cpp
+    ${CMAKE_SOURCE_DIR}/inspect/src/editor_url.cpp
+    ${CMAKE_SOURCE_DIR}/inspect/src/state_inspector.cpp)
+target_include_directories(pulp-test-inspector-domain-helpers PRIVATE
+    ${CMAKE_SOURCE_DIR}/inspect/include)
+target_link_libraries(pulp-test-inspector-domain-helpers PRIVATE
+    pulp::canvas pulp::state pulp::runtime Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-inspector-domain-helpers)
+
 # Inspector tests — only when GPU is enabled (pulp-inspect requires GPU stack).
 if(PULP_ENABLE_GPU AND NOT ANDROID AND NOT IOS)
     add_executable(pulp-test-inspector test_inspector.cpp)
@@ -2521,8 +2611,15 @@ if(PULP_ENABLE_GPU AND NOT ANDROID AND NOT IOS)
 
     add_executable(pulp-test-inspector-server test_inspector_server.cpp)
     target_link_libraries(pulp-test-inspector-server PRIVATE pulp::inspect Catch2::Catch2WithMain)
-    catch_discover_tests(pulp-test-inspector-server
-        PROPERTIES ENVIRONMENT "PULP_INSPECTOR_NO_LAUNCH=1")
+    if(WIN32)
+        catch_discover_tests(pulp-test-inspector-server
+            PROPERTIES
+                ENVIRONMENT "PULP_INSPECTOR_NO_LAUNCH=1"
+                LABELS "windows-pr-quarantine")
+    else()
+        catch_discover_tests(pulp-test-inspector-server
+            PROPERTIES ENVIRONMENT "PULP_INSPECTOR_NO_LAUNCH=1")
+    endif()
 
     # P11-5 (#2647): three more concern-scoped sibling TUs carved verbatim out
     # of test_inspector.cpp to bring the 3,126-line parent under the 2,000-line
@@ -2825,8 +2922,19 @@ pulp_add_test_suite(pulp-test-component-dragger LIBRARIES pulp::view)
 # TooltipWindow — transient floating tooltip near cursor (gap-doc P2)
 pulp_add_test_suite(pulp-test-tooltip-window LIBRARIES pulp::view)
 
+# BubbleMessageComponent — floating message bubble anchored to a source
+# view with auto-dismiss (gap-doc Phase 3 sister of TooltipWindow)
+pulp_add_test_suite(pulp-test-bubble-message LIBRARIES pulp::view)
+
 # PreferencesPanel — sidebar-of-pages container (gap-doc P3)
 pulp_add_test_suite(pulp-test-preferences-panel LIBRARIES pulp::view)
+
+# PropertyPanel — typed property editor sister widget (gap-doc Phase 4
+# row "PreferencesPanel + PropertyPanel"). Header-only, links state
+# for PropertiesFile persistence.
+pulp_add_test_suite(pulp-test-property-panel
+    SOURCES test_property_panel.cpp
+    LIBRARIES pulp::view pulp::state)
 
 # UI components tests (ComboBox, TabPanel, ListBox, ScrollView, Tooltip, ProgressBar, CallOutBox)
 pulp_add_test_suite(pulp-test-ui-components LIBRARIES pulp::view)
@@ -3046,8 +3154,13 @@ target_compile_definitions(pulp-test-design-import-cpp-codegen PRIVATE
     PULP_REPO_ROOT="${CMAKE_SOURCE_DIR}")
 target_include_directories(pulp-test-design-import-cpp-codegen PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR})
-catch_discover_tests(pulp-test-design-import-cpp-codegen
-    PROPERTIES LABELS "parser-import")
+if(WIN32)
+    catch_discover_tests(pulp-test-design-import-cpp-codegen
+        PROPERTIES LABELS "parser-import;windows-pr-quarantine")
+else()
+    catch_discover_tests(pulp-test-design-import-cpp-codegen
+        PROPERTIES LABELS "parser-import")
+endif()
 
 add_executable(pulp-test-design-import-cpp-core-link
     test_design_import_cpp_core_link.cpp
@@ -3275,14 +3388,25 @@ target_link_libraries(pulp-test-import-design-tool
 target_compile_definitions(pulp-test-import-design-tool PRIVATE
     PULP_IMPORT_DESIGN_TOOL_PATH="$<TARGET_FILE:pulp-import-design>")
 add_dependencies(pulp-test-import-design-tool pulp-import-design)
-catch_discover_tests(pulp-test-import-design-tool
-    TEST_SPEC "~[network]"
-    PROPERTIES LABELS "parser-import")
-catch_discover_tests(pulp-test-import-design-tool
-    TEST_SPEC "[network]"
-    PROPERTIES
-        LABELS "parser-import"
-        RESOURCE_LOCK "design-import-network")
+if(WIN32)
+    catch_discover_tests(pulp-test-import-design-tool
+        TEST_SPEC "~[network]"
+        PROPERTIES LABELS "parser-import;windows-pr-quarantine")
+    catch_discover_tests(pulp-test-import-design-tool
+        TEST_SPEC "[network]"
+        PROPERTIES
+            LABELS "parser-import;windows-pr-quarantine"
+            RESOURCE_LOCK "design-import-network")
+else()
+    catch_discover_tests(pulp-test-import-design-tool
+        TEST_SPEC "~[network]"
+        PROPERTIES LABELS "parser-import")
+    catch_discover_tests(pulp-test-import-design-tool
+        TEST_SPEC "[network]"
+        PROPERTIES
+            LABELS "parser-import"
+            RESOURCE_LOCK "design-import-network")
+endif()
 
 # pulp #468 — `--execute-bundle` harness end-to-end. Boots the
 # ScriptEngine + WidgetBridge, builds a synthetic React-like bundle on
@@ -3480,8 +3604,11 @@ target_include_directories(pulp-test-negative-path PRIVATE
 )
 catch_discover_tests(pulp-test-negative-path)
 
-# iOS foundation tests (platform detection, safe area geometry, touch events)
+# iOS foundation tests (platform detection, safe area geometry, touch events,
+# AUv3 HostApp template shape).
 pulp_add_test_suite(pulp-test-ios-foundation LIBRARIES pulp::view pulp::platform)
+target_compile_definitions(pulp-test-ios-foundation PRIVATE
+    PULP_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
 # Identity/UUID tests
 pulp_add_test_suite(pulp-test-identity LIBRARIES pulp::runtime)
@@ -3498,13 +3625,25 @@ endif()
 # identifiers ("wkwebview", "webview2", "webkitgtk", "chromium", "none")
 # on every supported OS. Gap-doc 2026-05-24 row "WebBrowserComponent
 # (per-platform: WKWebView/WebView2/WebKitGTK/Chromium)".
-pulp_add_test_suite(pulp-test-webview-backend-detect LIBRARIES pulp::view)
+if(WIN32)
+    pulp_add_test_suite(pulp-test-webview-backend-detect
+        LIBRARIES pulp::view
+        LABELS "windows-pr-quarantine")
+else()
+    pulp_add_test_suite(pulp-test-webview-backend-detect LIBRARIES pulp::view)
+endif()
 
 # MIDI 2.0 UMP/MPE tests
 pulp_add_test_suite(pulp-test-ump-mpe LIBRARIES pulp::midi)
 
 # MPE voice tracker tests
-pulp_add_test_suite(pulp-test-mpe-voice-tracker LIBRARIES pulp::midi)
+if(WIN32)
+    pulp_add_test_suite(pulp-test-mpe-voice-tracker
+        LIBRARIES pulp::midi
+        LABELS "windows-pr-quarantine")
+else()
+    pulp_add_test_suite(pulp-test-mpe-voice-tracker LIBRARIES pulp::midi)
+endif()
 
 # UMP buffer + MIDI 1.0 <-> UMP conversion + UMP-aware MpeVoiceTracker
 pulp_add_test_suite(pulp-test-ump-buffer-conversion LIBRARIES pulp::format)

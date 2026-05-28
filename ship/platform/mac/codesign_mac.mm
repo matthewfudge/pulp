@@ -31,10 +31,11 @@ SigningInfo parse_codesign_details(const std::string& output) {
 }
 
 std::optional<std::string> parse_notarytool_submit_id(const std::string& output) {
-    std::regex uuid_re("id: ([0-9a-f-]+)");
+    std::regex uuid_re(
+        R"((^|\n)\s*id:\s+([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})(?:\s|$))");
     std::smatch match;
     if (std::regex_search(output, match, uuid_re))
-        return match[1].str();
+        return match[2].str();
     return std::nullopt;
 }
 
@@ -152,6 +153,22 @@ std::optional<std::string> notarize_submit(const std::string& path,
         + " --wait 2>&1";
 
     // Notarization can take 5-15 minutes — use 20 min timeout
+    auto output = exec_cmd(cmd, 1200000);
+    return detail::parse_notarytool_submit_id(output);
+}
+
+std::optional<std::string> notarize_submit_asc(const std::string& path,
+                                                const std::string& key_path,
+                                                const std::string& key_id,
+                                                const std::string& issuer_id) {
+    // App Store Connect API key flow — Apple's preferred path. Note
+    // notarytool reads the .p8 directly off disk; we never pass the
+    // key contents on the command line.
+    std::string cmd = "xcrun notarytool submit \"" + path + "\""
+        + " --key \"" + key_path + "\""
+        + " --key-id \"" + key_id + "\""
+        + " --issuer \"" + issuer_id + "\""
+        + " --wait 2>&1";
     auto output = exec_cmd(cmd, 1200000);
     return detail::parse_notarytool_submit_id(output);
 }
@@ -275,6 +292,7 @@ SigningInfo check_codesign(const std::string&) { return {}; }
 bool check_notarization(const std::string&) { return false; }
 bool codesign(const std::string&, const std::string&, const std::string&) { return false; }
 std::optional<std::string> notarize_submit(const std::string&, const std::string&, const std::string&, const std::string&) { return std::nullopt; }
+std::optional<std::string> notarize_submit_asc(const std::string&, const std::string&, const std::string&, const std::string&) { return std::nullopt; }
 NotarizationStatus notarize_check(const std::string&) { return {}; }
 bool notarize_staple(const std::string&) { return false; }
 std::vector<std::string> list_signing_identities() { return {}; }

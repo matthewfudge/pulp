@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -136,6 +137,34 @@ TEST_CASE("design-debug repo discovery finds the design tool from nested directo
     std::filesystem::remove_all(temp, ec);
 }
 
+TEST_CASE("design-debug loads ordered design-tool modules from the entry path",
+          "[tools][design-debug][coverage][requested]") {
+    auto temp = make_temp_dir("module-load");
+    auto js_dir = temp / "examples" / "design-tool";
+    REQUIRE(std::filesystem::create_directories(js_dir));
+    REQUIRE(write_text_file(js_dir / "oklch.js", "globalThis.__load = ['oklch'];\n"));
+    for (const char* module : kDesignToolModules) {
+        REQUIRE(write_text_file(js_dir / module,
+                                "globalThis.__load.push('" + std::string(module) + "');\n"));
+    }
+
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    load_design_tool(js_dir / kDesignToolEntry, bridge);
+    auto result = engine.evaluate("JSON.stringify(globalThis.__load)");
+    REQUIRE(result.isString());
+    auto text = std::string(result.getString());
+
+    REQUIRE(text.find("oklch") != std::string::npos);
+    REQUIRE(text.find("design-tool-core.js") != std::string::npos);
+    REQUIRE(text.find("design-tool-export.js") != std::string::npos);
+
+    std::error_code ec;
+    std::filesystem::remove_all(temp, ec);
+}
+
 TEST_CASE("design-debug capture metadata matches backend behavior",
           "[tools][design-debug][coverage]") {
     REQUIRE(std::string(capture_mode_flag_name(CaptureMode::headless_skia,
@@ -162,6 +191,53 @@ TEST_CASE("design-debug capture metadata matches backend behavior",
                                               ScreenshotBackend::coregraphics));
     REQUIRE_FALSE(capture_mode_supports_widget_sksl(CaptureMode::headless_coregraphics,
                                                     ScreenshotBackend::coregraphics));
+}
+
+TEST_CASE("design-debug default option structs preserve artifact contracts",
+          "[tools][design-debug][coverage]") {
+    const Options opts;
+    REQUIRE(opts.script_path.empty());
+    REQUIRE(opts.design_tool_bin.empty());
+    REQUIRE(opts.output_dir == std::filesystem::path("build") / "design-debug");
+    REQUIRE(opts.prompt.empty());
+    REQUIRE(opts.target == "all");
+    REQUIRE(opts.provider == "claude");
+    REQUIRE(opts.model == "claude-sonnet-4-6");
+    REQUIRE(opts.reasoning_effort.empty());
+    REQUIRE(opts.ai_cli.empty());
+    REQUIRE(opts.response_file.empty());
+    REQUIRE(opts.width == 1100);
+    REQUIRE(opts.height == 700);
+    REQUIRE(opts.scale == 2.0f);
+    REQUIRE(opts.capture_mode == CaptureMode::headless_skia);
+    REQUIRE(opts.capture_backend == ScreenshotBackend::skia);
+    REQUIRE(opts.delay_ms == 350);
+    REQUIRE(opts.after_delay_ms == 350);
+    REQUIRE(opts.debug_json);
+
+    const TargetArtifacts artifacts;
+    REQUIRE_FALSE(artifacts.valid);
+    REQUIRE_FALSE(artifacts.diff_written);
+    REQUIRE(artifacts.source == "none");
+    REQUIRE(artifacts.before_path.empty());
+    REQUIRE(artifacts.after_path.empty());
+    REQUIRE(artifacts.diff_path.empty());
+    REQUIRE(artifacts.x == 0);
+    REQUIRE(artifacts.y == 0);
+    REQUIRE(artifacts.width == 0);
+    REQUIRE(artifacts.height == 0);
+    REQUIRE(artifacts.padding == 0);
+}
+
+TEST_CASE("design-debug timestamp stamp uses sortable local format",
+          "[tools][design-debug][coverage]") {
+    const auto stamp = now_stamp();
+    REQUIRE(stamp.size() == 15);
+    REQUIRE(stamp[8] == '-');
+    for (std::size_t i = 0; i < stamp.size(); ++i) {
+        if (i == 8) continue;
+        REQUIRE(std::isdigit(static_cast<unsigned char>(stamp[i])) != 0);
+    }
 }
 
 TEST_CASE("design-debug target bounds parser accepts debug state shape",
@@ -248,6 +324,16 @@ TEST_CASE("design-debug option validation fails before expensive render setup",
     REQUIRE(run_design_debug({"pulp-design-debug", "--prompt", "change color",
                               "--capture-backend", "unknown"}) == 1);
     REQUIRE(run_design_debug({"pulp-design-debug", "--prompt", "change color",
+                              "--width", "wide"}) == 1);
+    REQUIRE(run_design_debug({"pulp-design-debug", "--prompt", "change color",
+                              "--height", "tall"}) == 1);
+    REQUIRE(run_design_debug({"pulp-design-debug", "--prompt", "change color",
+                              "--scale", "huge"}) == 1);
+    REQUIRE(run_design_debug({"pulp-design-debug", "--prompt", "change color",
+                              "--delay-ms", "soon"}) == 1);
+    REQUIRE(run_design_debug({"pulp-design-debug", "--prompt", "change color",
+                              "--after-delay-ms", "later"}) == 1);
+    REQUIRE(run_design_debug({"pulp-design-debug", "--prompt", "change color",
                               "--script", (temp / "missing.js").string()}) == 1);
     REQUIRE(run_design_debug({"pulp-design-debug", "--prompt", "change color",
                               "--script", script.string(),
@@ -259,6 +345,129 @@ TEST_CASE("design-debug option validation fails before expensive render setup",
 
     REQUIRE(write_text_file(response, "ok"));
     REQUIRE(read_file(response) == "ok");
+
+    std::error_code ec;
+    std::filesystem::remove_all(temp, ec);
+}
+
+TEST_CASE("design-debug headless response-file run writes report artifacts",
+          "[tools][design-debug][coverage][requested]") {
+#if !defined(__APPLE__)
+    SKIP("design-debug artifact comparison needs the native screenshot backend");
+#endif
+
+    auto temp = make_temp_dir("headless-run");
+    auto script = temp / "debug-tool.js";
+    auto response = temp / "response.txt";
+    auto output = temp / "artifacts";
+
+    REQUIRE(write_text_file(script, R"JS(
+createLabel('target1', 'Before', 10, 10, 120, 24);
+function setDesignDebugTarget(id) { globalThis.__target = id; }
+function clearInspectedComponent() { globalThis.__target = 'all'; }
+function setDesignDebugAIConfig(provider, model, effort) {
+  globalThis.__provider = provider;
+  globalThis.__model = model;
+  globalThis.__effort = effort;
+}
+function buildDesignChatPrompt(prompt) {
+  return 'prompt:' + prompt + ':' + globalThis.__target;
+}
+function applyDesignChatResponse(response) {
+  setText('target1', response);
+  return 'applied:' + response;
+}
+function getDesignDebugStateJson() {
+  return '{"targetBounds":{"x":10,"y":10,"width":120,"height":24}}';
+}
+)JS"));
+    REQUIRE(write_text_file(response, "After"));
+
+    const auto exit_code = run_design_debug({
+        "pulp-design-debug",
+        "--prompt", "make label explicit",
+        "--target", "target1",
+        "--script", script.string(),
+        "--response-file", response.string(),
+        "--output-dir", output.string(),
+        "--provider", "test-provider",
+        "--model", "test-model",
+        "--reasoning-effort", "low",
+        "--width", "180",
+        "--height", "80",
+        "--scale", "1"
+    });
+
+    REQUIRE(exit_code == 0);
+    REQUIRE(std::filesystem::exists(output / "latest-report.json"));
+    REQUIRE(std::filesystem::exists(output / "latest-run.json"));
+    REQUIRE(std::filesystem::exists(output / "runs.jsonl"));
+
+    auto report = read_file(output / "latest-report.json");
+    REQUIRE(report.find(R"("tool": "pulp-design-debug")") != std::string::npos);
+    REQUIRE(report.find(R"("provider": "test-provider")") != std::string::npos);
+    REQUIRE(report.find(R"("model": "test-model")") != std::string::npos);
+    REQUIRE(report.find(R"("target": "target1")") != std::string::npos);
+    REQUIRE(report.find(R"("target_found": true)") != std::string::npos);
+    REQUIRE(report.find(R"("apply_summary": "applied:After")") != std::string::npos);
+    REQUIRE(report.find(R"("target_before_image": )") != std::string::npos);
+    REQUIRE(report.find(R"("target_after_image": )") != std::string::npos);
+    REQUIRE(report.find(R"("target_region_changed": true)") != std::string::npos);
+
+    auto run_log = read_file(output / "runs.jsonl");
+    REQUIRE(run_log.find(R"("target":"target1")") != std::string::npos);
+    REQUIRE(run_log.find("make label explicit") != std::string::npos);
+
+    std::error_code ec;
+    std::filesystem::remove_all(temp, ec);
+}
+
+TEST_CASE("design-debug response-file run accepts explicit CoreGraphics capture",
+          "[tools][design-debug][coverage][requested]") {
+#if !defined(__APPLE__)
+    SKIP("CoreGraphics capture is macOS-only");
+#endif
+
+    auto temp = make_temp_dir("coregraphics-run");
+    auto script = temp / "debug-tool.js";
+    auto response = temp / "response.txt";
+    auto output = temp / "artifacts";
+
+    REQUIRE(write_text_file(script, R"JS(
+createLabel('target1', 'Before', 8, 8, 110, 24);
+function setDesignDebugTarget(id) { globalThis.__target = id; }
+function clearInspectedComponent() { globalThis.__target = 'all'; }
+function setDesignDebugAIConfig(provider, model, effort) {}
+function buildDesignChatPrompt(prompt) { return 'prompt:' + prompt; }
+function applyDesignChatResponse(response) {
+  setText('target1', response);
+  return 'applied:' + response;
+}
+function getDesignDebugStateJson() {
+  return '{"targetBounds":{"x":8,"y":8,"width":110,"height":24}}';
+}
+)JS"));
+    REQUIRE(write_text_file(response, "After"));
+
+    const auto exit_code = run_design_debug({
+        "pulp-design-debug",
+        "--prompt", "use coregraphics",
+        "--target", "target1",
+        "--script", script.string(),
+        "--response-file", response.string(),
+        "--output-dir", output.string(),
+        "--capture-backend", "coregraphics",
+        "--width", "150",
+        "--height", "70",
+        "--scale", "1"
+    });
+
+    REQUIRE(exit_code == 0);
+    auto report = read_file(output / "latest-report.json");
+    REQUIRE(report.find(R"("render_backend": "coregraphics-headless")") != std::string::npos);
+    REQUIRE(report.find(R"("requested_capture_backend": "coregraphics")") != std::string::npos);
+    REQUIRE(report.find(R"("target_found": true)") != std::string::npos);
+    REQUIRE(report.find(R"("target_region_changed": true)") != std::string::npos);
 
     std::error_code ec;
     std::filesystem::remove_all(temp, ec);

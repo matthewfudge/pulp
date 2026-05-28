@@ -194,6 +194,65 @@ TEST_CASE("ViewInspector type_name", "[view][inspector]") {
     REQUIRE(ViewInspector::type_name(sp) == "SpectrumView");
 }
 
+TEST_CASE("InspectorWindow public controls clamp and toggle deterministic state",
+          "[view][inspector][window][coverage][requested]") {
+    View root;
+    root.set_id("root");
+    root.set_bounds({0, 0, 640, 480});
+
+    InspectorWindow window(root);
+    REQUIRE_FALSE(window.selection_readonly());
+    REQUIRE(window.active_tool() == 0);
+
+    window.set_selection_readonly(true);
+    REQUIRE(window.selection_readonly());
+    window.set_selection_readonly(false);
+    REQUIRE_FALSE(window.selection_readonly());
+
+    window.set_active_tool(1);
+    REQUIRE(window.active_tool() == 1);
+    window.set_active_tool(0);
+    REQUIRE(window.active_tool() == 0);
+    window.set_active_tool(-1);
+    REQUIRE(window.active_tool() == 0);
+    window.set_active_tool(42);
+    REQUIRE(window.active_tool() == 0);
+}
+
+TEST_CASE("CollapsableSection toggles only from header mouse-down events",
+          "[view][inspector][window][coverage][requested]") {
+    CollapsableSection section("Layout", true);
+    section.set_bounds({0, 0, 200, 120});
+
+    REQUIRE(section.is_expanded());
+    REQUIRE(section.content() != nullptr);
+    REQUIRE(section.content()->visible());
+
+    MouseEvent move;
+    move.position = {8, 8};
+    move.is_down = false;
+    section.on_mouse_event(move);
+    REQUIRE(section.is_expanded());
+    REQUIRE(section.content()->visible());
+
+    MouseEvent content_click;
+    content_click.position = {8, 48};
+    content_click.is_down = true;
+    section.on_mouse_event(content_click);
+    REQUIRE(section.is_expanded());
+
+    MouseEvent header_click;
+    header_click.position = {8, 8};
+    header_click.is_down = true;
+    section.on_mouse_event(header_click);
+    REQUIRE_FALSE(section.is_expanded());
+    REQUIRE_FALSE(section.content()->visible());
+
+    section.set_expanded(true);
+    REQUIRE(section.is_expanded());
+    REQUIRE(section.content()->visible());
+}
+
 TEST_CASE("ViewInspector count_views", "[view][inspector]") {
     View root;
     root.add_child(std::make_unique<Knob>());
@@ -416,11 +475,17 @@ TEST_CASE("Protocol: decode rejects invalid field types without partial output",
     msg.params_json = "stale";
 
     REQUIRE_FALSE(decode_message(R"({"id":"not-an-int","method":"DOM.search"})", msg));
+    REQUIRE(msg.id == 0);
+    REQUIRE(msg.method.empty());
+    REQUIRE(msg.params_json.empty());
 
     msg.id = 99;
     msg.method = "stale";
     msg.params_json = "stale";
     REQUIRE_FALSE(decode_message(R"({"id":20,"method":42})", msg));
+    REQUIRE(msg.id == 20);
+    REQUIRE(msg.method.empty());
+    REQUIRE(msg.params_json.empty());
 }
 
 // ── InspectorOverlay ────────────────────────────────────────────────────────
@@ -2024,6 +2089,99 @@ TEST_CASE("InspectorWindow default refresh and selection mirror contracts",
     REQUIRE_FALSE(selected_callback_called);
     window.select_view(nullptr);
     REQUIRE(selected_callback_called);
+}
+
+TEST_CASE("Inspector overlay and window public header toggles are direct contracts",
+          "[inspect][overlay][window][coverage][requested]") {
+    View root;
+    root.set_bounds({0, 0, 320, 200});
+
+    InspectorOverlay overlay(root);
+    REQUIRE(&overlay.inspected_root() == &root);
+    REQUIRE_FALSE(overlay.is_active());
+    overlay.set_active(true);
+    REQUIRE(overlay.is_active());
+    overlay.toggle();
+    REQUIRE_FALSE(overlay.is_active());
+
+    REQUIRE(overlay.tool() == InspectorOverlay::Tool::select);
+    overlay.toggle_tool();
+    REQUIRE(overlay.tool() == InspectorOverlay::Tool::text);
+    overlay.set_tool(InspectorOverlay::Tool::select);
+    REQUIRE(overlay.tool() == InspectorOverlay::Tool::select);
+
+    REQUIRE_FALSE(overlay.manipulate_only());
+    REQUIRE_FALSE(overlay.dragging_enabled());
+    overlay.set_manipulate_only(true);
+    REQUIRE(overlay.manipulate_only());
+    REQUIRE(overlay.dragging_enabled());
+
+    REQUIRE_FALSE(overlay.has_reparent_source_sink());
+    overlay.set_reparent_source_sink([](const InspectorOverlay::ReparentSourceEdit&) {});
+    REQUIRE(overlay.has_reparent_source_sink());
+    overlay.set_reparent_source_sink({});
+    REQUIRE_FALSE(overlay.has_reparent_source_sink());
+
+    InspectorWindow window(root);
+    REQUIRE_FALSE(window.selection_readonly());
+    window.set_selection_readonly(true);
+    REQUIRE(window.selection_readonly());
+    window.set_selection_readonly(false);
+    REQUIRE_FALSE(window.selection_readonly());
+}
+
+TEST_CASE("InspectorOverlay auxiliary panel toggles are stable public contracts",
+          "[inspect][overlay][coverage][requested]") {
+    View root;
+    root.set_bounds({0, 0, 320, 200});
+
+    InspectorOverlay overlay(root);
+    REQUIRE_FALSE(overlay.tweaks_panel_visible());
+    overlay.set_tweaks_panel_visible(true);
+    REQUIRE(overlay.tweaks_panel_visible());
+    overlay.toggle_tweaks_panel();
+    REQUIRE_FALSE(overlay.tweaks_panel_visible());
+    REQUIRE(overlay.tweak_row_count() == 0);
+
+    REQUIRE_FALSE(overlay.drift_drawer_open());
+    overlay.set_drift_drawer_open(true);
+    REQUIRE(overlay.drift_drawer_open());
+    overlay.toggle_drift_drawer();
+    REQUIRE_FALSE(overlay.drift_drawer_open());
+    REQUIRE(overlay.drift_count() == 0);
+    REQUIRE(overlay.drifted().empty());
+
+    REQUIRE_FALSE(overlay.reconcile_tab_visible());
+    overlay.set_reconcile_tab_visible(true);
+    REQUIRE(overlay.reconcile_tab_visible());
+    overlay.toggle_reconcile_tab();
+    REQUIRE_FALSE(overlay.reconcile_tab_visible());
+    REQUIRE(overlay.reconcile_row_count() == 0);
+    REQUIRE(overlay.reconcile_report().total() == 0);
+    REQUIRE(std::string(InspectorOverlay::reconcile_status_str(
+                InspectorOverlay::ReconcileStatus::locked_to_source)) == "locked-to-source");
+    REQUIRE(std::string(InspectorOverlay::reconcile_status_str(
+                InspectorOverlay::ReconcileStatus::drifted)) == "drifted");
+    REQUIRE(std::string(InspectorOverlay::reconcile_status_str(
+                InspectorOverlay::ReconcileStatus::unresolvable)) == "unresolvable");
+
+    REQUIRE_FALSE(overlay.atlas_viewer_visible());
+    overlay.set_atlas_viewer_visible(true);
+    REQUIRE(overlay.atlas_viewer_visible());
+    overlay.toggle_atlas_viewer();
+    REQUIRE_FALSE(overlay.atlas_viewer_visible());
+    REQUIRE(overlay.atlas_row_count() == 0);
+    REQUIRE(overlay.atlas_inventory() == nullptr);
+
+    REQUIRE_FALSE(overlay.zoom_active());
+    overlay.set_zoom_active(true);
+    REQUIRE(overlay.zoom_active());
+    overlay.toggle_zoom();
+    REQUIRE_FALSE(overlay.zoom_active());
+    overlay.set_zoom_factor(1);
+    REQUIRE(overlay.zoom_factor() == 4);
+    overlay.set_zoom_factor(99);
+    REQUIRE(overlay.zoom_factor() == 40);
 }
 
 TEST_CASE("InspectorWindow rebuilds tree and theme sections only from live roots",

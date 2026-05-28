@@ -108,6 +108,8 @@ target_sources(pulp-runtime PRIVATE
     src/websocket_channel.cpp
     src/json_rpc.cpp
     src/ip_address.cpp
+    src/mac_address.cpp
+    src/url.cpp
     src/i18n.cpp
     src/crypto.cpp
     src/analytics.cpp
@@ -137,6 +139,27 @@ target_include_directories(pulp-runtime PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../../external/cpp-httplib
     ${CMAKE_CURRENT_SOURCE_DIR}/../../external
 )
+
+set(_pulp_ubsan_enabled OFF)
+if(PULP_SANITIZER STREQUAL "undefined"
+        OR CMAKE_CXX_FLAGS MATCHES "(^| )-fsanitize=[^ ]*undefined"
+        OR CMAKE_C_FLAGS MATCHES "(^| )-fsanitize=[^ ]*undefined")
+    set(_pulp_ubsan_enabled ON)
+endif()
+
+if(_pulp_ubsan_enabled AND CMAKE_C_COMPILER_ID MATCHES "Clang|AppleClang|GNU")
+    # These vendored C libraries use implementation patterns that trip UBSan.
+    # Keep sanitizer coverage on Pulp's wrappers and tests while compiling only
+    # the vendored C implementations without UBSan.
+    set_source_files_properties(
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../external/miniz/miniz.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../external/miniz/miniz_tdef.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../external/miniz/miniz_tinfl.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../external/miniz/miniz_zip.c
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../external/tweetnacl/tweetnacl.c
+        PROPERTIES COMPILE_OPTIONS "-fno-sanitize=undefined")
+endif()
+unset(_pulp_ubsan_enabled)
 
 target_link_libraries(pulp-runtime PUBLIC pulp::platform)
 target_link_libraries(pulp-runtime PRIVATE hwy)
