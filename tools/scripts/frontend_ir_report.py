@@ -5,37 +5,27 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import pathlib
 import re
 from typing import Any
 
-
-ROUTE_NATIVE_CPP = "native_cpp"
-ROUTE_NATIVE_HTML = "native_html"
-ROUTE_RECORDED_PAINT = "recorded_paint"
-ROUTE_LIVE_JS = "live_js"
-ROUTE_HYBRID = "hybrid"
-ROUTE_UNSUPPORTED = "unsupported"
-ROUTES = {
-    ROUTE_LIVE_JS,
-    ROUTE_NATIVE_HTML,
-    ROUTE_NATIVE_CPP,
-    ROUTE_RECORDED_PAINT,
+from frontend_ir_validation import (
+    FALLBACK_ROUTES,
+    NATIVE_ROUTES,
+    PLANNED_SUPPORT_ROUTES,
     ROUTE_HYBRID,
+    ROUTE_LIVE_JS,
+    ROUTE_NATIVE_CPP,
+    ROUTE_NATIVE_HTML,
+    ROUTE_RECORDED_PAINT,
     ROUTE_UNSUPPORTED,
-}
-NATIVE_ROUTES = {ROUTE_NATIVE_HTML, ROUTE_NATIVE_CPP, ROUTE_RECORDED_PAINT}
-FALLBACK_ROUTES = {ROUTE_LIVE_JS, ROUTE_HYBRID, ROUTE_UNSUPPORTED}
-PLANNED_SUPPORT_ROUTES = {
-    ROUTE_LIVE_JS,
-    ROUTE_NATIVE_HTML,
-    ROUTE_NATIVE_CPP,
-    ROUTE_RECORDED_PAINT,
-    ROUTE_HYBRID,
-}
-SOURCE_TRUTHS = {"archived_fixture", "local_file", "mcp_payload", "generated", "runtime_capture"}
-SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
+    SOURCE_TRUTHS,
+    is_finite_number,
+    is_non_negative_int,
+    is_positive_int,
+    validate_count_map,
+    validate_frontend_ir,
+)
 
 
 def load_json(path: pathlib.Path) -> dict[str, Any]:
@@ -51,137 +41,11 @@ def write_json(path: pathlib.Path, data: dict[str, Any]) -> None:
     path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def expect(condition: bool, message: str) -> None:
-    if not condition:
-        raise ValueError(message)
-
-
-def validate_sha(value: Any, field: str) -> None:
-    if value is None:
-        return
-    expect(isinstance(value, str) and bool(SHA256_RE.fullmatch(value)), f"{field} must be a lowercase sha256")
-
-
-def validate_count_map(value: Any, field: str) -> None:
-    expect(isinstance(value, dict), f"{field} must be an object")
-    for key, count in value.items():
-        expect(isinstance(key, str) and bool(key), f"{field} keys must be non-empty strings")
-        expect(is_non_negative_int(count), f"{field}.{key} must be a non-negative integer")
-
-
-def validate_artifact_ref(value: Any, field: str) -> None:
-    expect(isinstance(value, dict), f"{field} must be an object")
-    expect(isinstance(value.get("path"), str), f"{field}.path must be a string")
-    validate_sha(value.get("sha256"), f"{field}.sha256")
-
-
-def validate_source_span(value: Any, field: str) -> None:
-    expect(isinstance(value, dict), f"{field} must be an object")
-    expect(isinstance(value.get("node_id"), str) and bool(value["node_id"]), f"{field}.node_id must be a string")
-    expect(isinstance(value.get("path"), str) and bool(value["path"]), f"{field}.path must be a string")
-    for key in ("line", "column", "end_line", "end_column"):
-        if key in value:
-            expect(is_positive_int(value[key]), f"{field}.{key} must be a positive integer")
-
-
-def validate_resource(value: Any, field: str) -> None:
-    expect(isinstance(value, dict), f"{field} must be an object")
-    expect(isinstance(value.get("id"), str) and bool(value["id"]), f"{field}.id must be a string")
-    expect(isinstance(value.get("original_uri"), str) and bool(value["original_uri"]),
-           f"{field}.original_uri must be a string")
-    expect(isinstance(value.get("route_usage"), list), f"{field}.route_usage must be an array")
-    for index, route in enumerate(value["route_usage"]):
-        expect(route in ROUTES, f"{field}.route_usage[{index}] is invalid")
-    validate_sha(value.get("sha256"), f"{field}.sha256")
-    if "byte_size" in value:
-        expect(is_non_negative_int(value["byte_size"]), f"{field}.byte_size must be a non-negative integer")
-
-
-def validate_frontend_ir(report: dict[str, Any]) -> None:
-    expect(report.get("schema") == "pulp-frontend-ir-v0", "schema must be pulp-frontend-ir-v0")
-    for key in ("source", "design_ir", "nodes", "routes", "validation"):
-        expect(key in report, f"missing required field: {key}")
-
-    source = report["source"]
-    expect(isinstance(source, dict), "source must be an object")
-    expect(source.get("kind") in {"jsx", "html", "design_json", "runtime_snapshot", "pulp_js"}, "source.kind is invalid")
-    expect(isinstance(source.get("path"), str), "source.path must be a string")
-    expect(source.get("source_of_truth") in SOURCE_TRUTHS, "source.source_of_truth is invalid")
-    validate_sha(source.get("sha256"), "source.sha256")
-    validate_count_map(source.get("counts"), "source.counts")
-    if "spans" in source:
-        expect(isinstance(source["spans"], list), "source.spans must be an array")
-        for index, span in enumerate(source["spans"]):
-            validate_source_span(span, f"source.spans[{index}]")
-
-    validate_artifact_ref(report["design_ir"], "design_ir")
-    if "route_manifest" in report:
-        validate_artifact_ref(report["route_manifest"], "route_manifest")
-
-    expect(isinstance(report["nodes"], list), "nodes must be an array")
-    for index, node in enumerate(report["nodes"]):
-        expect(isinstance(node, dict), f"nodes[{index}] must be an object")
-        expect(isinstance(node.get("id"), str) and bool(node["id"]), f"nodes[{index}].id is required")
-        expect(isinstance(node.get("semantic_role"), str) and bool(node["semantic_role"]),
-               f"nodes[{index}].semantic_role is required")
-        expect(isinstance(node.get("style"), dict), f"nodes[{index}].style must be an object")
-        expect(isinstance(node.get("state"), dict), f"nodes[{index}].state must be an object")
-        if "source_span" in node:
-            validate_source_span(node["source_span"], f"nodes[{index}].source_span")
-
-    if "resources" in report:
-        expect(isinstance(report["resources"], list), "resources must be an array")
-        for index, resource in enumerate(report["resources"]):
-            validate_resource(resource, f"resources[{index}]")
-
-    expect(isinstance(report["routes"], list), "routes must be an array")
-    for index, route in enumerate(report["routes"]):
-        expect(isinstance(route, dict), f"routes[{index}] must be an object")
-        chosen = route.get("chosen_route")
-        expect(chosen in ROUTES, f"routes[{index}].chosen_route is invalid")
-        expect(isinstance(route.get("node_id"), str) and bool(route["node_id"]), f"routes[{index}].node_id is required")
-        expect(isinstance(route.get("reason"), str) and bool(route["reason"]), f"routes[{index}].reason is required")
-        if chosen in NATIVE_ROUTES:
-            expect(route.get("requires_js_engine") is False,
-                   f"routes[{index}] native route must set requires_js_engine=false")
-            expect(isinstance(route.get("validation_refs"), list) and bool(route["validation_refs"]),
-                   f"routes[{index}] native route must include validation_refs")
-        if chosen in FALLBACK_ROUTES:
-            expect(isinstance(route.get("fallback_reason"), str) and bool(route["fallback_reason"]),
-                   f"routes[{index}] fallback route must include fallback_reason")
-
-    validation = report["validation"]
-    expect(isinstance(validation, dict), "validation must be an object")
-    validate_count_map(validation.get("source_counts"), "validation.source_counts")
-    validate_count_map(validation.get("style_counts"), "validation.style_counts")
-    if "route_counts" in validation:
-        validate_count_map(validation.get("route_counts"), "validation.route_counts")
-    if "primitive_counts" in validation:
-        validate_count_map(validation.get("primitive_counts"), "validation.primitive_counts")
-    if "resource_counts" in validation:
-        validate_count_map(validation.get("resource_counts"), "validation.resource_counts")
-    if "state_counts" in validation:
-        validate_count_map(validation.get("state_counts"), "validation.state_counts")
-
-
 def repo_relative(path: pathlib.Path, repo_root: pathlib.Path) -> str:
     try:
         return path.resolve().relative_to(repo_root.resolve()).as_posix()
     except ValueError:
         return path.as_posix()
-
-
-def is_non_negative_int(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
-
-
-def is_positive_int(value: Any) -> bool:
-    return isinstance(value, int) and not isinstance(value, bool) and value > 0
-
-
-def is_finite_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
-
 
 def route_name(value: str | None) -> str:
     normalized = (value or "").strip().lower().replace("-", "_")
@@ -427,6 +291,32 @@ def primitive_counts(rows: list[Any]) -> dict[str, int]:
     return counts
 
 
+def token_key(value: str) -> str:
+    return value.strip()
+
+
+def tokens_from_rows(rows: list[Any]) -> dict[str, dict[str, Any]]:
+    tokens: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for token in row.get("style_token_references", []) or []:
+            if not isinstance(token, str):
+                continue
+            key = token_key(token)
+            if not key:
+                continue
+            tokens.setdefault(key, {
+                "type": "reference",
+                "value": key,
+                "source_identity": {
+                    "provenance": "style_token_references",
+                    "source": "route_manifest",
+                },
+            })
+    return dict(sorted(tokens.items()))
+
+
 def route_usage_for_input(key: str, rows: list[Any]) -> list[str]:
     normalized = resource_id_key(key)
     if normalized in {"bundle", "runtime_trace"}:
@@ -512,6 +402,47 @@ def resource_counts(resources: list[dict[str, Any]]) -> dict[str, int]:
         for route in resource.get("route_usage", []) or []:
             if isinstance(route, str):
                 counts[f"route_usage_{route}"] = counts.get(f"route_usage_{route}", 0) + 1
+    return counts
+
+
+def token_counts(tokens: dict[str, dict[str, Any]], rows: list[Any]) -> dict[str, int]:
+    counts = {
+        "total": len(tokens),
+        "unresolved": 0,
+        "referenced_by_rows": 0,
+    }
+    referenced_rows = set()
+    for token in tokens.values():
+        if "resolved_value" not in token:
+            counts["unresolved"] += 1
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        refs = [
+            token for token in row.get("style_token_references", []) or []
+            if isinstance(token, str) and token_key(token)
+        ]
+        if refs:
+            referenced_rows.add(index)
+    counts["referenced_by_rows"] = len(referenced_rows)
+    return counts
+
+
+def tweak_counts(tweaks: list[dict[str, Any]]) -> dict[str, int]:
+    counts = {
+        "total": len(tweaks),
+        "classification_preserved": 0,
+    }
+    for tweak in tweaks:
+        if not isinstance(tweak, dict):
+            continue
+        if tweak.get("classification_preserved") is True:
+            counts["classification_preserved"] += 1
+        for invalidation in tweak.get("invalidates", []) or []:
+            if isinstance(invalidation, str):
+                counts[f"invalidates_{metric_key(invalidation)}"] = counts.get(
+                    f"invalidates_{metric_key(invalidation)}", 0
+                ) + 1
     return counts
 
 
@@ -868,6 +799,8 @@ def build_frontend_ir(
     counts = count_map(source_audit, rows)
     nodes = nodes_from_rows(rows)
     resources = resources_from_manifest(route_manifest, rows, repo_root)
+    tokens = tokens_from_rows(rows)
+    tweaks: list[dict[str, Any]] = []
     source_of_truth = overlay.get("source", {}).get("source_of_truth")
     source_of_truth = normalize_source_of_truth(source_of_truth)
 
@@ -901,8 +834,8 @@ def build_frontend_ir(
         },
         "nodes": nodes,
         "resources": resources,
-        "tokens": {},
-        "tweaks": [],
+        "tokens": tokens,
+        "tweaks": tweaks,
         "routes": routes_from_rows(rows),
         "host": {
             "dpi_policy": "responsive",
@@ -919,6 +852,8 @@ def build_frontend_ir(
             "route_counts": route_counts(route_manifest, rows),
             "primitive_counts": primitive_counts(rows),
             "resource_counts": resource_counts(resources),
+            "token_counts": token_counts(tokens, rows),
+            "tweak_counts": tweak_counts(tweaks),
             "compile": {
                 "status": "not_run",
             },

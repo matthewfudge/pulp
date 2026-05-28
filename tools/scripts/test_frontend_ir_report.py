@@ -146,6 +146,14 @@ class FrontendIrReportTests(unittest.TestCase):
         self.assertEqual(report["nodes"][0]["state"]["parameters"][0]["value"], 0.5)
         self.assertEqual(report["nodes"][0]["state"]["parameters"][0]["range"]["default"], 0.0)
         self.assertEqual(report["nodes"][0]["state"]["parameters"][0]["default_source"], "prop.default")
+        self.assertEqual(report["tokens"]["colors.accent"]["type"], "reference")
+        self.assertEqual(report["tokens"]["colors.accent"]["value"], "colors.accent")
+        self.assertEqual(report["tokens"]["colors.accent"]["source_identity"]["provenance"],
+                         "style_token_references")
+        self.assertEqual(report["validation"]["token_counts"]["total"], 1)
+        self.assertEqual(report["validation"]["token_counts"]["unresolved"], 1)
+        self.assertEqual(report["validation"]["token_counts"]["referenced_by_rows"], 1)
+        self.assertEqual(report["validation"]["tweak_counts"]["total"], 0)
         self.assertEqual(report["routes"][0]["chosen_route"], "native_cpp")
         self.assertFalse(report["routes"][0]["requires_js_engine"])
         self.assertIn("validation_refs", report["routes"][0])
@@ -292,6 +300,8 @@ class FrontendIrReportTests(unittest.TestCase):
         self.assertEqual(report["validation"]["resource_counts"]["total"], 1)
         self.assertEqual(report["validation"]["resource_counts"]["route_usage_native_cpp"], 1)
         self.assertEqual(report["validation"]["resource_counts"]["route_usage_native_html"], 1)
+        self.assertEqual(report["validation"]["token_counts"]["total"], 0)
+        self.assertEqual(report["validation"]["tweak_counts"]["total"], 0)
         self.assertIn("did not provide a DesignIR", " ".join(report["validation"]["notes"]))
         fir.validate_frontend_ir(report)
 
@@ -316,6 +326,30 @@ class FrontendIrReportTests(unittest.TestCase):
                     "source_counts": {},
                     "style_counts": {},
                     "state_counts": {"bad": True},
+                },
+            })
+        with self.assertRaisesRegex(ValueError, "tokens.bad.value is required"):
+            fir.validate_frontend_ir({
+                "schema": "pulp-frontend-ir-v0",
+                "source": {
+                    "kind": "jsx",
+                    "path": "fixtures/UI.jsx",
+                    "source_of_truth": "local_file",
+                    "counts": {},
+                },
+                "design_ir": {
+                    "path": "reports/generated/ui-ir.json",
+                },
+                "nodes": [],
+                "tokens": {
+                    "bad": {
+                        "type": "reference",
+                    },
+                },
+                "routes": [],
+                "validation": {
+                    "source_counts": {},
+                    "style_counts": {},
                 },
             })
 
