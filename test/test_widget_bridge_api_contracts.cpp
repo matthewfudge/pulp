@@ -49,6 +49,8 @@ TEST_CASE("WidgetBridge JS native API registrations are unique",
                              "core/view/src/widget_bridge.cpp";
     const auto source = read_text(source_path);
     const auto registrations = widget_bridge_registrations(source);
+    INFO("WidgetBridge native JS registrations found: " << registrations.size());
+    REQUIRE_FALSE(registrations.empty());
 
     std::map<std::string, std::vector<int>> lines_by_name;
     for (const auto& site : registrations)
