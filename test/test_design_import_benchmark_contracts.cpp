@@ -102,6 +102,9 @@ TEST_CASE("design-import benchmark parse_int accepts complete integers only",
     REQUIRE_FALSE(parse_int("12 ", value));
     REQUIRE(parse_int("+12", value));
     REQUIRE(value == 12);
+    REQUIRE_FALSE(parse_int("999999999999999999999999", value));
+    REQUIRE_FALSE(parse_int("0x10", value));
+    REQUIRE_FALSE(parse_int("--1", value));
 }
 
 TEST_CASE("design-import benchmark argument parser supports split and equals forms",
@@ -129,12 +132,27 @@ TEST_CASE("design-import benchmark argument parser supports split and equals for
 TEST_CASE("design-import benchmark argument parser rejects invalid shapes",
           "[design-import][benchmark][coverage]") {
     REQUIRE_FALSE(parse_args_vec({"bench", "--lane=nope"}).has_value());
+    REQUIRE_FALSE(parse_args_vec({"bench", "--lane="}).has_value());
     REQUIRE_FALSE(parse_args_vec({"bench", "--lane"}).has_value());
+    REQUIRE_FALSE(parse_args_vec({"bench", "--idle-ms="}).has_value());
     REQUIRE_FALSE(parse_args_vec({"bench", "--idle-ms=1x"}).has_value());
+    REQUIRE_FALSE(parse_args_vec({"bench", "--interactive-ms="}).has_value());
     REQUIRE_FALSE(parse_args_vec({"bench", "--interactive-ms"}).has_value());
+    REQUIRE_FALSE(parse_args_vec({"bench", "--target-fps="}).has_value());
     REQUIRE_FALSE(parse_args_vec({"bench", "--target-fps=fast"}).has_value());
     REQUIRE_FALSE(parse_args_vec({"bench", "--output"}).has_value());
     REQUIRE_FALSE(parse_args_vec({"bench", "--unknown"}).has_value());
+}
+
+TEST_CASE("design-import benchmark argument parser preserves explicit empty output",
+          "[design-import][benchmark][coverage][requested]") {
+    auto config = parse_args_vec({"bench", "--output="});
+    REQUIRE(config.has_value());
+    CHECK(config->lane == "live");
+    CHECK(config->output_path == std::filesystem::path(""));
+    CHECK(config->idle_ms == 60000);
+    CHECK(config->interactive_ms == 60000);
+    CHECK(config->target_fps == 60);
 }
 
 TEST_CASE("design-import benchmark argument parser clamps timing knobs",
