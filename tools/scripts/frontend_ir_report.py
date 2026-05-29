@@ -12,6 +12,7 @@ from frontend_ir_proofs import apply_native_proofs, load_native_proof
 from frontend_ir_resources import resource_counts, resources_from_manifest
 from frontend_ir_sources import metric_key, source_input
 from frontend_ir_tokens import resolve_source_token_refs
+from frontend_ir_tweaks import tweaks_from_sidecar
 from frontend_ir_validation import (
     FALLBACK_ROUTES,
     NATIVE_ROUTES,
@@ -726,6 +727,7 @@ def build_frontend_ir(
     source_audit: dict[str, Any],
     route_manifest_path: pathlib.Path,
     repo_root: pathlib.Path,
+    tweaks: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     overlay = route_manifest.get("source_contract_overlay", {})
     if not isinstance(overlay, dict):
@@ -744,7 +746,7 @@ def build_frontend_ir(
     resources = resources_from_manifest(route_manifest, routes_present(rows), repo_root)
     tokens = tokens_from_rows(rows)
     resolved_tokens = resolve_source_token_refs(tokens, source_path, repo_root)
-    tweaks: list[dict[str, Any]] = []
+    tweaks = tweaks or []
     source_of_truth = overlay.get("source", {}).get("source_of_truth")
     source_of_truth = normalize_source_of_truth(source_of_truth)
 
@@ -760,6 +762,8 @@ def build_frontend_ir(
         notes.append("route manifest did not provide a DesignIR artifact; this report covers source and route evidence only.")
     if resolved_tokens:
         notes.append(f"resolved {resolved_tokens} token references from static source token objects.")
+    if tweaks:
+        notes.append(f"attached {len(tweaks)} tweak sidecar edits without mutating imported source.")
 
     report: dict[str, Any] = {
         "schema": "pulp-frontend-ir-v0",
@@ -822,13 +826,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source-audit", type=pathlib.Path)
     parser.add_argument("--native-proof", action="append", type=pathlib.Path, default=[],
                         help="native compile/linkage proof artifact to attach to validation evidence")
+    parser.add_argument("--tweaks", type=pathlib.Path,
+                        help="pulp-tweaks-v0 sidecar to attach as non-source-mutating retheme evidence")
     parser.add_argument("--output", required=True, type=pathlib.Path)
     parser.add_argument("--repo-root", type=pathlib.Path, default=pathlib.Path.cwd())
     args = parser.parse_args(argv)
 
     route_manifest = load_json(args.route_manifest)
     source_audit = load_json(args.source_audit) if args.source_audit else {}
-    report = build_frontend_ir(route_manifest, source_audit, args.route_manifest, args.repo_root)
+    rows = route_rows(route_manifest)
+    valid_node_ids = {
+        row_node_id(row, index)
+        for index, row in enumerate(rows)
+        if isinstance(row, dict)
+    }
+    tweaks = tweaks_from_sidecar(args.tweaks, valid_node_ids) if args.tweaks else []
+    report = build_frontend_ir(route_manifest, source_audit, args.route_manifest, args.repo_root, tweaks)
     if args.native_proof:
         apply_native_proofs(report, [load_native_proof(path) for path in args.native_proof], args.repo_root)
     validate_frontend_ir(report)

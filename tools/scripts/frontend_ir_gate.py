@@ -215,6 +215,30 @@ def native_readiness_checks(report: dict[str, Any]) -> list[dict[str, Any]]:
     else:
         checks.append(check("token_resolution", PASS_STATUS, "no unresolved token references"))
 
+    tweaks = report.get("tweaks", [])
+    unsafe_tweaks = []
+    if isinstance(tweaks, list):
+        for tweak in tweaks:
+            if not isinstance(tweak, dict):
+                continue
+            invalidates = tweak.get("invalidates", [])
+            invalidates_route_or_source = (
+                isinstance(invalidates, list) and
+                any(scope in {"source", "route"} for scope in invalidates)
+            )
+            if tweak.get("classification_preserved") is False or invalidates_route_or_source:
+                unsafe_tweaks.append(tweak.get("node_id", ""))
+    if unsafe_tweaks:
+        checks.append(check(
+            "tweaks_preserve_classification",
+            FAIL_STATUS,
+            "native readiness cannot include tweaks that invalidate source or route classification",
+            tweak_count=len(unsafe_tweaks),
+            sample=unsafe_tweaks[:5],
+        ))
+    else:
+        checks.append(check("tweaks_preserve_classification", PASS_STATUS, "tweaks preserve source and route classification"))
+
     unsupported_style = count(validation, "style_counts", "unsupported")
     fallback_routes = [
         route.get("node_id", "")

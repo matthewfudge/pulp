@@ -146,6 +146,48 @@ class FrontendIrSessionTests(unittest.TestCase):
         self.assertTrue(report["summary"]["narrow_reload_safe"])
         self.assertEqual(report["changes"]["tokens"]["after_count"], 1)
 
+    def test_safe_tweak_change_is_narrow_token_reload(self) -> None:
+        before = base_report()
+        after = copy.deepcopy(before)
+        after["tweaks"] = [
+            {
+                "node_id": "html.1.button",
+                "property": "tokens.color.accent",
+                "value": "#ff6600",
+                "invalidates": ["style"],
+                "classification_preserved": True,
+            }
+        ]
+
+        report = session.compare_reports(before, after)
+
+        self.assertEqual(report["summary"]["reload_scope"], ["tweaks"])
+        self.assertEqual(report["summary"]["recommended_reload"], "token_tweak_reload")
+        self.assertTrue(report["summary"]["component_classification_preserved"])
+        self.assertTrue(report["summary"]["narrow_reload_safe"])
+        self.assertTrue(report["changes"]["tweaks"]["classification_preserved"])
+
+    def test_route_invalidating_tweak_requires_full_reimport(self) -> None:
+        before = base_report()
+        after = copy.deepcopy(before)
+        after["tweaks"] = [
+            {
+                "node_id": "html.1.button",
+                "property": "route.chosen_route",
+                "value": "live_js",
+                "invalidates": ["route"],
+                "classification_preserved": False,
+            }
+        ]
+
+        report = session.compare_reports(before, after)
+
+        self.assertEqual(report["summary"]["reload_scope"], ["tweaks"])
+        self.assertEqual(report["summary"]["recommended_reload"], "full_reimport")
+        self.assertFalse(report["summary"]["component_classification_preserved"])
+        self.assertFalse(report["summary"]["narrow_reload_safe"])
+        self.assertFalse(report["changes"]["tweaks"]["classification_preserved"])
+
     def test_route_change_requires_full_reimport(self) -> None:
         before = base_report()
         after = copy.deepcopy(before)

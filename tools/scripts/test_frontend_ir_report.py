@@ -309,6 +309,70 @@ class FrontendIrReportTests(unittest.TestCase):
         self.assertIn("did not provide a DesignIR", " ".join(report["validation"]["notes"]))
         fir.validate_frontend_ir(report)
 
+    def test_cli_attaches_tweak_sidecar_without_source_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            source = root / "fixtures/UI.jsx"
+            source.parent.mkdir(parents=True)
+            source.write_text("export default function UI() { return null; }\n", encoding="utf-8")
+            route_manifest = root / "reports/route.json"
+            output = root / "reports/frontend-ir.json"
+            sidecar = root / "reports/pulp-tweaks.json"
+            write_json(route_manifest, {
+                "schema": "pulp-native-ui-route-manifest-v1",
+                "fixture": "fixture-tweak",
+                "inputs": {
+                    "sourceJsx": {
+                        "path": "fixtures/UI.jsx",
+                    },
+                },
+                "source_contract_overlay": {
+                    "source": {
+                        "source_of_truth": "archived_fixture",
+                    },
+                    "node_route_rows": [
+                        {
+                            "id": "button.1",
+                            "stable_source_path": "fixtures/UI.jsx:1:button[0]",
+                            "source_line": 1,
+                            "required_native_primitive": "button",
+                            "route_type": "native_cpp",
+                        }
+                    ],
+                },
+            })
+            write_json(sidecar, {
+                "schema": "pulp-tweaks-v0",
+                "tweaks": [
+                    {
+                        "node_id": "button.1",
+                        "property": "tokens.color.accent",
+                        "value": "#ff6600",
+                    }
+                ],
+            })
+
+            rc = fir.main([
+                "--route-manifest",
+                str(route_manifest),
+                "--tweaks",
+                str(sidecar),
+                "--output",
+                str(output),
+                "--repo-root",
+                str(root),
+            ])
+
+            self.assertEqual(rc, 0)
+            report = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(report["tweaks"][0]["node_id"], "button.1")
+            self.assertEqual(report["tweaks"][0]["invalidates"], ["style"])
+            self.assertTrue(report["tweaks"][0]["classification_preserved"])
+            self.assertEqual(report["validation"]["tweak_counts"]["total"], 1)
+            self.assertEqual(report["validation"]["tweak_counts"]["classification_preserved"], 1)
+            self.assertEqual(report["validation"]["tweak_counts"]["invalidates_style"], 1)
+            self.assertIn("attached 1 tweak sidecar edits", " ".join(report["validation"]["notes"]))
+
     def test_builds_report_from_generic_source_file_input(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = pathlib.Path(td)

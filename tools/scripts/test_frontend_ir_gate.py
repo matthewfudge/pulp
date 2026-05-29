@@ -164,6 +164,29 @@ class FrontendIrGateTests(unittest.TestCase):
         self.assertIn("native_compile_pass", failures)
         self.assertIn("token_resolution", failures)
 
+    def test_native_readiness_fails_route_invalidating_tweak(self) -> None:
+        report = ready_report()
+        report["tweaks"] = [
+            {
+                "node_id": "node-a",
+                "property": "route.chosen_route",
+                "value": "live_js",
+                "invalidates": ["route"],
+                "classification_preserved": False,
+            }
+        ]
+        report["validation"]["tweak_counts"] = {
+            "total": 1,
+            "classification_preserved": 0,
+            "invalidates_route": 1,
+        }
+
+        result = gate.gate_frontend_ir(report, "native-readiness")
+
+        self.assertEqual(result["verdict"], "not_ready")
+        failures = {item["id"] for item in result["checks"] if item["status"] == "fail"}
+        self.assertIn("tweaks_preserve_classification", failures)
+
     def test_cli_writes_report_and_can_allow_not_ready(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = pathlib.Path(td)

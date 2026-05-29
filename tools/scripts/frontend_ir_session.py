@@ -156,6 +156,21 @@ def validation_signature(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def tweaks_preserve_classification(report: dict[str, Any]) -> bool:
+    tweaks = report.get("tweaks", [])
+    if not isinstance(tweaks, list):
+        return True
+    for tweak in tweaks:
+        if not isinstance(tweak, dict):
+            continue
+        if tweak.get("classification_preserved") is False:
+            return False
+        invalidates = tweak.get("invalidates", [])
+        if isinstance(invalidates, list) and any(scope in {"source", "route"} for scope in invalidates):
+            return False
+    return True
+
+
 def changed_fields(before: dict[str, Any], after: dict[str, Any]) -> list[str]:
     keys = sorted(set(before) | set(after))
     return [key for key in keys if stable(before.get(key)) != stable(after.get(key))]
@@ -234,7 +249,9 @@ def compare_reports(before: dict[str, Any], after: dict[str, Any],
     validation_changed = stable(validation_signature(before)) != stable(validation_signature(after))
     classification_preserved = (
         stable(node_classification(before)) == stable(node_classification(after)) and
-        stable(route_signature(before)) == stable(route_signature(after))
+        stable(route_signature(before)) == stable(route_signature(after)) and
+        tweaks_preserve_classification(before) and
+        tweaks_preserve_classification(after)
     )
 
     scope = []
@@ -293,6 +310,9 @@ def compare_reports(before: dict[str, Any], after: dict[str, Any],
                 "changed": tweaks_changed,
                 "before_count": len(before.get("tweaks", []) if isinstance(before.get("tweaks"), list) else []),
                 "after_count": len(after.get("tweaks", []) if isinstance(after.get("tweaks"), list) else []),
+                "classification_preserved": (
+                    tweaks_preserve_classification(before) and tweaks_preserve_classification(after)
+                ),
             },
             "validation": {
                 "changed": validation_changed,
