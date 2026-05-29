@@ -155,11 +155,29 @@ async function walk(
   };
 
   // Position: if parent has no auto-layout, child needs absolute positioning.
-  // Figma's x/y are relative to the parent's coordinate space.
-  if (!parentIsAutoLayout(parent) && "x" in node && "y" in node && parent !== null) {
-    ex.style.position = "absolute";
-    ex.style.left = node.x;
-    ex.style.top = node.y;
+  // Compute position from absoluteBoundingBox deltas rather than node.x/y
+  // because node.x is in the IMMEDIATE parent's coord space — for Figma
+  // GROUP parents (which don't have their own coord space) node.x is
+  // actually in the group's grandparent space, which would double-count
+  // the group's offset.
+  if (!parentIsAutoLayout(parent) && parent !== null) {
+    const childBB = "absoluteBoundingBox" in node ? node.absoluteBoundingBox : null;
+    const parentBB =
+      "absoluteBoundingBox" in parent
+        ? (parent as SceneNode & { absoluteBoundingBox: Rect | null }).absoluteBoundingBox
+        : null;
+    if (childBB && parentBB) {
+      ex.style.position = "absolute";
+      ex.style.left = childBB.x - parentBB.x;
+      ex.style.top = childBB.y - parentBB.y;
+    } else if ("x" in node && "y" in node) {
+      // Fallback: node.x/y. Correct for Frame parents; off by parent
+      // offset for Group parents, but the absoluteBoundingBox path above
+      // should catch most cases.
+      ex.style.position = "absolute";
+      ex.style.left = node.x;
+      ex.style.top = node.y;
+    }
   }
 
   // Text content + dominant style
