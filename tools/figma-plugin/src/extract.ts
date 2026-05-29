@@ -538,11 +538,10 @@ function hex2(n: number): string {
 
 function gradientToCss(p: GradientPaint): string {
   if (!p.gradientStops || p.gradientStops.length === 0) return "linear-gradient(transparent, transparent)";
-  const stops = p.gradientStops
-    .map((s) => `${rgbaToCss(s.color)} ${(s.position * 100).toFixed(1)}%`)
-    .join(", ");
-  // Figma gradient transforms are 2x3 matrices that we'd need to decompose into an
-  // angle. For slice 1 emit a simple top→bottom; slice 2 handles arbitrary angles.
+  // Pulp's setBackgroundGradient bridge takes color stop positions implicitly by
+  // index, and its parseColor doesn't strip trailing `Npc%` from a token.
+  // Emit colors only (no inline percentages).
+  const stops = p.gradientStops.map((s) => rgbaToCss(s.color)).join(", ");
   return `linear-gradient(to bottom, ${stops})`;
 }
 
