@@ -418,15 +418,29 @@ void Knob::paint(canvas::Canvas& canvas) {
         canvas.fill_circle(cx, cy, body_r);
         canvas.clear_fill_gradient();
 
-        // 4. Specular highlight arc near the top — subtle white rim
-        //    that suggests reflected light.
-        canvas.set_stroke_color(canvas::Color::rgba(1.0f, 1.0f, 1.0f, 0.45f));
-        canvas.set_line_width(std::max(1.0f, body_r * 0.07f));
+        // 4a. Inner bevel ring — a thin darker stroke just inside the
+        //     body edge creates a "bezel-inside-bezel" effect that reads
+        //     as a precision-machined control. Subtle (alpha 0.35) so it
+        //     doesn't compete with the highlight.
+        canvas.set_stroke_color(canvas::Color::rgba(0.18f, 0.20f, 0.23f, 0.55f));
+        canvas.set_line_width(std::max(1.0f, body_r * 0.04f));
+        canvas.stroke_circle(cx, cy, body_r - body_r * 0.05f);
+
+        // 4b. Specular highlight arc near the top — soft white rim
+        //     suggesting reflected light from above.
+        canvas.set_stroke_color(canvas::Color::rgba(1.0f, 1.0f, 1.0f, 0.55f));
+        canvas.set_line_width(std::max(1.0f, body_r * 0.08f));
         canvas.set_line_cap(canvas::LineCap::round);
-        // Top half of the body (~210° → 330° in canvas radians, where 0 is
-        // east; the top is at -90° = 270°). Half-width arc gives a soft cap.
-        canvas.stroke_arc(cx, cy, inner_r * 0.92f,
+        // Top half of the body (~225° → 315° in canvas radians; top = 270°).
+        canvas.stroke_arc(cx, cy, inner_r * 0.94f,
                           3.926990f /* 225° */, 5.497787f /* 315° */);
+
+        // 4c. Lower shadow arc — counterweight to the specular at the
+        //     bottom edge, sells the "rounded body" illusion.
+        canvas.set_stroke_color(canvas::Color::rgba(0.0f, 0.0f, 0.0f, 0.30f));
+        canvas.set_line_width(std::max(1.0f, body_r * 0.07f));
+        canvas.stroke_arc(cx, cy, inner_r * 0.94f,
+                          0.785398f /* 45° */, 2.356194f /* 135° */);
 
         // 5. Indicator notch
         float angle = -1.5707963f /* -90° */
