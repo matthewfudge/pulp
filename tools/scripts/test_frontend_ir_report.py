@@ -309,6 +309,56 @@ class FrontendIrReportTests(unittest.TestCase):
         self.assertIn("did not provide a DesignIR", " ".join(report["validation"]["notes"]))
         fir.validate_frontend_ir(report)
 
+    def test_resolves_static_source_token_object_references(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            source_path = root / "fixtures/UI.jsx"
+            source_path.parent.mkdir()
+            source_path.write_text(
+                "const colors = { accent: '#ff6600', textDim: '#666' };\n"
+                "export default function UI() { return null; }\n",
+                encoding="utf-8",
+            )
+            route_manifest = {
+                "schema": "pulp-native-ui-route-manifest-v1",
+                "fixture": "fixture-token",
+                "inputs": {
+                    "sourceJsx": {
+                        "path": "fixtures/UI.jsx",
+                    },
+                },
+                "source_contract_overlay": {
+                    "node_route_rows": [
+                        {
+                            "id": "knob.1",
+                            "stable_source_path": "fixtures/UI.jsx:2:Knob[0]",
+                            "source_line": 2,
+                            "required_native_primitive": "knob",
+                            "route_type": "native_cpp",
+                            "style_token_references": ["colors.accent", "colors.textDim"],
+                        },
+                    ],
+                },
+            }
+
+            report = fir.build_frontend_ir(
+                route_manifest,
+                {},
+                root / "reports/route.json",
+                root,
+            )
+
+            self.assertEqual(report["tokens"]["colors.accent"]["resolved_value"], "#ff6600")
+            self.assertEqual(report["tokens"]["colors.accent"]["resolved_type"], "color")
+            self.assertEqual(report["tokens"]["colors.accent"]["source_identity"]["resolved_from"],
+                             "source_static_const_object")
+            self.assertEqual(report["tokens"]["colors.accent"]["source_identity"]["source_object"], "colors")
+            self.assertEqual(report["tokens"]["colors.textDim"]["resolved_value"], "#666")
+            self.assertEqual(report["validation"]["token_counts"]["total"], 2)
+            self.assertEqual(report["validation"]["token_counts"]["unresolved"], 0)
+            self.assertIn("resolved 2 token references", " ".join(report["validation"]["notes"]))
+            fir.validate_frontend_ir(report)
+
     def test_boolean_values_are_not_numeric_evidence(self) -> None:
         with self.assertRaisesRegex(ValueError, "validation.route_counts.bad"):
             fir.validate_count_map({"bad": True}, "validation.route_counts")

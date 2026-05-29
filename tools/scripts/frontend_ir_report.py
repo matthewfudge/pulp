@@ -12,6 +12,7 @@ import re
 from typing import Any
 
 from frontend_ir_proofs import apply_native_proofs, load_native_proof
+from frontend_ir_tokens import resolve_source_token_refs
 from frontend_ir_validation import (
     FALLBACK_ROUTES,
     NATIVE_ROUTES,
@@ -876,6 +877,7 @@ def build_frontend_ir(
     nodes = nodes_from_rows(rows)
     resources = resources_from_manifest(route_manifest, rows, repo_root)
     tokens = tokens_from_rows(rows)
+    resolved_tokens = resolve_source_token_refs(tokens, source_path, repo_root)
     tweaks: list[dict[str, Any]] = []
     source_of_truth = overlay.get("source", {}).get("source_of_truth")
     source_of_truth = normalize_source_of_truth(source_of_truth)
@@ -890,6 +892,8 @@ def build_frontend_ir(
     ]
     if not design_ref.get("path"):
         notes.append("route manifest did not provide a DesignIR artifact; this report covers source and route evidence only.")
+    if resolved_tokens:
+        notes.append(f"resolved {resolved_tokens} token references from static source token objects.")
 
     report: dict[str, Any] = {
         "schema": "pulp-frontend-ir-v0",
