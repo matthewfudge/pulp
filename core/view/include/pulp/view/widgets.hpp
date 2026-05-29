@@ -14,6 +14,7 @@
 #include <functional>
 #include <array>
 #include <vector>
+#include <optional>
 
 namespace pulp::view {
 
@@ -316,6 +317,13 @@ public:
     }
     const std::string& label() const { return label_; }
 
+    void set_show_label(bool show) {
+        if (show_label_ == show) return;
+        show_label_ = show;
+        request_repaint();
+    }
+    bool show_label() const { return show_label_; }
+
     // Display format: called with normalized value to produce display text.
     // No equality check (std::function doesn't compare) — formatters are
     // set at construction or theme-change time, not in tight sync loops.
@@ -326,6 +334,8 @@ public:
 
     /// Called when the value changes (from user interaction or programmatic).
     std::function<void(float)> on_change;
+    std::function<void()> on_gesture_begin;
+    std::function<void()> on_gesture_end;
 
     void paint(canvas::Canvas& canvas) override;
     void on_mouse_event(const MouseEvent& event) override;
@@ -363,6 +373,8 @@ private:
     ValueAnimation hover_glow_{0.0f};
     float drag_start_y_ = 0;
     float drag_start_value_ = 0;
+    bool gesture_active_ = false;
+    bool show_label_ = true;
     std::string custom_sksl_;     // SkSL source for GPU shader body
     std::string widget_schema_;   // JSON declarative schema
     std::string lottie_json_;     // Lottie animation JSON
@@ -390,6 +402,7 @@ private:
 class Fader : public View {
 public:
     enum class Orientation { vertical, horizontal };
+    enum class ThumbShape { circle, rectangle };
 
     Fader() { set_access_role(AccessRole::slider); set_focusable(true); }
 
@@ -409,6 +422,27 @@ public:
     void set_orientation(Orientation o) { orientation_ = o; }
     Orientation orientation() const { return orientation_; }
 
+    void set_thumb_shape(ThumbShape shape) {
+        if (thumb_shape_ == shape) return;
+        thumb_shape_ = shape;
+        request_repaint();
+    }
+    ThumbShape thumb_shape() const { return thumb_shape_; }
+
+    void set_thumb_size(float width, float height) {
+        thumb_width_ = std::max(0.0f, width);
+        thumb_height_ = std::max(0.0f, height);
+        request_repaint();
+    }
+    float thumb_width() const { return thumb_width_; }
+    float thumb_height() const { return thumb_height_; }
+
+    void set_thumb_corner_radius(float radius) {
+        thumb_corner_radius_ = std::max(0.0f, radius);
+        request_repaint();
+    }
+    float thumb_corner_radius() const { return thumb_corner_radius_; }
+
     void set_label(std::string text) {
         if (label_ == text) return;
         label_ = std::move(text);
@@ -418,10 +452,14 @@ public:
 
     /// Called when the value changes.
     std::function<void(float)> on_change;
+    std::function<void()> on_gesture_begin;
+    std::function<void()> on_gesture_end;
 
     void paint(canvas::Canvas& canvas) override;
     void on_mouse_enter() override;
     void on_mouse_leave() override;
+    void on_mouse_down(Point pos) override;
+    void on_mouse_up(Point pos) override;
     void on_mouse_event(const MouseEvent& event) override;
     void on_mouse_drag(Point pos) override;
 
@@ -444,6 +482,10 @@ public:
 private:
     float value_ = 0.0f;
     Orientation orientation_ = Orientation::vertical;
+    ThumbShape thumb_shape_ = ThumbShape::circle;
+    float thumb_width_ = 0.0f;
+    float thumb_height_ = 0.0f;
+    float thumb_corner_radius_ = 0.0f;
     std::string label_;
     ValueAnimation hover_thumb_scale_{1.0f};
     bool dragging_ = false;
@@ -664,6 +706,24 @@ public:
     }
     const std::string& label() const { return label_; }
 
+    void set_on_background_color(canvas::Color color) { on_background_color_ = color; request_repaint(); }
+    void set_off_background_color(canvas::Color color) { off_background_color_ = color; request_repaint(); }
+    void set_on_text_color(canvas::Color color) { on_text_color_ = color; request_repaint(); }
+    void set_off_text_color(canvas::Color color) { off_text_color_ = color; request_repaint(); }
+    void set_on_border_color(canvas::Color color) { on_border_color_ = color; request_repaint(); }
+    void set_off_border_color(canvas::Color color) { off_border_color_ = color; request_repaint(); }
+    void set_corner_radius(float radius) { corner_radius_ = std::max(0.0f, radius); request_repaint(); }
+    void set_font_size(float size) { font_size_ = std::max(1.0f, size); request_repaint(); }
+
+    const std::optional<canvas::Color>& on_background_color_override() const { return on_background_color_; }
+    const std::optional<canvas::Color>& off_background_color_override() const { return off_background_color_; }
+    const std::optional<canvas::Color>& on_text_color_override() const { return on_text_color_; }
+    const std::optional<canvas::Color>& off_text_color_override() const { return off_text_color_; }
+    const std::optional<canvas::Color>& on_border_color_override() const { return on_border_color_; }
+    const std::optional<canvas::Color>& off_border_color_override() const { return off_border_color_; }
+    std::optional<float> corner_radius_override() const { return corner_radius_; }
+    std::optional<float> font_size_override() const { return font_size_; }
+
     std::function<void(bool)> on_toggle;
 
     void paint(canvas::Canvas& canvas) override;
@@ -674,6 +734,14 @@ public:
 private:
     bool on_ = false;
     std::string label_;
+    std::optional<canvas::Color> on_background_color_;
+    std::optional<canvas::Color> off_background_color_;
+    std::optional<canvas::Color> on_text_color_;
+    std::optional<canvas::Color> off_text_color_;
+    std::optional<canvas::Color> on_border_color_;
+    std::optional<canvas::Color> off_border_color_;
+    std::optional<float> corner_radius_;
+    std::optional<float> font_size_;
 };
 
 // ── Icon ────────────────────────────────────────────────────────────────────
@@ -792,15 +860,19 @@ public:
     void set_y_label(std::string l) { y_label_ = std::move(l); }
 
     std::function<void(float, float)> on_change;
+    std::function<void()> on_gesture_begin;
+    std::function<void()> on_gesture_end;
 
     void paint(canvas::Canvas& canvas) override;
     void on_mouse_down(Point pos) override;
     void on_mouse_drag(Point pos) override;
+    void on_mouse_up(Point pos) override;
 
 private:
     void update_from_pos(Point pos);
     float x_ = 0.5f, y_ = 0.5f;
     std::string x_label_, y_label_;
+    bool dragging_ = false;
 };
 
 // ── WaveformView ─────────────────────────────────────────────────────────────
@@ -829,6 +901,7 @@ public:
     // rising_zero:  align to the first rising-edge zero crossing
     // falling_zero: align to the first falling-edge zero crossing
     enum class TriggerMode { free_run, rising_zero, falling_zero };
+    enum class PreviewShape { none, saw, sine, square, triangle };
 
     WaveformView() = default;
 
@@ -857,6 +930,11 @@ public:
 
     size_t sample_count() const { return samples_.size(); }
 
+    // Static oscillator-preview lane for imported synth-style designs.
+    // Live sample data and thumbnails still take precedence when present.
+    void set_preview_shape(std::string_view shape);
+    PreviewShape preview_shape() const { return preview_shape_; }
+
     void set_trigger_mode(TriggerMode mode) { trigger_mode_ = mode; }
     TriggerMode trigger_mode() const { return trigger_mode_; }
 
@@ -873,6 +951,7 @@ private:
 
     std::vector<float> samples_;
     TriggerMode trigger_mode_ = TriggerMode::free_run;
+    PreviewShape preview_shape_ = PreviewShape::none;
 
     const pulp::audio::AudioThumbnail* thumbnail_ = nullptr;
     uint32_t thumbnail_channel_ = static_cast<uint32_t>(-1);

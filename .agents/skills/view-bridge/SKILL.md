@@ -461,6 +461,33 @@ crash; the fix was to remove the explicit close (PR #667 / pulp
 rationale lives in the `auv2`, `auv3`, and `ios` skills since those
 files are dual-/triple-mapped.
 
+### Standalone editor lane DOES need explicit `bridge->close()` before `stop()`
+
+The "never call close() explicitly" rule above applies to AU dealloc
+because the bridge and host are RAII-owned and destroyed in reverse
+declaration order. The standalone app lane in
+`core/format/src/standalone.cpp` is different: `run_with_editor()`
+exits when `window->run_event_loop()` returns, and that can happen via
+two paths:
+
+1. **Window-close callback path** — the close handler already called
+   `bridge->close()` while processor and view were both alive.
+2. **Application-quit path** — the event loop returns without ever
+   firing the window-close callback, so the bridge never saw `close()`.
+
+If path 2 falls through to `stop()` without an explicit close, the
+processor is torn down with a still-attached bridge and the view's
+`on_view_closed` either never fires or fires against a freed
+processor. The fix is to call `bridge->close()` unconditionally after
+the event loop returns and before `stop()` — `close()` is idempotent,
+so path 1 stays correct.
+
+When you add a new host lane (CLI, embedded runner, foreign host), do
+the same audit: is the bridge owned by an RAII path that guarantees
+ordering (AU pattern, no explicit close), or does the lane have a
+return path that bypasses the window-close callback (standalone
+pattern, explicit close before processor teardown)?
+
 ## EditorBridge — JSON message dispatch over the editor lifecycle (pulp #709)
 
 `pulp::format::ViewBridge` (this skill) handles **when** the editor

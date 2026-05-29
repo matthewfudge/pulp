@@ -49,6 +49,11 @@ add_subdirectory(faust-tremolo)
 # ViewBridge demo: custom create_view() + secondary-view attach
 add_subdirectory(view-bridge-demo)
 
+# Experimental native import preview: generated C++ view tree, no scripted UI.
+if(APPLE AND NOT PULP_IOS AND EXISTS "${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/generated/chainer-phase-f-hybrid.cpp")
+    add_subdirectory(native-ui-phase-f-preview)
+endif()
+
 # GPU Validation Demo: Modulation Matrix with animated cables
 add_subdirectory(gpu-demo)
 
@@ -114,6 +119,10 @@ if(IOS)
     # Phase iOS-D.1 — minimal 2D GPU AUv3 proof
     # (planning/2026-05-24-auv3-ios-validation.md).
     add_subdirectory(ios-auv3-gpu-smoke)
+    # Phase iOS-D.2 — Chainer-style JS-UI shape (title + Knob + Meter)
+    # rendered through the same iPad GPU path, with the AUv3 editor
+    # mounted inside the SwiftUI HostApp via UIViewControllerRepresentable.
+    add_subdirectory(ios-auv3-chainer)
 endif()
 
 # ARA pitch tracker example (workstream 06 slice A3)

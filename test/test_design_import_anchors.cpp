@@ -323,10 +323,11 @@ TEST_CASE("parse_v0_tsx JSON path populates content-hash anchors",
     REQUIRE(ir.root.children[0].stable_anchor_id.has_value());
 }
 
-TEST_CASE("parse_v0_tsx regex-fallback path (Tailwind classes) assigns anchors",
+TEST_CASE("parse_v0_tsx structural TSX path assigns anchors",
           "[view][import][anchors]") {
-    // Non-JSON TSX input forces the regex/Tailwind extraction at the
-    // tail of parse_v0_tsx. Phase 0a stamps DIVERGE confidence + anchors.
+    // Non-JSON TSX input takes the host-JSX structural extraction path.
+    // Phase 0a stamps DIVERGE confidence + anchors because dynamic React
+    // expressions still require runtime import.
     const std::string tsx =
         "<div className=\"flex-row gap-2\">"
         "<div className=\"flex-col p-2\">child</div>"

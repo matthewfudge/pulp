@@ -76,6 +76,12 @@ Slice 6 (#551).
   checkout tries to clone the private `planning` submodule with the default
   token and fails before docs deploys. Fix that at the Pages configuration
   layer (`build_type=workflow`), not by weakening normal submodule checkout.
+- `.github/workflows/sanitizers.yml` runs broad ASan/UBSan matrices, but its
+  exclude regex may carry narrow sanitizer-lane skips for non-memory-safety
+  failures that remain covered by regular Build/Test. Keep those skips named
+  exactly to the failing CTest cases and leave comments explaining the
+  alternate coverage path; do not use sanitizer excludes to hide new targeted
+  coverage tests.
 
 ## Current Build-and-Test routing
 
@@ -198,6 +204,40 @@ Backward compatibility: raw `shipyard ship` / `shipyard run` still work for
 diagnostics, experimental branches, existing Shipyard-managed PRs, or when
 `shipyard pr` itself is being debugged. Do not use them as the primary ship
 path.
+
+### Stale-SHA merge race — DO NOT push onto a PR that's being shipped
+
+**The failure mode (observed 2026-05-29):** Shipyard's `can_merge()`
+validates the *exact merge-candidate SHA* and then merges that SHA. If a
+developer/agent pushes new commits to the same branch while a `shipyard ship`
+is mid-flight, Shipyard merges the **already-validated older SHA** and the new
+commits are stranded on the branch — the PR squash-merges *without* them. In
+the observed case a PR merged at its pre-fix SHA, dropping a whole review-fix
+push; the fixes had to be re-landed via a fresh fast-follow PR.
+
+`expected_head_oid` alone would NOT have caught it — the validated SHA *was*
+GitHub's PR head at the merge instant; the new push only advanced the branch
+ref moments later. The only true prevention is the merger re-checking the
+branch tip immediately before merging and aborting if it advanced past the
+validated SHA — that lives in Shipyard (tracked upstream as Shipyard issue
+321). <!-- docs-noise-lint: skip — stable cross-repo tracking ref for the root fix -->.
+
+**Operational rules (enforce these; they are the practical fix):**
+1. **Never push commits onto a PR that has an in-flight `shipyard ship` or
+   armed auto-merge.** Check `shipyard ship-state list` (shows PR/url/sha) and
+   GitHub's auto-merge state first. If a ship is running, let it finish.
+2. **Land post-review fixes as a fresh PR off `main`**, not as a push onto the
+   already-green PR you just reviewed. (Review comes after green; the green PR
+   is exactly when auto-merge fires.)
+3. **After any ship, verify the merge actually carried your latest commits.**
+   Don't trust "merged" — confirm the merge SHA's tree contains your changes:
+   `git fetch origin main` then check a file you changed is present on
+   `origin/main` (e.g. `git show origin/main:<path> | grep <marker>`), or
+   compare `gh api repos/<o>/<r>/pulls/<n> --jq .merge_commit_sha`. If your
+   commits are missing, re-land them as a fresh PR immediately.
+4. A degraded/rate-limited `gh pr view ... headRefOid` read can return a stale
+   SHA — corroborate branch state with `git ls-remote` / a real `git fetch`
+   before concluding the branch moved or was reset.
 
 ### Shipyard pin and behaviour notes
 

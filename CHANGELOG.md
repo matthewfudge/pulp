@@ -8,6 +8,35 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02760"></a>
+## [0.276.0] - 2026-05-29
+
+- refactor(view): split design_import.hpp into focused headers behind umbrella ([#3142](https://github.com/danielraffel/pulp/pull/3142))
+- refactor(view): split design_import.cpp JSON ser/de into design_ir_json.cpp ([#3141](https://github.com/danielraffel/pulp/pull/3141))
+- docs(ci): guard against stale-SHA merge race in shipyard ship ([#3140](https://github.com/danielraffel/pulp/pull/3140))
+
+<a id="v02750"></a>
+## [0.275.0] - 2026-05-29
+
+- docs(skills): reword native-import gotchas to stable rationale ([#3136](https://github.com/danielraffel/pulp/pull/3136))
+- fix(audio): reject `..` segments in hf:// checkpoint paths + Windows-safe model.json assertions ([#3131](https://github.com/danielraffel/pulp/pull/3131))
+
+<a id="v02740"></a>
+## [0.274.0] - 2026-05-29
+
+- feat(frontend-ir): Phase 0/1 contract surface + native-readiness gate composition ([#3128](https://github.com/danielraffel/pulp/pull/3128))
+- fix(scan-worker): preserve symlink-alias identity in bundle filtering ([#3132](https://github.com/danielraffel/pulp/pull/3132))
+
+<a id="v02730"></a>
+## [0.273.0] - 2026-05-29
+
+- test(tools): cover requested MCP and audio edges ([#3124](https://github.com/danielraffel/pulp/pull/3124))
+- test(cli): cover inspect command contracts ([#3121](https://github.com/danielraffel/pulp/pull/3121))
+- test(inspect): cover motion scrubber edge contracts ([#3120](https://github.com/danielraffel/pulp/pull/3120))
+- test(tools): expand requested coverage contracts ([#3118](https://github.com/danielraffel/pulp/pull/3118))
+- test(tools): cover targeted inspect design audio contracts ([#3113](https://github.com/danielraffel/pulp/pull/3113))
+- test(ship): cover platform signing package contracts ([#3112](https://github.com/danielraffel/pulp/pull/3112))
+
 <a id="v02721"></a>
 ## [0.272.1] - 2026-05-28
 
@@ -3130,6 +3159,10 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.276.0]: https://github.com/danielraffel/pulp/releases/tag/v0.276.0
+[0.275.0]: https://github.com/danielraffel/pulp/releases/tag/v0.275.0
+[0.274.0]: https://github.com/danielraffel/pulp/releases/tag/v0.274.0
+[0.273.0]: https://github.com/danielraffel/pulp/releases/tag/v0.273.0
 [0.272.1]: https://github.com/danielraffel/pulp/releases/tag/v0.272.1
 [0.272.0]: https://github.com/danielraffel/pulp/releases/tag/v0.272.0
 [0.271.0]: https://github.com/danielraffel/pulp/releases/tag/v0.271.0

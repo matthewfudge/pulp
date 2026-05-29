@@ -13,7 +13,7 @@ endif()
 # ── Plugin (all formats) ──────────────────────────────────────────────────
 set(PULP_GAIN_FORMATS VST3 CLAP Standalone)
 if(APPLE)
-    list(APPEND PULP_GAIN_FORMATS AU AAX)
+    list(APPEND PULP_GAIN_FORMATS AU AUv3 AAX)
 elseif(WIN32)
     list(APPEND PULP_GAIN_FORMATS AAX)
 endif()

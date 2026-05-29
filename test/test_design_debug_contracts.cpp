@@ -165,6 +165,32 @@ TEST_CASE("design-debug loads ordered design-tool modules from the entry path",
     std::filesystem::remove_all(temp, ec);
 }
 
+TEST_CASE("design-debug loads custom scripts without implicit design-tool modules",
+          "[tools][design-debug][coverage][requested]") {
+    auto temp = make_temp_dir("custom-script-load");
+    auto js_dir = temp / "examples" / "design-tool";
+    REQUIRE(std::filesystem::create_directories(js_dir));
+    REQUIRE(write_text_file(js_dir / "oklch.js", "globalThis.__load = ['oklch'];\n"));
+    REQUIRE(write_text_file(js_dir / kDesignToolEntry,
+                            "globalThis.__load.push('entry-should-not-load');\n"));
+    REQUIRE(write_text_file(js_dir / "custom-debug.js",
+                            "globalThis.__load.push('custom-debug');\n"));
+
+    ScriptEngine engine;
+    View root;
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+    load_design_tool(js_dir / "custom-debug.js", bridge);
+
+    auto text = std::string(engine.evaluate("JSON.stringify(globalThis.__load)").getString());
+    REQUIRE(text.find("oklch") != std::string::npos);
+    REQUIRE(text.find("custom-debug") != std::string::npos);
+    REQUIRE(text.find("entry-should-not-load") == std::string::npos);
+
+    std::error_code ec;
+    std::filesystem::remove_all(temp, ec);
+}
+
 TEST_CASE("design-debug capture metadata matches backend behavior",
           "[tools][design-debug][coverage]") {
     REQUIRE(std::string(capture_mode_flag_name(CaptureMode::headless_skia,
@@ -342,6 +368,18 @@ TEST_CASE("design-debug option validation fails before expensive render setup",
                               "--script", script.string(),
                               "--capture-backend", "live-gpu",
                               "--design-tool-bin", (temp / "missing-bin").string()}) == 1);
+    REQUIRE(run_design_debug({"pulp-design-debug", "--prompt", "change color",
+                              "--script", script.string(),
+                              "--capture-backend"}) == 1);
+    REQUIRE(run_design_debug({"pulp-design-debug", "--prompt", "change color",
+                              "--script", script.string(),
+                              "--provider"}) == 1);
+    REQUIRE(run_design_debug({"pulp-design-debug", "--prompt", "change color",
+                              "--script", script.string(),
+                              "--model"}) == 1);
+    REQUIRE(run_design_debug({"pulp-design-debug", "--prompt", "change color",
+                              "--script", script.string(),
+                              "--ai-cli"}) == 1);
 
     REQUIRE(write_text_file(response, "ok"));
     REQUIRE(read_file(response) == "ok");

@@ -322,7 +322,7 @@ public:
         }
     }
 
-    void register_function(const std::string& name, NativeFunction fn) override {
+    void register_function_impl(const std::string& name, NativeFunction fn) override {
         @autoreleasepool {
             // Store function in the global registry
             auto fn_ptr = std::make_shared<NativeFunction>(std::move(fn));
@@ -394,6 +394,7 @@ private:
     JSContext* context_ = nil;
     JSGlobalContextRef global_ctx_ = nullptr;
     LogCallback log_callback_;
+    bool console_registered_ = false;
 
     void check_exception() {
         JSValue* exception = context_.exception;
@@ -432,12 +433,16 @@ private:
             // Create console object, then set methods
             [context_ evaluateScript:@"var console = {};"];
 
-            // Register each console method as a global, then assign to console object
-            register_function("__pulp_console_log", make_log_fn("log"));
-            register_function("__pulp_console_info", make_log_fn("info"));
-            register_function("__pulp_console_warn", make_log_fn("warn"));
-            register_function("__pulp_console_error", make_log_fn("error"));
-            register_function("__pulp_console_debug", make_log_fn("debug"));
+            // Register each console method once, then keep reusing the same
+            // callbacks when set_log_callback() refreshes the console object.
+            if (!console_registered_) {
+                register_function("__pulp_console_log", make_log_fn("log"));
+                register_function("__pulp_console_info", make_log_fn("info"));
+                register_function("__pulp_console_warn", make_log_fn("warn"));
+                register_function("__pulp_console_error", make_log_fn("error"));
+                register_function("__pulp_console_debug", make_log_fn("debug"));
+                console_registered_ = true;
+            }
 
             [context_ evaluateScript:@"console.log = __pulp_console_log;"
                                      @"console.info = __pulp_console_info;"

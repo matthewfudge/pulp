@@ -248,7 +248,8 @@ Ask the user or detect from context:
 
 **JSX-instrument runtime-import (experiment slice, 2026-05-17, planning/2026-05-17-jsx-instrument-import.md)**:
 - Unlike v0/figma/stitch, the `jsx` source is NOT a synthetic shape-counter — it executes the user's real React tree. `parse_jsx_react(bundle_js, component_name)` wraps a pre-compiled IIFE bundle (esbuild output of React plus either ReactDOM or the @pulp/react native bridge + user JSX + nav/document sandbox shims) as a synthetic `ClaudeBundle`, then the existing `parse_claude_html_with_runtime` harness materializes it into a `DesignIR` via DOM walking or the native `WidgetBridge` snapshot fallback. **Per Codex/RepoPrompt review:** custom inline-defined components (knobs, faders, etc.) materialize as their underlying SVG primitives — DO NOT widget-promote them to native `<Knob>`/`<Fader>`, which would lose visual parity with the source JSX.
-- The JSX→JS compile happens in Node, not in the C++ runtime. Run `tools/import-design/jsx-runtime/jsx-transform.mjs --in <file>.jsx --out <out>.js` to produce the IIFE bundle. The script ships its own `node_modules` (React 18.3.1 + ReactDOM 18.3.1 + react-reconciler 0.29.2 + scheduler 0.23.2 + esbuild 0.24.0) at `tools/import-design/jsx-runtime/node_modules/`. First-run `npm install` is required.
+- The JSX→JS compile happens in Node, not in the C++ runtime. Run `tools/import-design/jsx-runtime/jsx-transform.mjs --in <file>.jsx --out <out>.js` to produce the IIFE bundle. The script ships its own `node_modules` (React 18.3.1 + ReactDOM 18.3.1 + react-reconciler 0.29.2 + scheduler 0.23.2 + esbuild 0.24.0 + `@babel/parser` 7.29.7 + `css-tree` 3.2.1) at `tools/import-design/jsx-runtime/node_modules/`. First-run `npm install` is required.
+- For native-import validation, run `tools/import-design/jsx-runtime/jsx-contract-audit.mjs --in <file>.jsx --json <audit.json> --fail-on-weak-proof` before relying on visual screenshots. Shape should come from the source contract, not from visual inference: the audit extracts JSX structure, props, style semantics, SVG/vector geometry, `.map()` rows, and handler closures so the importer can normalize those into Pulp-native attributes. Keep the live runtime fallback whenever the source contract is too dynamic.
 - Current Chainer/native bundles route `react-dom` through `pulp-react-dom-shim.mjs` and `@pulp/react`. The live lane writes that bundle verbatim. The baked lane first tries the DOM walker; when the bundle renders native views instead of DOM nodes, it freezes the `WidgetBridge` tree into DesignIR with `capture_method = runtime_native_snapshot` and `snapshotSource = native-view`, then can emit baked C++ from that IR.
 - Supported input today: single-file `.jsx` or `.tsx`, default-exported React function component, hooks from `react` only, inline `style={{...}}` objects, SVG primitives (`svg/path/circle/line`), `<input>`/`<button>` form elements (text-input editing is degraded — plain text inputs fall back to a non-editable View per Codex review), `setInterval`/`requestAnimationFrame`/`getBoundingClientRect`. The TypeScript path strips TSX through the Node/esbuild transform before the C++ runtime parser sees the bundle.
 - Out of scope until follow-up PRs: window-level `mousemove`/`mouseup` global fan-out (the canonical 2-week gotcha; static render works, interactive drag does not), viewport resize signaling (`window.innerWidth/innerHeight` hard-coded), screenshot-similarity acceptance gate (timers/random would need freezing for determinism), Babel-standalone embedding (replaces the Node shell-out).
@@ -1033,6 +1034,12 @@ If confidence is below 80%, the CLI emits a warning and an invitation to run `--
 pulp import-design --file <path> --report-new-format > stitch-2026-XX.json
 ```
 
+`--report-new-format` emits JSON directly from detection strings. Keep every
+source/version/token field JSON-escaped when touching
+`tools/import-design/import_detect.cpp`; the regression test is
+`render_new_format_json escapes generated string fields` in
+`pulp-test-cli-import-detect`.
+
 Hand-edit the resulting JSON into a new entry under `compat.json[imports/<source>/detected-formats]`. The `notes` field is mandatory — describe the upstream change in one line.
 
 ### Adding a fixture
@@ -1431,3 +1438,34 @@ These three pieces, all checked in this branch, are the standard inner-loop for 
 **Recommending sprite to a user**: don't position it as a "fallback". For designers who chose a specific Figma knob style, sprite IS the right path. Frame it as "pixel-exact PNG (with bleed)" vs "native vector (without bleed)" — the tradeoff is real and per-design.
 
 **Claude Code surfacing**: when someone runs `/import-design` on a Figma file, ask if they want silver (default) or sprite. If they're unsure, default silver and add a note that they can re-import with `--knob-style=sprite` to compare. If they have one specific knob that "needs to look like the Figma", suggest the `@sprite` suffix on that node's name in the Figma file.
+
+## Native-import gotchas
+
+Non-obvious rules in the import + native-codegen path. Each cost a real
+correctness bug before it was made explicit; treat them as invariants.
+
+- **Text-editor value is `<textarea>`-only.** In `imported_widget_semantics`
+  (design_import_native_common.cpp), a node's incidental display text
+  (`text_content` — often a folded label/heading) must NOT become a text
+  editor's contents. Only a `<textarea>` body is the value. Gate the display-
+  text fallback on `pulpSourceFamily`/`jsxTag == "textarea"`; an `<input>` with
+  no explicit value renders empty.
+- **Indexed state bindings keep the index but resolve via the base.**
+  `value={params[0]}` (design_import_v0_tsx.cpp) must keep `pulpValueKey =
+  "params[0]"` (so the binding layer targets the element) while looking up
+  `pulpInitialValue` under the **base** identifier `params` —
+  `state_initial_values` is keyed by base. Returning the full indexed
+  expression as the lookup key silently drops the initial value.
+- **JSX computed-member keys come from the AST node, not a source slice.**
+  In `jsx-contract-audit.mjs`, derive `obj[key]` member paths from the
+  property node's type (StringLiteral/NumericLiteral/Identifier), never from
+  `expressionText('', node)` — an empty source string collapses every
+  computed access to `[]`.
+- **frontend-IR gates are fail-closed; manifest classification ≠ proof.** The
+  `tools/scripts/frontend_ir_*.py` gates must never let missing/`null`/`false`
+  evidence pass: a `route_manifest` calling a node `native_cpp` is not binary
+  proof; a child gate with zero checks verified nothing; a bare `{}` proof
+  artifact is not proof. Generic helpers (`as_dict`/`as_list`/
+  `non_negative_int`/`load_json`/`write_json`) live in `frontend_ir_common.py`
+  and the canonical route set in `frontend_ir_validation.NATIVE_ROUTES` —
+  import them, don't re-type them.

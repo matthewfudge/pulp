@@ -246,12 +246,16 @@ std::filesystem::path make_fake_command(const std::filesystem::path& dir,
 } // namespace
 
 TEST_CASE("MCP JSON helpers escape and parse primitive fields", "[mcp][json]") {
-    const auto escaped = json_string("quote \" slash \\ newline\nreturn\rtab\t");
+    const auto escaped = json_string(std::string("quote \" slash \\ newline\nreturn\rtab\tunit")
+                                     + static_cast<char>(0x01)
+                                     + static_cast<char>(0x1f));
     require_contains(escaped, "\\\"");
     require_contains(escaped, "\\\\");
     require_contains(escaped, "\\n");
     require_contains(escaped, "\\r");
     require_contains(escaped, "\\t");
+    require_contains(escaped, "\\u0001");
+    require_contains(escaped, "\\u001f");
 
     const std::string payload =
         "{"
@@ -339,6 +343,19 @@ TEST_CASE("MCP JSON helpers keep adjacent keys and string escapes isolated",
     auto wrapped = json_tool_payload(R"({"ok":true,"value":"x"})");
     require_contains(wrapped, R"("structuredContent":{"ok":true,"value":"x"})");
     require_contains(wrapped, R"("text":"{\"ok\":true,\"value\":\"x\"}")");
+}
+
+TEST_CASE("MCP JSON helpers keep numeric-looking keys distinct",
+          "[mcp][json][coverage][requested]") {
+    const std::string payload =
+        R"({"id":5,"id2":99,"id_text":"5","method":"tools/call","methodExtra":"wrong"})";
+
+    REQUIRE(extract_int(payload, "id", -1) == 5);
+    REQUIRE(extract_int(payload, "id2", -1) == 99);
+    REQUIRE(extract_int(payload, "id_text", -1) == -1);
+    REQUIRE(extract_string(payload, "method") == "tools/call");
+    REQUIRE(extract_string(payload, "methodExtra") == "wrong");
+    REQUIRE(extract_raw(payload, "missing").empty());
 }
 
 TEST_CASE("MCP JSON-RPC envelopes escape structured payloads",
@@ -514,6 +531,23 @@ TEST_CASE("MCP wire output never contains embedded newlines",
         REQUIRE(reply.find('\n') == std::string::npos);
         REQUIRE(reply.find('\r') == std::string::npos);
     }
+}
+
+TEST_CASE("MCP JSON scalar extraction rejects partial typed values",
+          "[mcp][json][coverage][requested]") {
+    const std::string payload =
+        R"JSON({"whole":12,"partial":"12x","truth":true,"lie":false,"nil":null,"float":3.25,"badFloat":"3.25x","quoted":"hello \"pulp\""})JSON";
+
+    REQUIRE(extract_raw(payload, "whole") == "12");
+    REQUIRE(extract_string(payload, "quoted") == R"JSON(hello \"pulp\")JSON");
+    REQUIRE(extract_int(payload, "whole", -1) == 12);
+    REQUIRE(extract_int(payload, "partial", -1) == -1);
+    REQUIRE(extract_double(payload, "float", -1.0) == 3.25);
+    REQUIRE(extract_double(payload, "badFloat", -1.0) == -1.0);
+    REQUIRE(extract_bool(payload, "truth", false));
+    REQUIRE_FALSE(extract_bool(payload, "lie", true));
+    REQUIRE(extract_bool(payload, "nil", true));
+    REQUIRE_FALSE(extract_bool(payload, "missing", false));
 }
 
 TEST_CASE("MCP tool listing and unknown dispatch stay stable", "[mcp][tools]") {

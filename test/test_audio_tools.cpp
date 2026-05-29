@@ -112,7 +112,7 @@ fs::path install_active_clap_model(const TempDir& temp) {
   "model_id": "clap_music_audioset_v1",
   "backend": "clap",
   "checkpoint_ref": "hf://lukewys/laion_clap/music.pt",
-  "resolved_checkpoint_path": ")JSON" + checkpoint.generic_string() + R"JSON("
+  "resolved_checkpoint_path": ")JSON" + checkpoint.string() + R"JSON("
 }
 )JSON");
     write_text(temp.path / "audio" / "model-state.json", R"JSON({
@@ -140,7 +140,7 @@ void write_installed_model_metadata(const fs::path& pulp_home,
   "model_id": "clap_music_audioset_v1",
   "backend": "clap",
   "checkpoint_ref": "hf://lukewys/laion_clap/music.pt",
-  ")JSON" + std::string(checkpoint_key) + R"JSON(": ")JSON" + checkpoint.generic_string() + R"JSON("
+  ")JSON" + std::string(checkpoint_key) + R"JSON(": ")JSON" + checkpoint.string() + R"JSON("
 }
 )JSON");
 }
@@ -258,6 +258,28 @@ TEST_CASE("audio model registry rejects malformed checkpoint refs",
     REQUIRE(resolve_checkpoint_url("http:/example.test/model.pt").empty());
 }
 
+TEST_CASE("audio model registry rejects unsafe Hugging Face file paths",
+          "[audio][tools][model-registry][coverage][requested]") {
+    REQUIRE(resolve_checkpoint_url(std::string("hf://org/repo/path/")
+                                   + static_cast<char>(0x1f) + "model.pt").empty());
+    REQUIRE(resolve_checkpoint_url("hf://org/repo/\rmodel.pt").empty());
+    REQUIRE(resolve_checkpoint_url("hf://org/repo//model.pt").empty());
+    REQUIRE(resolve_checkpoint_url("hf://org/repo/../model.pt").empty());
+    REQUIRE(resolve_checkpoint_url("hf://org/repo/path/../model.pt").empty());
+    REQUIRE(resolve_checkpoint_url("hf://org/repo/path/to/..").empty());
+}
+
+TEST_CASE("audio model registry rejects unsafe Hugging Face owner and repo names",
+          "[audio][tools][model-registry][coverage][requested]") {
+    REQUIRE(resolve_checkpoint_url(std::string("hf://org/re")
+                                   + static_cast<char>(0x01)
+                                   + "po/model.pt").empty());
+    REQUIRE(resolve_checkpoint_url("hf://org\nname/repo/model.pt").empty());
+    REQUIRE(resolve_checkpoint_url("hf://org/repo\tname/model.pt").empty());
+    REQUIRE(resolve_checkpoint_url("hf://org/repo/model.pt")
+            == "https://huggingface.co/org/repo/resolve/main/model.pt");
+}
+
 TEST_CASE("audio model registry preserves direct HTTP URLs byte-for-byte",
           "[audio][tools][model-registry][coverage]") {
     REQUIRE(resolve_checkpoint_url("https://example.test/model.pt")
@@ -290,12 +312,52 @@ TEST_CASE("audio model registry preserves URL bytes and rejects partial protocol
 TEST_CASE("audio model registry preserves concrete Hugging Face file paths",
           "[audio][tools][model-registry][coverage][requested]") {
     REQUIRE(resolve_checkpoint_url(" hf://org/repo/model.pt").empty());
-    REQUIRE(resolve_checkpoint_url("hf://org/repo//")
-            == "https://huggingface.co/org/repo/resolve/main//");
-    REQUIRE(resolve_checkpoint_url("hf://org/repo/\t")
-            == "https://huggingface.co/org/repo/resolve/main/\t");
+    REQUIRE(resolve_checkpoint_url("hf://org/repo//").empty());
+    REQUIRE(resolve_checkpoint_url("hf://org/repo/\t").empty());
+    REQUIRE(resolve_checkpoint_url("hf://org/repo/path/\nmodel.pt").empty());
     REQUIRE(resolve_checkpoint_url("hf://org/repo/model.pt")
             == "https://huggingface.co/org/repo/resolve/main/model.pt");
+    REQUIRE(resolve_checkpoint_url("hf://org/repo/path/to/model.pt")
+            == "https://huggingface.co/org/repo/resolve/main/path/to/model.pt");
+}
+
+TEST_CASE("excerpt service validates request shape before scanning inputs",
+          "[audio][tools][excerpt-service][coverage][requested]") {
+    TempDir temp;
+    install_active_clap_model(temp);
+    fs::create_directories(temp.path / "inputs");
+
+    ExcerptFindRequest request;
+    request.input_path = temp.path / "inputs";
+    request.text = "";
+    auto missing_text = run_excerpt_find(request, temp.path);
+    REQUIRE_FALSE(missing_text.ok);
+    REQUIRE(missing_text.error == "text query is required");
+
+    request.text = "kick transient";
+    request.top_k = 0;
+    auto bad_top = run_excerpt_find(request, temp.path);
+    REQUIRE_FALSE(bad_top.ok);
+    REQUIRE(bad_top.error == "top and max_candidates_per_file must be >= 1");
+
+    request.top_k = 1;
+    request.max_candidates_per_file = 0;
+    auto bad_limit = run_excerpt_find(request, temp.path);
+    REQUIRE_FALSE(bad_limit.ok);
+    REQUIRE(bad_limit.error == "top and max_candidates_per_file must be >= 1");
+
+    request.max_candidates_per_file = 1;
+    request.window_ms = 0;
+    auto bad_window = run_excerpt_find(request, temp.path);
+    REQUIRE_FALSE(bad_window.ok);
+    REQUIRE(bad_window.error == "window_ms and hop_ms must be >= 1");
+
+    request.window_ms = 1000;
+    request.hop_ms = 250;
+    auto no_wavs = run_excerpt_find(request, temp.path);
+    REQUIRE_FALSE(no_wavs.ok);
+    REQUIRE(no_wavs.scanned_file_count == 0);
+    REQUIRE(no_wavs.error == "no supported WAV inputs found");
 }
 
 TEST_CASE("audio model store reads legacy metadata and malformed records fail closed",
@@ -380,7 +442,7 @@ TEST_CASE("audio model list reports registry and install state", "[audio][tools]
   "model_id": "clap_music_audioset_v1",
   "backend": "clap",
   "checkpoint_ref": "hf://lukewys/laion_clap/music.pt",
-  "resolved_checkpoint_path": ")JSON" + checkpoint.generic_string() + R"JSON("
+  "resolved_checkpoint_path": ")JSON" + checkpoint.string() + R"JSON("
 }
 )JSON");
     write_text(temp.path / "audio" / "model-state.json", R"JSON({
@@ -442,7 +504,7 @@ TEST_CASE("audio model status reports configured checkpoint loadability", "[audi
   "configured_model_id": "clap_music_audioset_v1",
   "backend": "clap",
   "checkpoint_ref": "hf://lukewys/laion_clap/music.pt",
-  "resolved_checkpoint_path": ")JSON" + checkpoint.generic_string() + R"JSON("
+  "resolved_checkpoint_path": ")JSON" + checkpoint.string() + R"JSON("
 }
 )JSON");
 
@@ -496,7 +558,7 @@ TEST_CASE("audio model status reports incomplete state shapes",
 
     write_text(temp.path / "audio" / "model-state.json", R"JSON({
   "configured_model_id": "clap_music_audioset_v1",
-  "resolved_checkpoint_path": ")JSON" + (temp.path / "missing.pt").generic_string() + R"JSON("
+  "resolved_checkpoint_path": ")JSON" + (temp.path / "missing.pt").string() + R"JSON("
 }
 )JSON");
 
@@ -515,7 +577,7 @@ TEST_CASE("audio model status reads legacy model.json and installed metadata fal
   "model_id": "clap_music_audioset_v1",
   "backend": "clap",
   "checkpoint_ref": "hf://lukewys/laion_clap/music.pt",
-  "resolved_checkpoint_path": ")JSON" + checkpoint.generic_string() + R"JSON("
+  "resolved_checkpoint_path": ")JSON" + checkpoint.string() + R"JSON("
 }
 )JSON");
     write_text(temp.path / "audio" / "model.json", R"JSON({
@@ -542,7 +604,7 @@ TEST_CASE("audio model activate writes state from installed metadata", "[audio][
   "model_id": "clap_music_audioset_v1",
   "backend": "clap",
   "checkpoint_ref": "hf://lukewys/laion_clap/music.pt",
-  "resolved_checkpoint_path": ")JSON" + checkpoint.generic_string() + R"JSON("
+  "resolved_checkpoint_path": ")JSON" + checkpoint.string() + R"JSON("
 }
 )JSON");
 
@@ -565,7 +627,7 @@ TEST_CASE("audio model activate falls back to registered metadata",
     write_text(checkpoint, "stub");
     write_text(temp.path / "audio" / "models" / "clap_music_audioset_v1.json", R"JSON({
   "model_id": "clap_music_audioset_v1",
-  "resolved_checkpoint_path": ")JSON" + checkpoint.generic_string() + R"JSON("
+  "resolved_checkpoint_path": ")JSON" + checkpoint.string() + R"JSON("
 }
 )JSON");
 
@@ -601,7 +663,7 @@ TEST_CASE("audio model activate rejects installed metadata with missing checkpoi
   "model_id": "clap_music_audioset_v1",
   "backend": "clap",
   "checkpoint_ref": "hf://lukewys/laion_clap/music.pt",
-  "resolved_checkpoint_path": ")JSON" + checkpoint.generic_string() + R"JSON("
+  "resolved_checkpoint_path": ")JSON" + checkpoint.string() + R"JSON("
 }
 )JSON");
 
@@ -632,7 +694,7 @@ TEST_CASE("audio model store accepts overrides and legacy checkpoint metadata",
   "model_id": "clap_music_audioset_v1",
   "backend": "legacy-clap",
   "checkpoint_ref": "manual://legacy",
-  "checkpoint_path": ")JSON" + checkpoint.generic_string() + R"JSON("
+  "checkpoint_path": ")JSON" + checkpoint.string() + R"JSON("
 }
 )JSON");
     auto installed = read_installed_model("clap_music_audioset_v1", temp.path);
@@ -1007,7 +1069,7 @@ TEST_CASE("excerpt find writes a deterministic WAV-first bundle", "[audio][tools
   "model_id": "clap_music_audioset_v1",
   "backend": "clap",
   "checkpoint_ref": "hf://lukewys/laion_clap/music.pt",
-  "resolved_checkpoint_path": ")JSON" + checkpoint.generic_string() + R"JSON("
+  "resolved_checkpoint_path": ")JSON" + checkpoint.string() + R"JSON("
 }
 )JSON");
     write_text(temp.path / "audio" / "model-state.json", R"JSON({
@@ -1163,7 +1225,7 @@ TEST_CASE("excerpt find reports unsupported inputs after resolving a model",
   "model_id": "clap_music_audioset_v1",
   "backend": "clap",
   "checkpoint_ref": "hf://lukewys/laion_clap/music.pt",
-  "resolved_checkpoint_path": ")JSON" + checkpoint.generic_string() + R"JSON("
+  "resolved_checkpoint_path": ")JSON" + checkpoint.string() + R"JSON("
 }
 )JSON");
     write_text(temp.path / "audio" / "model-state.json", R"JSON({
@@ -1254,7 +1316,7 @@ TEST_CASE("excerpt find reports inactive and unavailable installed models",
 
     write_text(temp.path / "audio" / "models" / "clap_music_audioset_v1.json", R"JSON({
   "model_id": "clap_music_audioset_v1",
-  "resolved_checkpoint_path": ")JSON" + (temp.path / "missing.pt").generic_string() + R"JSON("
+  "resolved_checkpoint_path": ")JSON" + (temp.path / "missing.pt").string() + R"JSON("
 }
 )JSON");
     auto missing_checkpoint = run_excerpt_find(request, temp.path);
@@ -1388,7 +1450,7 @@ TEST_CASE("excerpt find deterministic scores use a stable hash", "[audio][tools]
   "model_id": "clap_music_audioset_v1",
   "backend": "clap",
   "checkpoint_ref": "hf://lukewys/laion_clap/music.pt",
-  "resolved_checkpoint_path": ")JSON" + checkpoint.generic_string() + R"JSON("
+  "resolved_checkpoint_path": ")JSON" + checkpoint.string() + R"JSON("
 }
 )JSON");
     write_text(temp.path / "audio" / "model-state.json", R"JSON({
@@ -1763,7 +1825,7 @@ TEST_CASE("excerpt find bundle metadata falls back to registered model fields",
     write_text(checkpoint, "stub");
     write_text(temp.path / "audio" / "models" / "clap_music_audioset_v1.json", R"JSON({
   "backend": "clap",
-  "resolved_checkpoint_path": ")JSON" + checkpoint.generic_string() + R"JSON("
+  "resolved_checkpoint_path": ")JSON" + checkpoint.string() + R"JSON("
 }
 )JSON");
     write_text(temp.path / "audio" / "model-state.json", R"JSON({
@@ -1800,9 +1862,13 @@ TEST_CASE("excerpt find bundle metadata falls back to registered model fields",
     auto model_json = read_text(result.bundle_path / "model.json");
     REQUIRE(model_json.find("\"checkpoint_ref\": \"hf://lukewys/laion_clap/music.pt\"")
             != std::string::npos);
-    REQUIRE(model_json.find("\"resolved_checkpoint_path\": \""
-                            + json_escape(checkpoint.string()) + "\"")
-            != std::string::npos);
+    // Production writes the path through add_path_member -> value.string(),
+    // so fixtures and assertions both use .string(). On Windows the native
+    // path differs from generic_string(); using .string() here keeps the
+    // text-search assertion stable across platforms.
+    const auto native_path = "\"resolved_checkpoint_path\": \""
+                           + json_escape(checkpoint.string()) + "\"";
+    REQUIRE(model_json.find(native_path) != std::string::npos);
 }
 
 #if !defined(_WIN32)
@@ -1904,7 +1970,7 @@ TEST_CASE("excerpt find skips unreadable recursive subdirectories", "[audio][too
   "model_id": "clap_music_audioset_v1",
   "backend": "clap",
   "checkpoint_ref": "hf://lukewys/laion_clap/music.pt",
-  "resolved_checkpoint_path": ")JSON" + checkpoint.generic_string() + R"JSON("
+  "resolved_checkpoint_path": ")JSON" + checkpoint.string() + R"JSON("
 }
 )JSON");
     write_text(temp.path / "audio" / "model-state.json", R"JSON({

@@ -272,6 +272,65 @@ TEST_CASE("find_compat_json walks parents and reports absence",
     fs::remove_all(dir);
 }
 
+TEST_CASE("snapshot_input scrapes script attributes and frontmatter edge cases",
+          "[cli][import-detect][coverage][requested]") {
+    ScratchDir scratch("snapshot-edges");
+
+    write_text(scratch.path / "case.html", R"HTML(
+<!doctype html>
+<SCRIPT SRC='/assets/app.js' TYPE='module'></SCRIPT>
+<script data-src="/ignored.js" src=/assets/inline.js></script>
+<script src = "/spaced-equals-ignored.js"></script>
+<scriptish src="/not-a-script.js"></scriptish>
+<script type=text/babel></script>
+<script>
+  window.tailwind = { theme: { extend: { colors: {
+    "surface-container": "#fff",
+    "accent": "#000"
+  }}}}
+</script>
+)HTML");
+
+    auto html = det::snapshot_input(scratch.path / "case.html");
+    REQUIRE_FALSE(html.is_directory);
+    REQUIRE(html.filename == "case.html");
+    REQUIRE(html.script_srcs.size() == 2);
+    REQUIRE(html.script_srcs[0] == "/assets/app.js");
+    REQUIRE(html.script_srcs[1] == "/assets/inline.js");
+    REQUIRE(html.script_types.size() == 2);
+    REQUIRE(html.script_types[0] == "module");
+    REQUIRE(html.script_types[1] == "text/babel");
+    REQUIRE(std::find(html.tailwind_tokens.begin(),
+                      html.tailwind_tokens.end(),
+                      "surface-container") != html.tailwind_tokens.end());
+    REQUIRE(std::find(html.tailwind_tokens.begin(),
+                      html.tailwind_tokens.end(),
+                      "accent") != html.tailwind_tokens.end());
+
+    write_text(scratch.path / "DESIGN.md",
+               "---\r\n"
+               "name: Demo\r\n"
+               "colors:\r\n"
+               "  primary: '#fff'\r\n"
+               "# comment: ignored\r\n"
+               "---\r\n"
+               "# Body\r\n");
+
+    auto design = det::snapshot_input(scratch.path / "DESIGN.md");
+    REQUIRE(design.has_frontmatter_fence);
+    REQUIRE(design.frontmatter_keys == std::vector<std::string>{"name", "colors"});
+
+    det::FingerprintClause type_clause;
+    type_clause.kind = det::FingerprintClause::Kind::html_script_type;
+    type_clause.value = " MODULE ";
+    REQUIRE(det::match_clause(type_clause, html));
+
+    det::FingerprintClause key_clause;
+    key_clause.kind = det::FingerprintClause::Kind::frontmatter_key;
+    key_clause.required = "colors";
+    REQUIRE(det::match_clause(key_clause, design));
+}
+
 TEST_CASE("clause matcher honors the fingerprint vocabulary", "[cli][import-detect][issue-1031]") {
     det::InputSnapshot snap;
     snap.is_directory = true;
@@ -903,6 +962,26 @@ TEST_CASE("render_new_format_json includes removals and empty additions",
     CHECK(json.find("\"legacy-script\"") != std::string::npos);
     CHECK(json.find("\"based-on\": {\"source\": \"stitch\", \"format-version\": \"2026.05\"}") !=
           std::string::npos);
+}
+
+TEST_CASE("render_new_format_json escapes generated string fields",
+          "[cli][import-detect][coverage][requested]") {
+    det::NewFormatReport report;
+    report.candidate_source = "stitch\"beta";
+    report.candidate_format_version = "2026.06\\next";
+    report.based_on_source = "base\nsource";
+    report.based_on_format_version = "2026.05\r\tlegacy";
+    report.additions = {"brand\"primary", "path\\token"};
+    report.removals = {std::string("drop") + static_cast<char>(0x1f)};
+
+    auto json = det::render_new_format_json(report);
+    CHECK(json.find("\"candidate-source\": \"stitch\\\"beta\"") != std::string::npos);
+    CHECK(json.find("\"candidate-format-version\": \"2026.06\\\\next\"") != std::string::npos);
+    CHECK(json.find("\"brand\\\"primary\"") != std::string::npos);
+    CHECK(json.find("\"path\\\\token\"") != std::string::npos);
+    CHECK(json.find("\"drop\\u001f\"") != std::string::npos);
+    CHECK(json.find("\"source\": \"base\\nsource\"") != std::string::npos);
+    CHECK(json.find("\"format-version\": \"2026.05\\r\\tlegacy\"") != std::string::npos);
 }
 
 TEST_CASE("detect preserves manifest order when matches and confidence tie",

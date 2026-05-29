@@ -510,7 +510,7 @@
         ]
       },
       "parser": {
-        "file": "core/view/src/design_import.cpp",
+        "file": "core/view/src/design_import_v0_tsx.cpp",
         "runtime_file": "core/view/src/claude_bundle_sources.cpp",
         "runtime": "parse_v0_dev_react",
         "static": "parse_v0_tsx"

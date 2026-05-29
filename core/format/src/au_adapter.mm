@@ -103,7 +103,11 @@ struct AUBridge {
     float* output_ptrs[kMaxChannels] = {};
     const float* input_ptrs[kMaxChannels] = {};
     const float* sidechain_ptrs[kMaxChannels] = {};
+    // AU hosts may pass null mData pointers and expect the render block to
+    // provide storage. Keep fallback buffers sized at allocation time so the
+    // real-time path does not depend on host-provided output memory.
     std::vector<float> output_storage;
+    std::vector<float> input_storage;
 
     // Pre-allocated input buffer list for pulling input (stereo max for now)
     struct InputBufferStorage {
@@ -443,9 +447,12 @@ static int32_t block_relative_sample_offset(AUEventSampleTime event_sample_time,
 
     _bridge.sample_rate = _outputBus.format.sampleRate;
     _bridge.max_frames = self.maximumFramesToRender;
-    _bridge.output_storage.assign(
-        static_cast<std::size_t>(pulp::format::au::kMaxChannels) * _bridge.max_frames,
-        0.0f);
+    const auto storage_samples =
+        static_cast<std::size_t>(pulp::format::au::kMaxChannels) *
+        static_cast<std::size_t>(_bridge.max_frames);
+    _bridge.output_storage.assign(storage_samples, 0.0f);
+    _bridge.input_storage.assign(storage_samples, 0.0f);
+    _bridge.sidechain_storage.assign(storage_samples, 0.0f);
 
     if (_bridge.processor) {
         pulp::format::PrepareContext ctx;
@@ -544,10 +551,16 @@ static int32_t block_relative_sample_offset(AUEventSampleTime event_sample_time,
         if (pullInputBlock && bridge->input_channels > 0) {
             auto& abl = bridge->input_abl;
             abl.mNumberBuffers = outChans;
+            const std::size_t input_samples =
+                static_cast<std::size_t>(outChans) * frameCount;
+            if (bridge->input_storage.size() < input_samples)
+                bridge->input_storage.assign(input_samples, 0.0f);
             for (UInt32 i = 0; i < outChans; ++i) {
                 abl.mBuffers[i].mNumberChannels = 1;
                 abl.mBuffers[i].mDataByteSize = frameCount * sizeof(float);
-                abl.mBuffers[i].mData = outputData->mBuffers[i].mData;
+                abl.mBuffers[i].mData =
+                    bridge->input_storage.data() +
+                    static_cast<std::size_t>(i) * frameCount;
             }
 
             AudioUnitRenderActionFlags pullFlags = 0;
@@ -998,10 +1011,8 @@ static int32_t block_relative_sample_offset(AUEventSampleTime event_sample_time,
     }
 
     const double design_aspect = design_w / design_h;
-    // 5% aspect tolerance matches the JUCE AUv3 demo workaround for Logic
-    // 10.6.1's 1024x768 / 1366x1024 probe (forum.juce.com/t/auv3-resizing
-    // -issue-on-macos-not-ios/43811). Tight enough to reject obvious
-    // wrong-aspect candidates, loose enough to land on Logic's defaults.
+    // 5% aspect tolerance is tight enough to reject obvious wrong-aspect
+    // candidates and loose enough to land on Logic's common defaults.
     constexpr double kAspectTolerance = 0.05;
 
     NSMutableIndexSet *aspectMatches = [NSMutableIndexSet indexSet];

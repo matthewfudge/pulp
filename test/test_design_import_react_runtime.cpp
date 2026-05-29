@@ -207,7 +207,7 @@ void maybe_write_pencil_runtime_script(const std::string& runtime_js) {
 
 // ── v0 TSX parsing ──────────────────────────────────────────────────────
 
-TEST_CASE("parse_v0_tsx extracts className patterns", "[view][import]") {
+TEST_CASE("parse_v0_tsx extracts host JSX structure and className metadata", "[view][import]") {
     auto tsx = R"(
         export default function Component() {
             return (
@@ -223,8 +223,10 @@ TEST_CASE("parse_v0_tsx extracts className patterns", "[view][import]") {
 
     REQUIRE(ir.source == DesignSource::v0);
     REQUIRE(ir.root.type == "frame");
-    // Should extract at least the two className entries
-    REQUIRE(ir.root.children.size() >= 2);
+    REQUIRE(ir.root.attributes.count("className") == 1);
+    REQUIRE(ir.root.layout.direction == LayoutDirection::column);
+    REQUIRE_FALSE(ir.root.children.empty());
+    REQUIRE(ir.root.children[0].attributes.count("className") == 1);
 }
 
 TEST_CASE("parse_v0_tsx accepts JSON IR directly", "[view][import]") {

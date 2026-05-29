@@ -54,6 +54,8 @@ static void print_usage() {
     std::cerr << "  --scale <factor>     Scale factor (default: 2.0)\n";
     std::cerr << "  --theme <name>       Theme: dark, light, pro_audio (default: dark)\n";
     std::cerr << "  --backend <name>     Render backend: skia, coregraphics (default: skia)\n";
+    std::cerr << "  --runtime-trace <file.json>\n";
+    std::cerr << "                       Dump JS listener/callback trace after settle\n";
     std::cerr << "  --base64             Output base64-encoded PNG to stdout\n";
     std::cerr << "  --demo               Render a demo UI (no script needed)\n";
 }
@@ -62,6 +64,13 @@ static std::string read_file(const std::string& path) {
     std::ifstream f(path);
     if (!f.is_open()) return {};
     return std::string(std::istreambuf_iterator<char>(f), {});
+}
+
+static bool write_text_file(const std::string& path, const std::string& text) {
+    std::ofstream f(path, std::ios::binary);
+    if (!f.is_open()) return false;
+    f << text;
+    return f.good();
 }
 
 static std::string base64_encode(const std::vector<uint8_t>& data) {
@@ -94,6 +103,7 @@ struct ScreenshotCliOptions {
 #else
     std::string backend_name = "coregraphics";
 #endif
+    std::string runtime_trace_path;
     bool backend_was_defaulted = true;
     bool output_base64 = false;
     bool demo = false;
@@ -130,6 +140,7 @@ static ScreenshotCliOptions parse_options(int argc, char* argv[]) {
             options.backend_name = argv[++i];
             options.backend_was_defaulted = false;
         }
+        else if (arg == "--runtime-trace" && i + 1 < argc) options.runtime_trace_path = argv[++i];
         else if (arg == "--base64") options.output_base64 = true;
         else if (arg == "--demo") options.demo = true;
     }
@@ -163,6 +174,195 @@ static bool normalize_backend(ScreenshotCliOptions& options) {
         return false;
     }
     return true;
+}
+
+static const char* runtime_trace_script() {
+    return R"JS(
+(function () {
+    function keys(obj) {
+        return obj ? Object.keys(obj).sort() : [];
+    }
+    function listenerSummary(target) {
+        if (!target || !target._listeners) return [];
+        return keys(target._listeners).map(function (type) {
+            var list = target._listeners[type] || [];
+            return { type: type, count: list.length };
+        });
+    }
+    function callbackSummary() {
+        if (typeof __callbacks__ === 'undefined') return [];
+        return keys(__callbacks__).map(function (key) {
+            var idx = key.lastIndexOf(':');
+            return {
+                key: key,
+                id: idx >= 0 ? key.slice(0, idx) : key,
+                type: idx >= 0 ? key.slice(idx + 1) : ''
+            };
+        });
+    }
+    function nativeRegistrationSummary() {
+        if (typeof __nativeRegistered__ === 'undefined') return [];
+        return keys(__nativeRegistered__).map(function (key) {
+            var idx = key.lastIndexOf(':');
+            return {
+                key: key,
+                id: idx >= 0 ? key.slice(0, idx) : key,
+                group: idx >= 0 ? key.slice(idx + 1) : ''
+            };
+        });
+    }
+    function cloneObject(obj) {
+        var out = {};
+        if (!obj) return out;
+        keys(obj).forEach(function (key) {
+            var value = obj[key];
+            if (value != null && typeof value !== 'function') out[key] = String(value);
+        });
+        return out;
+    }
+    function textPreview(el) {
+        var text = el && el._textContent != null ? String(el._textContent) : '';
+        return text.length > 80 ? text.slice(0, 80) : text;
+    }
+    function rectFor(el) {
+        if (!el || !el._nativeCreated || typeof getLayoutRect !== 'function') return null;
+        try {
+            var r = getLayoutRect(el._id);
+            if (!r) return null;
+            return {
+                x: Number(r.x || 0),
+                y: Number(r.y || 0),
+                width: Number(r.width || 0),
+                height: Number(r.height || 0),
+                top: Number(r.top || 0),
+                right: Number(r.right || 0),
+                bottom: Number(r.bottom || 0),
+                left: Number(r.left || 0)
+            };
+        } catch (e) {
+            return null;
+        }
+    }
+    function ancestorChainFor(el) {
+        if (el && el._nativeCreated && typeof getLayoutAncestorRects === 'function') {
+            try {
+                var nativeChain = getLayoutAncestorRects(el._id);
+                if (nativeChain && typeof nativeChain.length === 'number') {
+                    var normalized = [];
+                    for (var i = 0; i < nativeChain.length; i++) {
+                        var entry = nativeChain[i] || {};
+                        var bounds = entry.bounds || null;
+                        normalized.push({
+                            id: String(entry.id || ''),
+                            tag: '',
+                            bounds_source: bounds ? 'getLayoutAncestorRects' : 'none',
+                            bounds: bounds ? {
+                                x: Number(bounds.x || 0),
+                                y: Number(bounds.y || 0),
+                                width: Number(bounds.width || 0),
+                                height: Number(bounds.height || 0),
+                                top: Number(bounds.top || 0),
+                                right: Number(bounds.right || 0),
+                                bottom: Number(bounds.bottom || 0),
+                                left: Number(bounds.left || 0)
+                            } : null
+                        });
+                    }
+                    if (normalized.length) return normalized;
+                }
+            } catch (e) {
+                // Fall back to the JS-side parent chain below.
+            }
+        }
+        var chain = [];
+        var seen = {};
+        var cur = el || null;
+        while (cur && cur._id && !seen[cur._id] && chain.length < 128) {
+            seen[cur._id] = true;
+            var bounds = rectFor(cur);
+            chain.unshift({
+                id: String(cur._id || ''),
+                tag: cur.tagName ? String(cur.tagName).toLowerCase() : '',
+                bounds_source: bounds ? 'getLayoutRect' : 'none',
+                bounds: bounds
+            });
+            cur = cur._parentElement || null;
+        }
+        return chain;
+    }
+    function nativeBoundsSummary() {
+        if (typeof __nativeElements__ === 'undefined') return [];
+        var ancestorTraceIds = {};
+        if (typeof __nativeRegistered__ !== 'undefined') {
+            keys(__nativeRegistered__).forEach(function (key) {
+                var idx = key.lastIndexOf(':');
+                var id = idx >= 0 ? key.slice(0, idx) : key;
+                if (id) ancestorTraceIds[id] = true;
+            });
+        }
+        return keys(__nativeElements__).map(function (id) {
+            var el = __nativeElements__[id];
+            var attrs = cloneObject(el && el._attributes);
+            var bounds = rectFor(el);
+            return {
+                id: id,
+                tag: el && el.tagName ? String(el.tagName).toLowerCase() : '',
+                user_id: el && el._userIdSet ? String(attrs.id || '') : '',
+                class_name: el && el._className ? String(el._className) : '',
+                text: textPreview(el),
+                native_created: !!(el && el._nativeCreated),
+                attributes: attrs,
+                bounds_source: bounds ? 'getLayoutRect' : 'none',
+                bounds: bounds,
+                ancestor_chain: ancestorTraceIds[id] ? ancestorChainFor(el) : []
+            };
+        });
+    }
+    function traceReferenceFrame() {
+        var rootSize = null;
+        if (typeof getRootSize === 'function') {
+            try {
+                var s = getRootSize();
+                if (s) rootSize = { width: Number(s.width || 0), height: Number(s.height || 0) };
+            } catch (e) {
+                rootSize = null;
+            }
+        }
+        var body = (typeof document !== 'undefined') ? document.body : null;
+        return {
+            coordinate_space: 'root-view-css-points',
+            origin: 'top-left',
+            root_size: rootSize,
+            document_body_id: body && body._id ? String(body._id) : '',
+            document_body_bounds: rectFor(body)
+        };
+    }
+    var addEventLog = Array.isArray(globalThis.__pulpAddELLog__)
+        ? globalThis.__pulpAddELLog__.map(function (entry) {
+            return { op: String(entry.op || ''), type: String(entry.type || ''), fn: String(entry.fn || '') };
+          })
+        : [];
+    var callbacks = callbackSummary();
+    var nativeRegistered = nativeRegistrationSummary();
+    var nativeBounds = nativeBoundsSummary();
+    return JSON.stringify({
+        schema: 'pulp-screenshot-runtime-trace-v1',
+        reference_frame: traceReferenceFrame(),
+        callback_count: callbacks.length,
+        callbacks: callbacks,
+        native_registered_count: nativeRegistered.length,
+        native_registered: nativeRegistered,
+        window_listeners: listenerSummary(globalThis.window),
+        document_listeners: listenerSummary(globalThis.document),
+        add_event_listener_log_count: addEventLog.length,
+        add_event_listener_log: addEventLog,
+        dispatch_hits: globalThis.__pulpDispatchHits__ || null,
+        native_element_count: (typeof __nativeElements__ !== 'undefined') ? keys(__nativeElements__).length : 0,
+        native_bounds_count: nativeBounds.length,
+        native_bounds: nativeBounds
+    }, null, 2);
+})()
+)JS";
 }
 
 int main(int argc, char* argv[]) {
@@ -286,6 +486,19 @@ int main(int argc, char* argv[]) {
     // explicitly. __pulpRuntimeSettle__ is registered by WidgetBridge
     // exactly for this case (see widget_bridge.cpp:1144).
     bridge.load_script("if (typeof __pulpRuntimeSettle__ === 'function') __pulpRuntimeSettle__(64);");
+
+    if (!options.runtime_trace_path.empty()) {
+        try {
+            auto trace = engine.evaluate(runtime_trace_script()).toString();
+            if (!write_text_file(options.runtime_trace_path, trace + "\n")) {
+                std::cerr << "Error: could not write runtime trace " << options.runtime_trace_path << "\n";
+                return 1;
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "Error: runtime trace failed: " << e.what() << "\n";
+            return 1;
+        }
+    }
 
     // Render
     if (options.output_base64) {
