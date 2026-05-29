@@ -86,6 +86,15 @@ def child_gate_check(report: dict[str, Any],
     warnings = non_negative_int(summary.get("warnings"))
     failures = non_negative_int(summary.get("failures"))
     child_checks = as_list(report.get("checks"))
+    if not child_checks:
+        # A child gate that reports "ready" with no checks has verified nothing;
+        # it must not contribute a silent PASS to the aggregate gate.
+        return [check(
+            check_id,
+            FAIL_STATUS,
+            f"{label} reported no checks to verify",
+            verdict=verdict,
+        )]
     warning_ids = [
         str(item.get("id", ""))
         for item in child_checks
@@ -175,6 +184,11 @@ def behavior_visual_checks(report: dict[str, Any]) -> list[dict[str, Any]]:
         failures.append("target_links_script_runtime")
     if report.get("within_threshold") is not True or report.get("full_within_threshold") is not True:
         failures.append("within_threshold")
+    if threshold <= 0.0:
+        # Without a positive threshold the similarity comparison below has no
+        # teeth (`x < 0.0` is never true), so a report could self-certify
+        # parity with zero measured similarity. Require a real threshold.
+        failures.append("missing_similarity_threshold")
     if full_similarity < threshold or routed_similarity < threshold:
         failures.append("similarity_threshold")
     if behavior.get("passed") is not True:

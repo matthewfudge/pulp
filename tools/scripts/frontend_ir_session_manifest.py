@@ -159,7 +159,10 @@ def resource_entries(report: dict[str, Any], repo_root: pathlib.Path) -> list[di
             entry["path"] = metadata["path"]
             entry["exists"] = metadata["exists"]
             for key in ("sha256", "byte_size", "mime"):
-                if metadata.get(key):
+                # Use "is not None" so an on-disk byte_size of 0 (a real empty
+                # file) overwrites the stale IR value instead of being skipped
+                # as falsy.
+                if metadata.get(key) is not None:
                     entry[key] = metadata[key]
         entries.append(entry)
     return sorted(entries, key=lambda item: str(item.get("id", "")))
