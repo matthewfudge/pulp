@@ -40,7 +40,7 @@ std::optional<DesignSource> parse_design_source(const std::string& name) {
     if (name == "claude")   return DesignSource::claude;
     if (name == "designmd") return DesignSource::designmd;
     if (name == "jsx")      return DesignSource::jsx;
-    if (name == "figma-plugin" || name == "figma_plugin") return DesignSource::figma_plugin;
+    if (name == "figma-plugin") return DesignSource::figma_plugin;
     return std::nullopt;
 }
 
