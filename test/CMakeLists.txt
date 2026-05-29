@@ -3019,6 +3019,14 @@ if(APPLE AND NOT PULP_IOS)
         PROPERTIES LABELS "parser-import")
 endif()
 
+# The generated-import C++ test targets below consume sources from the
+# private `planning/` submodule (planning/artifacts/native-ui/nv0/reports/
+# generated/...). The normal CI checkout does not initialize that
+# submodule, so guard the whole block on the sentinel artifact's
+# presence — when planning isn't checked out, the targets are skipped
+# cleanly instead of failing CMake configure with a missing-source error.
+if(EXISTS ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/generated/chainer-phase-f-hybrid.cpp)
+
 set(CHAINER_PHASE_E_FADERS_CPP
     ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/generated/chainer-phase-e-faders.cpp)
 set_source_files_properties(${CHAINER_PHASE_E_FADERS_CPP} PROPERTIES
@@ -3202,6 +3210,13 @@ target_include_directories(pulp-test-design-import-cpp-only PRIVATE
     ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/generated)
 catch_discover_tests(pulp-test-design-import-cpp-only
     PROPERTIES LABELS "parser-import")
+
+else()
+    message(STATUS
+        "Pulp: planning/ submodule not initialized — skipping generated-import C++ test targets "
+        "(pulp-test-design-import-cpp-codegen, pulp-test-design-import-cpp-core-link, "
+        "pulp-test-design-import-cpp-only). Run `git submodule update --init planning` to enable.")
+endif()
 
 add_executable(pulp-test-design-import-benchmark test_design_import_benchmark.cpp)
 target_link_libraries(pulp-test-design-import-benchmark
