@@ -442,7 +442,13 @@ function extractStyle(n: SceneNode, ctx: WalkCtx): ExtractedStyle {
       } else if (first.type === "GRADIENT_RADIAL" || first.type === "GRADIENT_ANGULAR" || first.type === "GRADIENT_DIAMOND") {
         pushDiag(ctx, "warning", "complex-gradient", "unsupported_property",
           `${first.type} not supported; emitting flat first color fallback.`);
-        s.background_gradient = gradientFallbackFlat(first as GradientPaint);
+        // Store the flat fallback as background_color, NOT background_gradient.
+        // The codegen routes background_gradient through setBackgroundGradient,
+        // which expects a linear-gradient(...) string and fails to parse a
+        // bare hex/rgba value — visible effect: the colour never paints.
+        // Subregion tints inside ELYSIUM cells (Frame 482 #2d2d2d) were lost
+        // this way until the fix.
+        s.background_color = gradientFallbackFlat(first as GradientPaint);
       }
     }
   }

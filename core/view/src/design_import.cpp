@@ -629,6 +629,23 @@ static IRStyle parse_ir_style(const choc::value::ValueView& obj) {
     alias_float("max_width", s.max_width);
     alias_float("max_height", s.max_height);
 
+    // Demote misclassified flat-fallback gradients to background_color.
+    // Older extract.ts (before commit fixing the GRADIENT_RADIAL / ANGULAR
+    // / DIAMOND fallback) stored a flat hex/rgba value in background_gradient
+    // instead of background_color. Codegen routes background_gradient
+    // through setBackgroundGradient, which expects a `linear-gradient(...)`
+    // string and silently fails on a bare colour. Detect that shape here
+    // and move the value to background_color so existing IRs render the
+    // intended flat fill.
+    if (s.background_gradient && !s.background_color) {
+        const std::string& g = *s.background_gradient;
+        bool is_real_gradient = (g.find("gradient(") != std::string::npos);
+        if (!is_real_gradient && !g.empty()) {
+            s.background_color = g;
+            s.background_gradient.reset();
+        }
+    }
+
     return s;
 }
 
