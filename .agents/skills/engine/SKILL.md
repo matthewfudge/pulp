@@ -315,3 +315,29 @@ might receive `var(--name)` from JSX — see the `fontFamily` /
 `color` / `borderColor*` / `outlineColor` / `textDecorationColor` /
 `textShadowColor` / `shadowColor` / `background` cases for the
 canonical wiring.
+
+### Native global name ownership lives in the `JsEngine` base, not per-backend
+
+`JsEngine::register_function`, `register_host_object`, and
+`register_promise_function` are now non-virtual on the base class. They
+each call `claim_native_symbol(name)` (which throws on duplicates) and
+then delegate to the backend's `register_*_impl` hook. Backends only
+implement the `_impl` half.
+
+Why this matters: a duplicate-name registration is a silent bug that
+either shadows the previous binding (QuickJS-shaped behavior) or
+crashes at first call (JSC/V8-shaped behavior), and the symptom path
+depends on which engine the user picked at build time. Catching it at
+registration time, in the base class, makes the failure
+backend-independent and immediate.
+
+When adding a new registration surface (Promise variants, typed-array
+bridges, host-object subforms, etc.), follow the same pattern:
+public non-virtual entry point on `JsEngine` → claim the name → call a
+new `_impl` hook each backend implements. Do not add a duplicate-name
+table inside an individual backend; that path drifts.
+
+`pulp-test-widget-bridge-api-contracts` scans for accidental literal
+re-registrations across `WidgetBridge` (function, host-object, and
+promise-function names) and is the cheapest tripwire if a split-up
+registration module forgets the contract.

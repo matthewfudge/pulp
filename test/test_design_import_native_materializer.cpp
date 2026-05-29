@@ -1,7 +1,9 @@
+#include <pulp/canvas/canvas.hpp>
 #include <pulp/state/store.hpp>
 #include <pulp/view/design_import.hpp>
 #include <pulp/view/layout_snapshot.hpp>
 #include <pulp/view/script_engine.hpp>
+#include <pulp/view/text_editor.hpp>
 #include <pulp/view/view.hpp>
 #include <pulp/view/widget_bridge.hpp>
 #include <pulp/view/widgets.hpp>
@@ -17,6 +19,14 @@
 using namespace pulp::view;
 
 namespace {
+
+const pulp::canvas::DrawCommand* first_meter_fill_rect(const pulp::canvas::RecordingCanvas& canvas) {
+    for (const auto& command : canvas.commands()) {
+        if (command.type == pulp::canvas::DrawCommand::Type::fill_rect)
+            return &command;
+    }
+    return nullptr;
+}
 
 std::string minimal_live_react_shim() {
     return R"JS(
@@ -385,6 +395,76 @@ TEST_CASE("baked native materializer applies token theme only to the detached ro
     REQUIRE(root->child_at(0)->theme().colors.empty());
 }
 
+TEST_CASE("standard meter snaps fill edge and suppresses duplicate peak line",
+          "[view][meter][import][native-materializer]") {
+    Meter meter;
+    meter.set_bounds({0.0f, 0.0f, 8.0f, 56.0f});
+    meter.set_level(0.72f, 0.72f);
+
+    pulp::canvas::RecordingCanvas same_edge_canvas;
+    meter.paint(same_edge_canvas);
+
+    const auto* fill = first_meter_fill_rect(same_edge_canvas);
+    REQUIRE(fill != nullptr);
+    REQUIRE(fill->f[0] == 1.0f);
+    REQUIRE(fill->f[1] == 16.0f);
+    REQUIRE(fill->f[2] == 6.0f);
+    REQUIRE(fill->f[3] == 40.0f);
+    REQUIRE(same_edge_canvas.count(pulp::canvas::DrawCommand::Type::stroke_line) == 0);
+
+    meter.set_level(0.50f, 0.75f);
+    pulp::canvas::RecordingCanvas separate_peak_canvas;
+    meter.paint(separate_peak_canvas);
+
+    fill = first_meter_fill_rect(separate_peak_canvas);
+    REQUIRE(fill != nullptr);
+    REQUIRE(fill->f[1] == 28.0f);
+    REQUIRE(fill->f[3] == 28.0f);
+    REQUIRE(separate_peak_canvas.count(pulp::canvas::DrawCommand::Type::stroke_line) == 1);
+
+    const pulp::canvas::DrawCommand* peak_line = nullptr;
+    for (const auto& command : separate_peak_canvas.commands()) {
+        if (command.type == pulp::canvas::DrawCommand::Type::stroke_line) {
+            peak_line = &command;
+            break;
+        }
+    }
+    REQUIRE(peak_line != nullptr);
+    REQUIRE(peak_line->f[0] == 1.0f);
+    REQUIRE(peak_line->f[1] == 14.0f);
+    REQUIRE(peak_line->f[2] == 7.0f);
+    REQUIRE(peak_line->f[3] == 14.0f);
+}
+
+TEST_CASE("baked native materializer preserves waveform preview shape",
+          "[view][waveform][import][native-materializer]") {
+    DesignIR ir;
+    ir.root = frame("waveform-root", 88.0f, 42.0f, LayoutDirection::column);
+
+    auto waveform_node = frame("osc-waveform", 88.0f, 42.0f, LayoutDirection::column);
+    waveform_node.audio_widget = AudioWidgetType::waveform;
+    waveform_node.attributes["pulpWaveformShape"] = "saw";
+    ir.root.children.push_back(std::move(waveform_node));
+
+    auto root = build_native_view_tree(ir, {}, {});
+    REQUIRE(root != nullptr);
+    REQUIRE(root->child_count() == 1);
+
+    auto* waveform = dynamic_cast<WaveformView*>(root->child_at(0));
+    REQUIRE(waveform != nullptr);
+    REQUIRE(waveform->preview_shape() == WaveformView::PreviewShape::saw);
+
+    waveform->set_bounds({0.0f, 0.0f, 88.0f, 42.0f});
+    pulp::canvas::RecordingCanvas canvas;
+    waveform->paint(canvas);
+
+    REQUIRE(canvas.count(pulp::canvas::DrawCommand::Type::stroke_line) == 1);
+    REQUIRE(canvas.count(pulp::canvas::DrawCommand::Type::begin_path) == 1);
+    REQUIRE(canvas.count(pulp::canvas::DrawCommand::Type::move_to) == 1);
+    REQUIRE(canvas.count(pulp::canvas::DrawCommand::Type::line_to) == 7);
+    REQUIRE(canvas.count(pulp::canvas::DrawCommand::Type::stroke_current_path) == 1);
+}
+
 TEST_CASE("baked native materializer maps fill sizing by parent axis",
           "[view][import][native-materializer][phase-4]") {
     DesignIR ir;
@@ -430,6 +510,18 @@ TEST_CASE("baked native materializer preserves audio widget attributes",
     fader_node.audio_label = "Mix";
     fader_node.attributes["value"] = "0.33";
     fader_node.attributes["orientation"] = "horizontal";
+    fader_node.attributes["pulpThumbShape"] = "rectangle";
+    fader_node.attributes["pulpThumbWidth"] = "17";
+    fader_node.attributes["pulpThumbHeight"] = "5";
+    fader_node.attributes["pulpThumbCornerRadius"] = "1";
+
+    auto circle_fader_node = frame("trim", 32.0f, 96.0f, LayoutDirection::column);
+    circle_fader_node.audio_widget = AudioWidgetType::fader;
+    circle_fader_node.audio_label = "Trim";
+    circle_fader_node.attributes["value"] = "0.5";
+    circle_fader_node.attributes["pulpThumbShape"] = "circle";
+    circle_fader_node.attributes["pulpThumbWidth"] = "12";
+    circle_fader_node.attributes["pulpThumbHeight"] = "12";
 
     auto meter_node = frame("level", 96.0f, 24.0f, LayoutDirection::column);
     meter_node.audio_widget = AudioWidgetType::meter;
@@ -441,14 +533,36 @@ TEST_CASE("baked native materializer preserves audio widget attributes",
     xy_node.attributes["x"] = "0.2";
     xy_node.attributes["y"] = "0.8";
 
+    auto choice_node = frame("waveform-choice", 21.0f, 13.0f, LayoutDirection::column);
+    choice_node.type = "toggle_button";
+    choice_node.text_content = "SAW";
+    choice_node.attributes["checked"] = "true";
+    choice_node.attributes["pulpOnBackgroundColor"] = "#1e1008";
+    choice_node.attributes["pulpOffBackgroundColor"] = "#00000000";
+    choice_node.attributes["pulpOnTextColor"] = "#ff6b35";
+    choice_node.attributes["pulpOffTextColor"] = "#666666";
+    choice_node.attributes["pulpOnBorderColor"] = "#ff6b35";
+    choice_node.attributes["pulpOffBorderColor"] = "#1e1e24";
+    choice_node.attributes["pulpCornerRadius"] = "2";
+    choice_node.attributes["pulpFontSize"] = "7";
+
+    auto editor_node = frame("preset-name", 96.0f, 24.0f, LayoutDirection::column);
+    editor_node.type = "input";
+    editor_node.attributes["type"] = "text";
+    editor_node.attributes["pulpPlaceholder"] = "Preset";
+    editor_node.attributes["pulpInitialValue"] = "Init";
+
     ir.root.children.push_back(std::move(knob_node));
     ir.root.children.push_back(std::move(fader_node));
+    ir.root.children.push_back(std::move(circle_fader_node));
     ir.root.children.push_back(std::move(meter_node));
     ir.root.children.push_back(std::move(xy_node));
+    ir.root.children.push_back(std::move(choice_node));
+    ir.root.children.push_back(std::move(editor_node));
 
     auto root = build_native_view_tree(ir, {}, {.preview_mode = true});
     REQUIRE(root != nullptr);
-    REQUIRE(root->child_count() == 4);
+    REQUIRE(root->child_count() == 7);
 
     auto* knob = dynamic_cast<Knob*>(root->child_at(0));
     REQUIRE(knob != nullptr);
@@ -462,17 +576,54 @@ TEST_CASE("baked native materializer preserves audio widget attributes",
     REQUIRE(fader->label() == "Mix");
     REQUIRE(fader->value() == 0.33f);
     REQUIRE(fader->orientation() == Fader::Orientation::horizontal);
+    REQUIRE(fader->thumb_shape() == Fader::ThumbShape::rectangle);
+    REQUIRE(fader->thumb_width() == 17.0f);
+    REQUIRE(fader->thumb_height() == 5.0f);
+    REQUIRE(fader->thumb_corner_radius() == 1.0f);
     REQUIRE(fader->render_style() == WidgetRenderStyle::minimal);
 
-    auto* meter = dynamic_cast<Meter*>(root->child_at(2));
+    auto* circle_fader = dynamic_cast<Fader*>(root->child_at(2));
+    REQUIRE(circle_fader != nullptr);
+    REQUIRE(circle_fader->label() == "Trim");
+    REQUIRE(circle_fader->thumb_shape() == Fader::ThumbShape::circle);
+    REQUIRE(circle_fader->thumb_width() == 12.0f);
+    REQUIRE(circle_fader->thumb_height() == 12.0f);
+
+    auto* meter = dynamic_cast<Meter*>(root->child_at(3));
     REQUIRE(meter != nullptr);
     REQUIRE(meter->display_rms() == 0.25f);
     REQUIRE(meter->display_peak() == 0.25f);
     REQUIRE(meter->orientation() == Meter::Orientation::horizontal);
     REQUIRE(meter->render_style() == WidgetRenderStyle::minimal);
 
-    auto* xy = dynamic_cast<XYPad*>(root->child_at(3));
+    auto* xy = dynamic_cast<XYPad*>(root->child_at(4));
     REQUIRE(xy != nullptr);
     REQUIRE(xy->x_value() == 0.2f);
     REQUIRE(xy->y_value() == 0.8f);
+
+    auto* choice = dynamic_cast<ToggleButton*>(root->child_at(5));
+    REQUIRE(choice != nullptr);
+    REQUIRE(choice->label() == "SAW");
+    REQUIRE(choice->is_on());
+    REQUIRE(choice->on_background_color_override().has_value());
+    REQUIRE(choice->on_background_color_override()->r8() == 0x1e);
+    REQUIRE(choice->on_background_color_override()->g8() == 0x10);
+    REQUIRE(choice->on_background_color_override()->b8() == 0x08);
+    REQUIRE(choice->off_background_color_override().has_value());
+    REQUIRE(choice->off_background_color_override()->a8() == 0x00);
+    REQUIRE(choice->on_text_color_override().has_value());
+    REQUIRE(choice->on_text_color_override()->r8() == 0xff);
+    REQUIRE(choice->on_text_color_override()->g8() == 0x6b);
+    REQUIRE(choice->on_text_color_override()->b8() == 0x35);
+    REQUIRE(choice->off_text_color_override().has_value());
+    REQUIRE(choice->off_text_color_override()->r8() == 0x66);
+    REQUIRE(choice->off_border_color_override().has_value());
+    REQUIRE(choice->off_border_color_override()->r8() == 0x1e);
+    REQUIRE(choice->corner_radius_override() == 2.0f);
+    REQUIRE(choice->font_size_override() == 7.0f);
+
+    auto* editor = dynamic_cast<TextEditor*>(root->child_at(6));
+    REQUIRE(editor != nullptr);
+    REQUIRE(editor->placeholder == "Preset");
+    REQUIRE(editor->text() == "Init");
 }

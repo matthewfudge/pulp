@@ -403,7 +403,7 @@ function(pulp_add_plugin target)
             COMMAND /usr/bin/pluginkit -a
                 "${_auv3_install_dir}/${PLUGIN_PLUGIN_NAME}.app/Contents/PlugIns/${PLUGIN_PLUGIN_NAME}.appex"
             COMMAND /usr/bin/killall -9 AudioComponentRegistrar
-                || ${CMAKE_COMMAND} -E echo "AudioComponentRegistrar not running (will be reaped on next AU host launch)"
+                || ${CMAKE_COMMAND} -E echo "AudioComponentRegistrar not running; AU host launch will refresh the cache"
         )
     endif()
 

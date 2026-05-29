@@ -2671,6 +2671,12 @@ endif()
 # Widget bridge tests
 pulp_add_test_suite(pulp-test-widget-bridge LIBRARIES pulp::view)
 
+# Widget bridge — source-level API contract. Keeps JS-native function
+# registrations unique so late registrations cannot silently replace
+# earlier behavior.
+pulp_add_test_suite(pulp-test-widget-bridge-api-contracts
+    COMPILE_DEFINITIONS PULP_REPO_ROOT="${CMAKE_SOURCE_DIR}")
+
 # Widget bridge — runtime-import handlers (pulp #468 follow-up).
 # Split out of test_widget_bridge.cpp in the Phase 5 P5-1 first cut so
 # the 14k-line god-test file shrinks toward per-surface modules.
@@ -3013,9 +3019,160 @@ if(APPLE AND NOT PULP_IOS)
         PROPERTIES LABELS "parser-import")
 endif()
 
+# The generated-import C++ test targets below consume sources from the
+# private `planning/` submodule (planning/artifacts/native-ui/nv0/reports/
+# generated/...). The normal CI checkout does not initialize that
+# submodule, so guard the whole block on the sentinel artifact's
+# presence — when planning isn't checked out, the targets are skipped
+# cleanly instead of failing CMake configure with a missing-source error.
+if(EXISTS ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/generated/chainer-phase-f-hybrid.cpp)
+
+set(CHAINER_PHASE_E_FADERS_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/generated/chainer-phase-e-faders.cpp)
+set_source_files_properties(${CHAINER_PHASE_E_FADERS_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_imported_fader_ui;bake_asset_manifest=bake_fader_asset_manifest;bind_imported_ui=bind_imported_fader_ui")
+
+set(CHAINER_PHASE_E_XY_PAD_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/generated/chainer-phase-e-xy-pad.cpp)
+set_source_files_properties(${CHAINER_PHASE_E_XY_PAD_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_imported_xy_pad_ui;bake_asset_manifest=bake_xy_pad_asset_manifest;bind_imported_ui=bind_imported_xy_pad_ui")
+
+set(CHAINER_PHASE_E_TOGGLE_BUTTONS_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/generated/chainer-phase-e-toggle-buttons.cpp)
+set_source_files_properties(${CHAINER_PHASE_E_TOGGLE_BUTTONS_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_imported_toggle_buttons_ui;bake_asset_manifest=bake_toggle_buttons_asset_manifest;bind_imported_ui=bind_imported_toggle_buttons_ui")
+
+set(CHAINER_PHASE_E_WAVEFORM_CHOICES_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/generated/chainer-phase-e-waveform-choices.cpp)
+set_source_files_properties(${CHAINER_PHASE_E_WAVEFORM_CHOICES_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_imported_waveform_choices_ui;bake_asset_manifest=bake_waveform_choices_asset_manifest;bind_imported_ui=bind_imported_waveform_choices_ui")
+
+set(CHAINER_PHASE_E_WAVEFORM_DISPLAY_CHOICES_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/generated/chainer-phase-e-waveform-display-choices.cpp)
+set_source_files_properties(${CHAINER_PHASE_E_WAVEFORM_DISPLAY_CHOICES_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_imported_waveform_display_choices_ui;bake_asset_manifest=bake_waveform_display_choices_asset_manifest;bind_imported_ui=bind_imported_waveform_display_choices_ui")
+
+set(CHAINER_PHASE_E_METER_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/generated/chainer-phase-e-meter.cpp)
+set_source_files_properties(${CHAINER_PHASE_E_METER_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_imported_meter_ui;bake_asset_manifest=bake_meter_asset_manifest;bind_imported_ui=bind_imported_meter_ui")
+
+set(CHAINER_PHASE_E_CHAIN_SELECTION_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/generated/chainer-phase-e-chain-selection.cpp)
+set_source_files_properties(${CHAINER_PHASE_E_CHAIN_SELECTION_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_imported_chain_selection_ui;bake_asset_manifest=bake_chain_selection_asset_manifest;bind_imported_ui=bind_imported_chain_selection_ui")
+
+set(CHAINER_PHASE_F_HYBRID_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/generated/chainer-phase-f-hybrid.cpp)
+
+set(PHASE_H_COMPRESSOR_STRIP_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/import-cpp-probes/generated/compressor-strip-af557c0a.cpp)
+set_source_files_properties(${PHASE_H_COMPRESSOR_STRIP_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_phase_h_compressor_strip_ui;bake_asset_manifest=bake_phase_h_compressor_strip_asset_manifest")
+set(PHASE_H_ENVELOPE_SHAPER_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/import-cpp-probes/generated/envelope-shaper-dac8070a.cpp)
+set_source_files_properties(${PHASE_H_ENVELOPE_SHAPER_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_phase_h_envelope_shaper_ui;bake_asset_manifest=bake_phase_h_envelope_shaper_asset_manifest")
+set(PHASE_H_EQ_CURVE_PANEL_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/import-cpp-probes/generated/eq-curve-panel-328aec03.cpp)
+set_source_files_properties(${PHASE_H_EQ_CURVE_PANEL_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_phase_h_eq_curve_panel_ui;bake_asset_manifest=bake_phase_h_eq_curve_panel_asset_manifest")
+set(PHASE_H_FILTER_MATRIX_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/import-cpp-probes/generated/filter-matrix-212a6450.cpp)
+set_source_files_properties(${PHASE_H_FILTER_MATRIX_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_phase_h_filter_matrix_ui;bake_asset_manifest=bake_phase_h_filter_matrix_asset_manifest")
+set(PHASE_H_MIXER_SEND_BANK_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/import-cpp-probes/generated/mixer-send-bank-25199df9.cpp)
+set_source_files_properties(${PHASE_H_MIXER_SEND_BANK_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_phase_h_mixer_send_bank_ui;bake_asset_manifest=bake_phase_h_mixer_send_bank_asset_manifest")
+set(PHASE_H_MODULATION_GRID_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/import-cpp-probes/generated/modulation-grid-ebdc2fd6.cpp)
+set_source_files_properties(${PHASE_H_MODULATION_GRID_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_phase_h_modulation_grid_ui;bake_asset_manifest=bake_phase_h_modulation_grid_asset_manifest")
+set(PHASE_H_OSC_BANK_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/import-cpp-probes/generated/osc-bank-797fb21c.cpp)
+set_source_files_properties(${PHASE_H_OSC_BANK_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_phase_h_osc_bank_ui;bake_asset_manifest=bake_phase_h_osc_bank_asset_manifest")
+set(PHASE_H_PRESET_BROWSER_STRIP_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/import-cpp-probes/generated/preset-browser-strip-da8feca8.cpp)
+set_source_files_properties(${PHASE_H_PRESET_BROWSER_STRIP_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_phase_h_preset_browser_strip_ui;bake_asset_manifest=bake_phase_h_preset_browser_strip_asset_manifest")
+set(PHASE_H_SAMPLER_PAD_GRID_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/import-cpp-probes/generated/sampler-pad-grid-61913f62.cpp)
+set_source_files_properties(${PHASE_H_SAMPLER_PAD_GRID_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_phase_h_sampler_pad_grid_ui;bake_asset_manifest=bake_phase_h_sampler_pad_grid_asset_manifest")
+set(PHASE_H_SCOPE_METER_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/import-cpp-probes/generated/scope-meter-3ec5c9f2.cpp)
+set_source_files_properties(${PHASE_H_SCOPE_METER_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_phase_h_scope_meter_ui;bake_asset_manifest=bake_phase_h_scope_meter_asset_manifest")
+set(PHASE_H_TRANSPORT_LOOP_PANEL_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/import-cpp-probes/generated/transport-loop-panel-406e254b.cpp)
+set_source_files_properties(${PHASE_H_TRANSPORT_LOOP_PANEL_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_phase_h_transport_loop_panel_ui;bake_asset_manifest=bake_phase_h_transport_loop_panel_asset_manifest")
+set(PHASE_H_UTILITY_SETTINGS_PANEL_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/import-cpp-probes/generated/utility-settings-panel-2f1bc7f9.cpp)
+set_source_files_properties(${PHASE_H_UTILITY_SETTINGS_PANEL_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_phase_h_utility_settings_panel_ui;bake_asset_manifest=bake_phase_h_utility_settings_panel_asset_manifest")
+set(PHASE_H_LEVEL_METER_PANEL_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/import-cpp-probes/generated/level-meter-panel-facea92b.cpp)
+set_source_files_properties(${PHASE_H_LEVEL_METER_PANEL_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_phase_h_level_meter_panel_ui;bake_asset_manifest=bake_phase_h_level_meter_panel_asset_manifest")
+set(PHASE_H_GAIN_STAGE_CARD_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/import-cpp-probes/generated/gain-stage-card-0931cecc.cpp)
+set_source_files_properties(${PHASE_H_GAIN_STAGE_CARD_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_phase_h_gain_stage_card_ui;bake_asset_manifest=bake_phase_h_gain_stage_card_asset_manifest")
+set(PHASE_H_GAIN_STAGE_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/import-cpp-probes/generated/gain-stage-ac2bbdaa.cpp)
+set_source_files_properties(${PHASE_H_GAIN_STAGE_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_phase_h_gain_stage_ui;bake_asset_manifest=bake_phase_h_gain_stage_asset_manifest")
+set(PHASE_H_TRANSPORT_BAR_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/import-cpp-probes/generated/transport-bar-81c21381.cpp)
+set_source_files_properties(${PHASE_H_TRANSPORT_BAR_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_phase_h_transport_bar_ui;bake_asset_manifest=bake_phase_h_transport_bar_asset_manifest")
+set(PHASE_H_AUDIO_CONTROL_PANEL_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/import-cpp-probes/generated/audio-control-panel-adc7dbbd.cpp)
+set_source_files_properties(${PHASE_H_AUDIO_CONTROL_PANEL_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_phase_h_audio_control_panel_ui;bake_asset_manifest=bake_phase_h_audio_control_panel_asset_manifest")
+set(PHASE_H_SETTINGS_STRIP_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/import-cpp-probes/generated/settings-strip-73630672.cpp)
+set_source_files_properties(${PHASE_H_SETTINGS_STRIP_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_phase_h_settings_strip_ui;bake_asset_manifest=bake_phase_h_settings_strip_asset_manifest")
+set(PHASE_H_TRANSPORT_METER_CPP
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/import-cpp-probes/generated/transport-meter-0d11742c.cpp)
+set_source_files_properties(${PHASE_H_TRANSPORT_METER_CPP} PROPERTIES
+    COMPILE_DEFINITIONS "build_imported_ui=build_phase_h_transport_meter_ui;bake_asset_manifest=bake_phase_h_transport_meter_asset_manifest")
+
 add_executable(pulp-test-design-import-cpp-codegen
     test_design_import_cpp_codegen.cpp
-    fixtures/design_import_generated_cpp_fixture.cpp)
+    fixtures/design_import_generated_cpp_fixture.cpp
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/generated/chainer-phase-d-all-knobs.cpp
+    ${CHAINER_PHASE_E_FADERS_CPP}
+    ${CHAINER_PHASE_E_XY_PAD_CPP}
+    ${CHAINER_PHASE_E_TOGGLE_BUTTONS_CPP}
+    ${CHAINER_PHASE_E_WAVEFORM_CHOICES_CPP}
+    ${CHAINER_PHASE_E_WAVEFORM_DISPLAY_CHOICES_CPP}
+    ${CHAINER_PHASE_E_METER_CPP}
+    ${CHAINER_PHASE_E_CHAIN_SELECTION_CPP}
+    ${CHAINER_PHASE_F_HYBRID_CPP}
+    ${PHASE_H_COMPRESSOR_STRIP_CPP}
+    ${PHASE_H_ENVELOPE_SHAPER_CPP}
+    ${PHASE_H_EQ_CURVE_PANEL_CPP}
+    ${PHASE_H_FILTER_MATRIX_CPP}
+    ${PHASE_H_MIXER_SEND_BANK_CPP}
+    ${PHASE_H_MODULATION_GRID_CPP}
+    ${PHASE_H_OSC_BANK_CPP}
+    ${PHASE_H_PRESET_BROWSER_STRIP_CPP}
+    ${PHASE_H_SAMPLER_PAD_GRID_CPP}
+    ${PHASE_H_SCOPE_METER_CPP}
+    ${PHASE_H_TRANSPORT_LOOP_PANEL_CPP}
+    ${PHASE_H_UTILITY_SETTINGS_PANEL_CPP}
+    ${PHASE_H_LEVEL_METER_PANEL_CPP}
+    ${PHASE_H_GAIN_STAGE_CARD_CPP}
+    ${PHASE_H_GAIN_STAGE_CPP}
+    ${PHASE_H_TRANSPORT_BAR_CPP}
+    ${PHASE_H_AUDIO_CONTROL_PANEL_CPP}
+    ${PHASE_H_SETTINGS_STRIP_CPP}
+    ${PHASE_H_TRANSPORT_METER_CPP})
 target_link_libraries(pulp-test-design-import-cpp-codegen
     PRIVATE pulp::view pulp::platform Catch2::Catch2WithMain)
 target_compile_definitions(pulp-test-design-import-cpp-codegen PRIVATE
@@ -3029,6 +3186,36 @@ if(WIN32)
 else()
     catch_discover_tests(pulp-test-design-import-cpp-codegen
         PROPERTIES LABELS "parser-import")
+endif()
+
+add_executable(pulp-test-design-import-cpp-core-link
+    test_design_import_cpp_core_link.cpp
+    ${CHAINER_PHASE_F_HYBRID_CPP})
+target_link_libraries(pulp-test-design-import-cpp-core-link
+    PRIVATE pulp::view-core Catch2::Catch2WithMain)
+target_include_directories(pulp-test-design-import-cpp-core-link PRIVATE
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/generated)
+catch_discover_tests(pulp-test-design-import-cpp-core-link
+    PROPERTIES LABELS "parser-import")
+
+add_executable(pulp-test-design-import-cpp-only
+    test_design_import_cpp_only.cpp
+    ${CHAINER_PHASE_F_HYBRID_CPP})
+target_link_libraries(pulp-test-design-import-cpp-only
+    PRIVATE pulp::view-core Catch2::Catch2WithMain)
+target_compile_definitions(pulp-test-design-import-cpp-only PRIVATE
+    PULP_UI_RUNTIME_CPP_ONLY=1
+    PULP_REPO_ROOT="${CMAKE_SOURCE_DIR}")
+target_include_directories(pulp-test-design-import-cpp-only PRIVATE
+    ${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/generated)
+catch_discover_tests(pulp-test-design-import-cpp-only
+    PROPERTIES LABELS "parser-import")
+
+else()
+    message(STATUS
+        "Pulp: planning/ submodule not initialized — skipping generated-import C++ test targets "
+        "(pulp-test-design-import-cpp-codegen, pulp-test-design-import-cpp-core-link, "
+        "pulp-test-design-import-cpp-only). Run `git submodule update --init planning` to enable.")
 endif()
 
 add_executable(pulp-test-design-import-benchmark test_design_import_benchmark.cpp)

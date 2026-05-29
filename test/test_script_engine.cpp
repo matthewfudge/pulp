@@ -1,6 +1,8 @@
 #include <catch2/catch_test_macros.hpp>
 #include <pulp/view/script_engine.hpp>
+#include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace pulp::view;
@@ -69,6 +71,73 @@ TEST_CASE("ScriptEngine register native function", "[view][script]") {
         auto result = engine.evaluate("greet('pulp')");
         REQUIRE(result.toString() == "hello pulp");
     }
+}
+
+TEST_CASE("ScriptEngine rejects duplicate native global registrations",
+          "[view][script][api-contract]") {
+    ScriptEngine engine;
+
+    engine.register_function("dup", [](choc::javascript::ArgumentList) {
+        return choc::value::createInt32(1);
+    });
+
+    REQUIRE_THROWS_AS(engine.register_function("dup", [](choc::javascript::ArgumentList) {
+        return choc::value::createInt32(2);
+    }), std::runtime_error);
+
+    auto result = engine.evaluate("dup()");
+    REQUIRE(result.getWithDefault<int>(0) == 1);
+}
+
+TEST_CASE("ScriptEngine reserves native global names across registration kinds",
+          "[view][script][api-contract]") {
+    ScriptEngine engine;
+
+    HostObjectDescriptor host;
+    host.class_name = "NativeThing";
+    engine.register_host_object("nativeThing", std::move(host));
+    REQUIRE_THROWS_AS(engine.register_function("nativeThing", [](choc::javascript::ArgumentList) {
+        return choc::value::Value();
+    }), std::runtime_error);
+
+    engine.register_function("nativeFn", [](choc::javascript::ArgumentList) {
+        return choc::value::Value();
+    });
+
+    HostObjectDescriptor duplicate_host;
+    duplicate_host.class_name = "DuplicateThing";
+    REQUIRE_THROWS_AS(engine.register_host_object("nativeFn", std::move(duplicate_host)),
+                      std::runtime_error);
+
+    engine.register_promise_function("nativePromise", [](const choc::value::Value*, size_t) {
+        return choc::value::createInt32(3);
+    });
+    REQUIRE_THROWS_AS(engine.register_function("nativePromise", [](choc::javascript::ArgumentList) {
+        return choc::value::Value();
+    }), std::runtime_error);
+}
+
+TEST_CASE("ScriptEngine native promise functions resolve through captured callbacks",
+          "[view][script][api-contract]") {
+    ScriptEngine engine;
+
+    engine.register_promise_function("asyncValue", [](const choc::value::Value*, size_t) {
+        return choc::value::createInt32(42);
+    });
+
+    engine.evaluate(R"(
+        globalThis.__pulpPromiseValue = -1;
+        globalThis.__pulpPromiseError = "";
+        asyncValue().then(
+            (value) => { globalThis.__pulpPromiseValue = value; },
+            (error) => { globalThis.__pulpPromiseError = String(error && error.message ? error.message : error); }
+        );
+        void 0;
+    )");
+    engine.pump_message_loop();
+
+    REQUIRE(engine.evaluate("globalThis.__pulpPromiseError").toString() == "");
+    REQUIRE(engine.evaluate("globalThis.__pulpPromiseValue").getWithDefault<int>(0) == 42);
 }
 
 TEST_CASE("ScriptEngine invoke JS functions", "[view][script]") {

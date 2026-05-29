@@ -10,6 +10,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -136,6 +137,15 @@ bool has_import_diagnostic(const std::vector<ImportDiagnostic>& diagnostics,
         if (diagnostic.code == code) return true;
     }
     return false;
+}
+
+const IRNode* find_descendant(const IRNode& node,
+                              const std::function<bool(const IRNode&)>& pred) {
+    if (pred(node)) return &node;
+    for (const auto& child : node.children) {
+        if (const auto* found = find_descendant(child, pred)) return found;
+    }
+    return nullptr;
 }
 
 const char* minimal_host_react_dom_shim() {
@@ -973,7 +983,7 @@ TEST_CASE("DesignIR diagnostic kinds parse and serialize every normalized bucket
     REQUIRE(json.find("\"severity\":\"error\"") != std::string::npos);
 }
 
-TEST_CASE("parse_v0_tsx normalizes JSON and regex fallback diagnostics",
+TEST_CASE("parse_v0_tsx normalizes JSON and unsupported-source fallback diagnostics",
           "[view][import][diagnostics]") {
     auto json_ir = parse_v0_tsx(R"json({
         "type": "frame",
@@ -988,20 +998,270 @@ TEST_CASE("parse_v0_tsx normalizes JSON and regex fallback diagnostics",
     REQUIRE(json_ir.root.confidence == IRConfidence::pass);
     REQUIRE(json_ir.root.stable_anchor_id.has_value());
 
-    auto fallback_ir = parse_v0_tsx(
-        "<div className=\"flex flex-row gap-2 bg-slate-900\">"
-        "<span className=\"text-sm\">Gain</span>"
-        "</div>");
+    auto fallback_ir = parse_v0_tsx("const gain = 0.5;");
 
     REQUIRE(fallback_ir.source == DesignSource::v0);
     REQUIRE(fallback_ir.capture_method == "adapter_parse");
     REQUIRE(fallback_ir.source_adapter == "v0-tsx");
     REQUIRE(fallback_ir.source_version == "1");
     REQUIRE(fallback_ir.root.confidence == IRConfidence::diverge);
-    REQUIRE(fallback_ir.fallback_reason.find("regex TSX class extraction") != std::string::npos);
+    REQUIRE(fallback_ir.fallback_reason.find("no supported host JSX tags") != std::string::npos);
     REQUIRE(has_import_diagnostic(fallback_ir.diagnostics, "fallback-used"));
     REQUIRE(fallback_ir.diagnostics[0].kind == ImportDiagnosticKind::fallback_used);
     REQUIRE(fallback_ir.root.stable_anchor_id.has_value());
+}
+
+TEST_CASE("parse_v0_tsx preserves inline-style host controls for baked C++",
+          "[view][import][cpp-codegen]") {
+    auto ir = parse_v0_tsx(R"tsx(
+        export default function ControlStrip() {
+            return (
+                <section style={{
+                    display: "flex",
+                    flexDirection: "row",
+                    gap: 12,
+                    padding: 16,
+                    backgroundColor: "#101216",
+                    width: 320,
+                    height: 120
+                }}>
+                    <button
+                        aria-label="Bypass"
+                        onClick={() => setBypassed(!bypassed)}
+                        style={{ borderRadius: 6, color: "#ffffff" }}>
+                        BYP
+                    </button>
+                    <label style={{ fontSize: 11, color: "#8aa2ff" }}>GAIN</label>
+                    <input
+                        type="range"
+                        aria-label="Gain"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={0.65}
+                        style={{ width: 96, height: 18 }} />
+                    <svg width={24} height={24}>
+                        <path d="M 2 12 L 22 12" stroke="#8aa2ff" strokeWidth={2} />
+                    </svg>
+                </section>
+            );
+        }
+    )tsx");
+
+    REQUIRE(ir.source == DesignSource::v0);
+    REQUIRE(ir.root.type == "frame");
+    REQUIRE(ir.root.confidence == IRConfidence::diverge);
+    REQUIRE(has_import_diagnostic(ir.diagnostics, "capture-partial"));
+    REQUIRE_FALSE(has_import_diagnostic(ir.diagnostics, "fallback-used"));
+    REQUIRE(ir.root.name == "section");
+    REQUIRE(ir.root.layout.direction == LayoutDirection::row);
+    REQUIRE(ir.root.style.background_color.has_value());
+    REQUIRE(*ir.root.style.background_color == "#101216");
+    REQUIRE(ir.root.stable_anchor_id.has_value());
+
+    const auto* button = find_descendant(ir.root, [](const IRNode& node) {
+        return node.type == "button" && node.text_content == "BYP";
+    });
+    REQUIRE(button != nullptr);
+    REQUIRE(button->style.border_radius.has_value());
+    REQUIRE(*button->style.border_radius == 6.0f);
+
+    const auto* range = find_descendant(ir.root, [](const IRNode& node) {
+        auto type = node.attributes.find("type");
+        return node.type == "input" && type != node.attributes.end() && type->second == "range";
+    });
+    REQUIRE(range != nullptr);
+    REQUIRE(range->style.width.has_value());
+    REQUIRE(*range->style.width == 96.0f);
+
+    const auto* label = find_descendant(ir.root, [](const IRNode& node) {
+        return node.type == "text" && node.text_content == "GAIN";
+    });
+    REQUIRE(label != nullptr);
+    REQUIRE(label->style.font_size.has_value());
+    REQUIRE(*label->style.font_size == 11.0f);
+
+    const auto* path = find_descendant(ir.root, [](const IRNode& node) {
+        return node.type == "path" && node.attributes.count("d") != 0;
+    });
+    REQUIRE(path != nullptr);
+
+    const auto result = generate_pulp_cpp(ir, ir.asset_manifest, {});
+    REQUIRE(result.source.find("std::make_unique<pulp::view::TextButton>") != std::string::npos);
+    REQUIRE(result.source.find("std::make_unique<pulp::view::Fader>") != std::string::npos);
+    REQUIRE(result.source.find("std::make_unique<pulp::view::Label>") != std::string::npos);
+    REQUIRE(result.source.find("std::make_unique<pulp::view::SvgPathWidget>") != std::string::npos);
+}
+
+TEST_CASE("parse_v0_tsx preserves simple useState event contracts in baked C++ manifest",
+          "[view][import][cpp-codegen]") {
+    auto ir = parse_v0_tsx(R"tsx(
+        import { useState } from "react";
+
+        export default function ControlStrip() {
+            const [gain, setGain] = useState(0.65);
+            const [enabled, setEnabled] = useState(true);
+            return (
+                <section>
+                    <button type="button" onClick={() => setEnabled(!enabled)}>
+                        {enabled ? "ON" : "OFF"}
+                    </button>
+                    <input
+                        type="checkbox"
+                        checked={enabled}
+                        onChange={() => setEnabled(!enabled)} />
+                    <input
+                        type="range"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        value={gain}
+                        onChange={(event) => setGain(Number(event.currentTarget.value))} />
+                    <meter value={gain} />
+                </section>
+            );
+        }
+    )tsx");
+
+    REQUIRE_FALSE(has_import_diagnostic(ir.diagnostics, "fallback-used"));
+
+    const auto* button = find_descendant(ir.root, [](const IRNode& node) {
+        return node.type == "button";
+    });
+    REQUIRE(button != nullptr);
+    REQUIRE(button->attributes.at("pulpValueKey") == "enabled");
+    REQUIRE(button->attributes.at("pulpInitialValue") == "true");
+    REQUIRE(button->attributes.at("pulpEventContract") == "button:onClick:setState");
+
+    const auto* range = find_descendant(ir.root, [](const IRNode& node) {
+        auto type = node.attributes.find("type");
+        return node.type == "input" && type != node.attributes.end() && type->second == "range";
+    });
+    REQUIRE(range != nullptr);
+    REQUIRE(range->attributes.at("pulpValueKey") == "gain");
+    REQUIRE(range->attributes.at("pulpInitialValue") == "0.65");
+    REQUIRE(range->attributes.at("pulpEventContract") == "range:onChange:setState");
+    REQUIRE(range->attributes.at("pulpGestureContract") == "range:drag");
+    REQUIRE(range->style.width == 120.0f);
+    REQUIRE(range->style.height == 20.0f);
+
+    const auto* checkbox = find_descendant(ir.root, [](const IRNode& node) {
+        auto type = node.attributes.find("type");
+        return node.type == "input" && type != node.attributes.end() && type->second == "checkbox";
+    });
+    REQUIRE(checkbox != nullptr);
+    REQUIRE(checkbox->attributes.at("pulpValueKey") == "enabled");
+    REQUIRE(checkbox->attributes.at("pulpInitialValue") == "true");
+    REQUIRE(checkbox->attributes.at("pulpEventContract") == "checkbox:onChange:setState");
+    REQUIRE(checkbox->attributes.at("pulpGestureContract") == "checkbox:toggle");
+    REQUIRE(checkbox->style.width == 18.0f);
+    REQUIRE(checkbox->style.height == 18.0f);
+
+    const auto* meter = find_descendant(ir.root, [](const IRNode& node) {
+        return node.type == "meter";
+    });
+    REQUIRE(meter != nullptr);
+    REQUIRE(meter->attributes.at("pulpMeterValueKey") == "gain");
+    REQUIRE(meter->style.width == 12.0f);
+    REQUIRE(meter->style.height == 64.0f);
+
+    const auto result = generate_pulp_cpp(ir, ir.asset_manifest, {});
+    REQUIRE(result.binding_manifest.find("\"value_key\": \"enabled\"") != std::string::npos);
+    REQUIRE(result.binding_manifest.find("\"value_key\": \"gain\"") != std::string::npos);
+    REQUIRE(result.binding_manifest.find("\"event_contract\": \"button:onClick:setState\"") != std::string::npos);
+    REQUIRE(result.binding_manifest.find("\"event_contract\": \"range:onChange:setState\"") != std::string::npos);
+}
+
+TEST_CASE("parse_v0_tsx preserves grid template source contracts",
+          "[view][import][cpp-codegen]") {
+    auto ir = parse_v0_tsx(R"tsx(
+        export default function GridPanel() {
+            return (
+                <section style={{ width: 420 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "70px repeat(3, 1fr)", gap: 6 }}>
+                        <span>Label</span>
+                        <button type="button">A</button>
+                        <button type="button">B</button>
+                        <button type="button">C</button>
+                    </div>
+                </section>
+            );
+        }
+    )tsx");
+
+    const auto* grid = find_descendant(ir.root, [](const IRNode& node) {
+        return node.layout.display && *node.layout.display == "grid";
+    });
+    REQUIRE(grid != nullptr);
+    REQUIRE(grid->attributes.at("pulpGridTemplateColumns") == "70px repeat(3, 1fr)");
+    REQUIRE(grid->layout.gap == 6.0f);
+
+    const auto result = generate_pulp_cpp(ir, ir.asset_manifest, {});
+    REQUIRE(result.source.find("GridStyle::parse_template(\"70px repeat(3, 1fr)\")") != std::string::npos);
+    REQUIRE(result.source.find("grid.column_gap = 6.0f;") != std::string::npos);
+    REQUIRE(result.source.find("grid.row_gap = 6.0f;") != std::string::npos);
+}
+
+TEST_CASE("parse_v0_tsx maps React Native primitives into baked C++ contracts",
+          "[view][import][cpp-codegen]") {
+    auto ir = parse_v0_tsx(R"tsx(
+        import React, { useState } from 'react';
+        import { Pressable, Text, View } from 'react-native';
+
+        export default function GainStage() {
+            const [armed, setArmed] = useState(true);
+            const [gain, setGain] = useState(0.72);
+            const increaseGain = () => setGain(Math.min(1, Number((gain + 0.05).toFixed(2))));
+            return (
+                <View testID="rn-gain-stage">
+                    <Pressable accessibilityLabel="Toggle bypass" onPress={() => setArmed(!armed)}>
+                        <Text>{armed ? 'ARMED' : 'BYPASS'}</Text>
+                    </Pressable>
+                    <Pressable accessibilityLabel="Increase gain" onPress={increaseGain}>
+                        <Text>+</Text>
+                    </Pressable>
+                </View>
+            );
+        }
+    )tsx");
+
+    REQUIRE_FALSE(has_import_diagnostic(ir.diagnostics, "fallback-used"));
+
+    const auto* pressable = find_descendant(ir.root, [](const IRNode& node) {
+        return node.type == "button" && node.attributes.find("onPress") != node.attributes.end();
+    });
+    REQUIRE(pressable != nullptr);
+    REQUIRE(pressable->attributes.at("jsxTag") == "pressable");
+    REQUIRE(pressable->attributes.at("pulpValueKey") == "armed");
+    REQUIRE(pressable->attributes.at("pulpInitialValue") == "true");
+    REQUIRE(pressable->attributes.at("pulpEventContract") == "button:onClick:setState");
+    REQUIRE(pressable->attributes.at("pulpGestureContract") == "button:click");
+
+    const auto* increase = find_descendant(ir.root, [](const IRNode& node) {
+        auto label = node.attributes.find("accessibilityLabel");
+        return node.type == "button" && label != node.attributes.end() &&
+               label->second == "Increase gain";
+    });
+    REQUIRE(increase != nullptr);
+    REQUIRE(increase->attributes.at("pulpValueKey") == "gain");
+    REQUIRE(increase->attributes.at("pulpInitialValue") == "0.72");
+    REQUIRE(increase->attributes.at("pulpRouteType") == "native_cpp");
+    REQUIRE(increase->attributes.at("pulpSourceFamily") == "pressable");
+    REQUIRE(increase->attributes.at("pulpEventContract") == "button:onClick:setState");
+    REQUIRE(increase->attributes.at("pulpGestureContract") == "button:click");
+
+    const auto* text = find_descendant(ir.root, [](const IRNode& node) {
+        return node.type == "text" && node.attributes.find("jsxTag") != node.attributes.end() &&
+               node.attributes.at("jsxTag") == "text";
+    });
+    REQUIRE(text != nullptr);
+
+    const auto result = generate_pulp_cpp(ir, ir.asset_manifest, {});
+    REQUIRE_FALSE(result.source.ends_with("\n\n"));
+    REQUIRE(result.binding_manifest.find("\"value_key\": \"armed\"") != std::string::npos);
+    REQUIRE(result.binding_manifest.find("\"value_key\": \"gain\"") != std::string::npos);
+    REQUIRE(result.binding_manifest.find("\"source_family\": \"pressable\"") != std::string::npos);
+    REQUIRE(result.binding_manifest.find("\"event_contract\": \"button:onClick:setState\"") != std::string::npos);
 }
 
 TEST_CASE("JSX snapshot dynamic API scanner detects non-deterministic APIs",

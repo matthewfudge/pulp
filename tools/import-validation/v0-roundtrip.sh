@@ -106,7 +106,7 @@ DESIGN_IMPORT_TEST="$(find_test_exe pulp-test-design-import)"
 DESIGN_IMPORT_REACT_RUNTIME_TEST="$(find_test_exe pulp-test-design-import-react-runtime)"
 WIDGET_BRIDGE_TEST="$(find_test_exe pulp-test-widget-bridge-runtime-import)"
 
-"$DESIGN_IMPORT_TEST" '[phase-6.6.2]'
+"$DESIGN_IMPORT_TEST" 'parse_v0_tsx*'
 "$DESIGN_IMPORT_REACT_RUNTIME_TEST" '[phase-6.6.2]'
 "$WIDGET_BRIDGE_TEST" '[phase-6.6.2]'
 

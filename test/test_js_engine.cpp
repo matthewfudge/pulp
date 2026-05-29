@@ -3,6 +3,7 @@
 #include <pulp/view/js_engine.hpp>
 #include <pulp/view/js_engine_recommend.hpp>
 #include <pulp/view/script_engine.hpp>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -106,6 +107,53 @@ TEST_CASE("JsEngine register native function (string return)", "[js_engine]") {
         });
         auto result = engine->evaluate("greet('pulp')");
         REQUIRE(result.toString() == "hello pulp");
+    END_FOR_EACH_ENGINE
+}
+
+TEST_CASE("JsEngine rejects duplicate native global registrations",
+          "[js_engine][api-contract]") {
+    FOR_EACH_ENGINE(engine)
+        engine->register_function("dup", [](const choc::value::Value*, size_t) {
+            return choc::value::createInt32(1);
+        });
+
+        REQUIRE_THROWS_AS(engine->register_function("dup", [](const choc::value::Value*, size_t) {
+            return choc::value::createInt32(2);
+        }), std::runtime_error);
+
+        REQUIRE(engine->evaluate("dup()").getWithDefault<int>(0) == 1);
+    END_FOR_EACH_ENGINE
+}
+
+TEST_CASE("JsEngine reserves native global names across registration kinds",
+          "[js_engine][api-contract]") {
+    FOR_EACH_ENGINE(engine)
+        HostObjectDescriptor host;
+        host.class_name = "NativeThing";
+        engine->register_host_object("nativeThing", std::move(host));
+
+        REQUIRE_THROWS_AS(engine->register_function("nativeThing",
+            [](const choc::value::Value*, size_t) {
+                return choc::value::Value();
+            }), std::runtime_error);
+
+        engine->register_function("nativeFn", [](const choc::value::Value*, size_t) {
+            return choc::value::Value();
+        });
+
+        HostObjectDescriptor duplicate_host;
+        duplicate_host.class_name = "DuplicateThing";
+        REQUIRE_THROWS_AS(engine->register_host_object("nativeFn", std::move(duplicate_host)),
+                          std::runtime_error);
+
+        engine->register_promise_function("nativePromise", [](const choc::value::Value*, size_t) {
+            return choc::value::createInt32(3);
+        });
+
+        REQUIRE_THROWS_AS(engine->register_function("nativePromise",
+            [](const choc::value::Value*, size_t) {
+                return choc::value::Value();
+            }), std::runtime_error);
     END_FOR_EACH_ENGINE
 }
 
@@ -404,6 +452,37 @@ TEST_CASE("JsEngine native promise functions return real Promise objects", "[js_
 
         REQUIRE(engine->evaluate("Object.prototype.toString.call(asyncAdd(20, 22))").toString() == "[object Promise]");
         REQUIRE(engine->evaluate("typeof asyncAdd(20, 22).then").toString() == "function");
+    END_FOR_EACH_ENGINE
+}
+
+TEST_CASE("JsEngine native promise functions resolve through captured callbacks",
+          "[js_engine][api-contract]") {
+    FOR_EACH_ENGINE(engine)
+        if (!engine->supports_promises()) {
+            SUCCEED("promises intentionally unsupported on this backend");
+            continue;
+        }
+
+        engine->register_promise_function("asyncAdd", [](const choc::value::Value* args, size_t count) {
+            int total = 0;
+            for (size_t i = 0; i < count; ++i)
+                total += args[i].getWithDefault<int32_t>(0);
+            return choc::value::createInt32(total);
+        });
+
+        engine->evaluate(R"(
+            globalThis.__pulpPromiseValue = -1;
+            globalThis.__pulpPromiseError = "";
+            asyncAdd(20, 22).then(
+                (value) => { globalThis.__pulpPromiseValue = value; },
+                (error) => { globalThis.__pulpPromiseError = String(error && error.message ? error.message : error); }
+            );
+            void 0;
+        )");
+        engine->pump_message_loop();
+
+        REQUIRE(engine->evaluate("globalThis.__pulpPromiseError").toString() == "");
+        REQUIRE(engine->evaluate("globalThis.__pulpPromiseValue").getWithDefault<int>(0) == 42);
     END_FOR_EACH_ENGINE
 }
 

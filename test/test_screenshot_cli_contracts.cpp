@@ -134,6 +134,19 @@ TEST_CASE("pulp-screenshot read_file preserves script bytes and fails closed",
     REQUIRE(read_file((path.parent_path() / "missing.js").string()).empty());
 }
 
+TEST_CASE("pulp-screenshot runtime trace script records live native bounds",
+          "[tools][screenshot][coverage]") {
+    const std::string script = runtime_trace_script();
+    REQUIRE(script.find("native_bounds_count") != std::string::npos);
+    REQUIRE(script.find("native_bounds") != std::string::npos);
+    REQUIRE(script.find("getLayoutRect") != std::string::npos);
+    REQUIRE(script.find("bounds_source") != std::string::npos);
+    REQUIRE(script.find("ancestor_chain") != std::string::npos);
+    REQUIRE(script.find("getLayoutAncestorRects") != std::string::npos);
+    REQUIRE(script.find("reference_frame") != std::string::npos);
+    REQUIRE(script.find("root-view-css-points") != std::string::npos);
+}
+
 TEST_CASE("pulp-screenshot option parser preserves documented defaults",
           "[tools][screenshot][coverage]") {
     auto options = parse_args({});
@@ -165,6 +178,7 @@ TEST_CASE("pulp-screenshot option parser accepts explicit render settings",
         "--scale", "1.5",
         "--theme", "pro_audio",
         "--backend", "coregraphics",
+        "--runtime-trace", "trace.json",
         "--base64"
     });
 
@@ -175,6 +189,7 @@ TEST_CASE("pulp-screenshot option parser accepts explicit render settings",
     REQUIRE(options.scale == 1.5f);
     REQUIRE(options.theme_name == "pro_audio");
     REQUIRE(options.backend_name == "coregraphics");
+    REQUIRE(options.runtime_trace_path == "trace.json");
     REQUIRE_FALSE(options.backend_was_defaulted);
     REQUIRE(options.output_base64);
     REQUIRE(normalize_backend(options));

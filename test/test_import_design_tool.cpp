@@ -386,6 +386,7 @@ TEST_CASE("pulp-import-design validates phase 0.5 import vocabulary",
         const auto cpp_input = tmp.path / "cpp-screen.json";
         const auto cpp_output = tmp.path / "generated" / "imported_ui.cpp";
         const auto header_output = tmp.path / "generated" / "imported_ui.hpp";
+        const auto binding_output = tmp.path / "generated" / "imported_ui.bindings.json";
         write_text(cpp_input, R"json({
             "type": "frame",
             "name": "Panel",
@@ -417,15 +418,19 @@ TEST_CASE("pulp-import-design validates phase 0.5 import vocabulary",
         REQUIRE(cpp.exit_code == 0);
         REQUIRE(fs::exists(cpp_output));
         REQUIRE(fs::exists(header_output));
+        REQUIRE(fs::exists(binding_output));
         const auto source = read_text(cpp_output);
         const auto header = read_text(header_output);
+        const auto binding_manifest = read_text(binding_output);
         REQUIRE(source.find("#include \"imported_ui.hpp\"") != std::string::npos);
         REQUIRE(source.find("namespace tokens") != std::string::npos);
         REQUIRE(source.find("build_header") != std::string::npos);
         REQUIRE(source.find("build_native_view_tree") == std::string::npos);
         REQUIRE(header.find("build_imported_ui") != std::string::npos);
         REQUIRE(header.find("bake_asset_manifest") != std::string::npos);
+        REQUIRE(binding_manifest.find("\"schema\": \"pulp-native-cpp-binding-manifest-v1\"") != std::string::npos);
         REQUIRE(cpp.stdout_output.find(cpp_output.string()) != std::string::npos);
+        REQUIRE(cpp.stdout_output.find(binding_output.string()) != std::string::npos);
 
         auto missing_mode = run_import_design({"--from", "stitch",
                                                "--file", cpp_input.string(),
@@ -434,6 +439,83 @@ TEST_CASE("pulp-import-design validates phase 0.5 import vocabulary",
         REQUIRE_FALSE(missing_mode.timed_out);
         REQUIRE(missing_mode.exit_code == 2);
         REQUIRE(missing_mode.stderr_output.find("--emit cpp requires --mode baked") != std::string::npos);
+    }
+
+    SECTION("cpp emit accepts serialized DesignIR envelopes with typed widget metadata") {
+        const auto ir_input = tmp.path / "typed-envelope.json";
+        const auto cpp_output = tmp.path / "generated" / "typed_ui.cpp";
+        const auto header_output = tmp.path / "generated" / "typed_ui.hpp";
+        const auto binding_output = tmp.path / "generated" / "typed_ui.bindings.json";
+        write_text(ir_input, R"json({
+            "version": 1,
+            "source": "jsx",
+            "capture_method": "phase-c-one-knob-route-overlay",
+            "source_adapter": "native-cpp-import-execution-validation",
+            "source_version": "phase-c",
+            "root": {
+                "type": "frame",
+                "name": "Root",
+                "stable_anchor_id": "root",
+                "style": { "width": 80, "height": 90 },
+                "layout": { "direction": "column" },
+                "children": [
+                    {
+                        "type": "frame",
+                        "name": "freq_meter",
+                        "stable_anchor_id": "pr_2c",
+                        "style": { "width": 52, "height": 52, "borderColor": "#ff6b35" },
+                        "audioWidget": "knob",
+                        "label": "freq",
+                        "min": 0,
+                        "max": 1,
+                        "default": 0.35,
+                        "attributes": {
+                            "value": "0.35",
+                            "pulpRouteId": "chainer.knob.0.osc_freq",
+                            "pulpRouteType": "native_cpp",
+                            "pulpSourceFamily": "Knob",
+                            "pulpParamKey": "osc_freq",
+                            "pulpBindingModule": "OSC",
+                            "pulpBindingParam": "freq",
+                            "pulpEventContract": "onChange:set_param:osc_freq",
+                            "pulpGestureContract": "rotary_drag:begin/update/end",
+                            "pulpStyleTokens": "C.orange",
+                            "pulpDefaultValueSource": "phase_c_initial_value_fallback"
+                        }
+                    }
+                ]
+            },
+            "tokens": {
+                "colors": { "chainer.orange": "#ff6b35" },
+                "dimensions": {},
+                "strings": {}
+            },
+            "assetManifest": { "version": 1, "assets": [] }
+        })json");
+
+        auto cpp = run_import_design({"--from", "stitch",
+                                      "--file", ir_input.string(),
+                                      "--mode", "baked",
+                                      "--emit", "cpp",
+                                      "--output", cpp_output.string()});
+        REQUIRE_FALSE(cpp.timed_out);
+        REQUIRE(cpp.exit_code == 0);
+        REQUIRE(fs::exists(cpp_output));
+        REQUIRE(fs::exists(header_output));
+        REQUIRE(fs::exists(binding_output));
+
+        const auto source = read_text(cpp_output);
+        const auto binding_manifest = read_text(binding_output);
+        REQUIRE(source.find("std::make_unique<pulp::view::Knob>()") != std::string::npos);
+        REQUIRE(source.find("->set_anchor_id(\"pr_2c\");") != std::string::npos);
+        REQUIRE(source.find("->set_label(\"freq\");") != std::string::npos);
+        REQUIRE(source.find("->set_value(/* TODO: bind to param */ 0.35f);") != std::string::npos);
+        REQUIRE(source.find("tokens::kChainerOrange") != std::string::npos);
+        REQUIRE(binding_manifest.find("\"id\": \"chainer.knob.0.osc_freq\"") != std::string::npos);
+        REQUIRE(binding_manifest.find("\"native_primitive\": \"knob\"") != std::string::npos);
+        REQUIRE(binding_manifest.find("\"param_key\": \"osc_freq\"") != std::string::npos);
+        REQUIRE(binding_manifest.find("\"style_tokens\": \"C.orange\"") != std::string::npos);
+        REQUIRE(binding_manifest.find("\"default_value_source\": \"phase_c_initial_value_fallback\"") != std::string::npos);
     }
 
     SECTION("mode and snapshot vocabulary reject unsupported values") {

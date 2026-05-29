@@ -11,6 +11,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <random>
@@ -76,6 +77,14 @@ std::string trim_copy(const std::string& s) {
     return s.substr(b, e - b + 1);
 }
 
+bool looks_like_serialized_design_ir(const std::string& content) {
+    const auto trimmed = trim_copy(content);
+    return !trimmed.empty()
+        && trimmed.front() == '{'
+        && trimmed.find("\"version\"") != std::string::npos
+        && trimmed.find("\"root\"") != std::string::npos;
+}
+
 std::string strip_quotes_copy(const std::string& s) {
     if (s.size() >= 2
         && ((s.front() == '"' && s.back() == '"')
@@ -104,6 +113,48 @@ std::optional<RuntimeMode> parse_runtime_mode_pref(const std::string& raw) {
     if (value == "live") return RuntimeMode::live;
     if (value == "baked") return RuntimeMode::baked;
     return std::nullopt;
+}
+
+std::string lower_copy(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return value;
+}
+
+bool is_native_widget_node(const IRNode& node) {
+    if (node.audio_widget != AudioWidgetType::none) return true;
+    const auto type = lower_copy(node.type);
+    return type == "button" || type == "text_button" || type == "toggle_button" ||
+           type == "input" || type == "slider" || type == "range" ||
+           type == "knob" || type == "fader" || type == "meter" ||
+           type == "xy_pad" || type == "xypad" || type == "waveform" ||
+           type == "spectrum" || type == "textarea" || type == "text_editor" ||
+           type == "checkbox" || type == "canvas" || type == "image" ||
+           type == "img" || type == "path" || type == "svg_path" ||
+           type == "rect" || type == "svg_rect" || type == "line" ||
+           type == "svg_line";
+}
+
+struct ElementCounts {
+    size_t nodes = 0;
+    size_t text = 0;
+    size_t containers = 0;
+    size_t widgets = 0;
+};
+
+ElementCounts count_design_ir_elements(const IRNode& root) {
+    ElementCounts counts;
+    std::function<void(const IRNode&)> visit = [&](const IRNode& node) {
+        counts.nodes++;
+        const auto type = lower_copy(node.type);
+        if (is_native_widget_node(node)) counts.widgets++;
+        else if (type == "text" || type == "label" || type == "span" || type == "p") counts.text++;
+        else if (!node.children.empty() || type == "frame" || type == "view" ||
+                 type == "div" || type == "section") counts.containers++;
+        for (const auto& child : node.children) visit(child);
+    };
+    visit(root);
+    return counts;
 }
 
 fs::path pulp_home_path() {
@@ -520,6 +571,7 @@ DesignIrAssetOptions make_asset_options(const std::string& input_file,
 struct CppOutputPaths {
     fs::path source;
     fs::path header;
+    fs::path binding_manifest;
     std::string include_name;
 };
 
@@ -541,6 +593,8 @@ CppOutputPaths resolve_cpp_output_paths(const std::string& output_file) {
         paths.header = requested;
         paths.header.replace_extension(".hpp");
     }
+    paths.binding_manifest = paths.source;
+    paths.binding_manifest.replace_extension(".bindings.json");
     paths.include_name = paths.header.filename().string();
     return paths;
 }
@@ -1119,59 +1173,68 @@ int main(int argc, char* argv[]) {
 
     // Parse based on source
     DesignIR ir;
+    bool parsed_serialized_design_ir = false;
     std::string runtime_error;  // captures --execute-bundle fallback reason
     try {
-        switch (*source) {
-            case DesignSource::figma:  ir = parse_figma_json(content); break;
-            case DesignSource::stitch: ir = parse_stitch_html(content); break;
-            case DesignSource::v0:     ir = parse_v0_tsx(content); break;
-            case DesignSource::pencil: ir = parse_pencil_json(content); break;
-            case DesignSource::claude:
-                if (execute_bundle) {
-                    ClaudeRuntimeOptions ropts;
-                    ropts.error_out = &runtime_error;
-                    // Allow up to 16 MB for the largest realistic Claude
-                    // exports (3.1 MB Spectr app + 1.1 MB react-dom +
-                    // 0.1 MB react with growth headroom).
-                    ropts.max_total_js_bytes = 16 * 1024 * 1024;
-                    ir = parse_claude_html_with_runtime(content, ropts);
-                } else {
-                    ir = parse_claude_html(content);
-                }
-                break;
-            case DesignSource::designmd: {
-                // DESIGN.md is a system spec, not a screen — parse the
-                // frontmatter into tokens and walk the body for section
-                // ordering. No UI tree is scaffolded; the dispatch below
-                // suppresses the ui.js write for this source.
-                auto pr = parse_designmd(content);
-                ir = std::move(pr.ir);
-                // Hard fail on any error-severity diagnostic (e.g. duplicate
-                // section heading, malformed YAML). Exit code 3 reserved
-                // for parse errors per the integration plan.
-                for (const auto& d : pr.diagnostics) {
-                    if (d.severity == DesignMdSeverity::error) {
-                        print_designmd_diagnostics(pr.diagnostics);
-                        return 3;
+        if (runtime_mode == RuntimeMode::baked &&
+            (artifact_emit == ArtifactEmit::ir_json || artifact_emit == ArtifactEmit::cpp) &&
+            looks_like_serialized_design_ir(content)) {
+            ir = parse_design_ir_json(content);
+            parsed_serialized_design_ir = true;
+        } else {
+            switch (*source) {
+                case DesignSource::figma:  ir = parse_figma_json(content); break;
+                case DesignSource::stitch: ir = parse_stitch_html(content); break;
+                case DesignSource::v0:     ir = parse_v0_tsx(content); break;
+                case DesignSource::pencil: ir = parse_pencil_json(content); break;
+                case DesignSource::claude:
+                    if (execute_bundle) {
+                        ClaudeRuntimeOptions ropts;
+                        ropts.error_out = &runtime_error;
+                        // Allow up to 16 MB for the largest realistic Claude
+                        // exports (3.1 MB Spectr app + 1.1 MB react-dom +
+                        // 0.1 MB react with growth headroom).
+                        ropts.max_total_js_bytes = 16 * 1024 * 1024;
+                        ropts.runtime_snapshot_viewport_width = render_width;
+                        ropts.runtime_snapshot_viewport_height = render_height;
+                        ir = parse_claude_html_with_runtime(content, ropts);
+                    } else {
+                        ir = parse_claude_html(content);
                     }
+                    break;
+                case DesignSource::designmd: {
+                    // DESIGN.md is a system spec, not a screen — parse the
+                    // frontmatter into tokens and walk the body for section
+                    // ordering. No UI tree is scaffolded; the dispatch below
+                    // suppresses the ui.js write for this source.
+                    auto pr = parse_designmd(content);
+                    ir = std::move(pr.ir);
+                    // Hard fail on any error-severity diagnostic (e.g. duplicate
+                    // section heading, malformed YAML). Exit code 3 reserved
+                    // for parse errors per the integration plan.
+                    for (const auto& d : pr.diagnostics) {
+                        if (d.severity == DesignMdSeverity::error) {
+                            print_designmd_diagnostics(pr.diagnostics);
+                            return 3;
+                        }
+                    }
+                    break;
                 }
-                break;
-            }
-            case DesignSource::jsx:
-                if (runtime_mode != RuntimeMode::baked ||
-                    (artifact_emit != ArtifactEmit::ir_json && artifact_emit != ArtifactEmit::cpp)) {
-                    std::cerr << "Error: --from jsx is currently wired only for"
-                                 " --mode baked --emit ir-json or --emit cpp\n";
-                    return 2;
-                } else {
-                    const auto dynamic_scan = detect_jsx_snapshot_dynamic_apis(content);
-                    if (dynamic_scan.has_dynamic_apis()
-                        && snapshot_semantics == SnapshotSemantics::fail) {
-                        std::cerr << "Error: JSX baked snapshot uses dynamic APIs ("
-                                  << join_tokens(dynamic_scan.tokens) << "). "
-                                  << "Rerun with --snapshot-semantics warn or accept to proceed.\n";
+                case DesignSource::jsx:
+                    if (runtime_mode != RuntimeMode::baked ||
+                        (artifact_emit != ArtifactEmit::ir_json && artifact_emit != ArtifactEmit::cpp)) {
+                        std::cerr << "Error: --from jsx is currently wired only for"
+                                     " --mode baked --emit ir-json or --emit cpp\n";
                         return 2;
-                    }
+                    } else {
+                        const auto dynamic_scan = detect_jsx_snapshot_dynamic_apis(content);
+                        if (dynamic_scan.has_dynamic_apis()
+                            && snapshot_semantics == SnapshotSemantics::fail) {
+                            std::cerr << "Error: JSX baked snapshot uses dynamic APIs ("
+                                      << join_tokens(dynamic_scan.tokens) << "). "
+                                      << "Rerun with --snapshot-semantics warn or accept to proceed.\n";
+                            return 2;
+                        }
 
                     auto bundle = parse_jsx_react(content, fs::path(input_file).stem().string());
                     if (!bundle) {
@@ -1182,6 +1245,8 @@ int main(int argc, char* argv[]) {
                     ClaudeRuntimeOptions ropts;
                     ropts.error_out = &runtime_error;
                     ropts.max_total_js_bytes = 16 * 1024 * 1024;
+                    ropts.runtime_snapshot_viewport_width = render_width;
+                    ropts.runtime_snapshot_viewport_height = render_height;
                     ir = parse_claude_html_with_runtime(envelope, ropts);
                     const auto fallback_reason = !runtime_error.empty()
                         ? runtime_error
@@ -1226,8 +1291,13 @@ int main(int argc, char* argv[]) {
                 }
                 break;
         }
+        }
     } catch (const std::exception& e) {
         std::cerr << "Error parsing " << design_source_name(*source) << " input: " << e.what() << "\n";
+        return 1;
+    } catch (...) {
+        std::cerr << "Error parsing " << design_source_name(*source)
+                  << " input: parser threw an unknown exception\n";
         return 1;
     }
 
@@ -1239,7 +1309,8 @@ int main(int argc, char* argv[]) {
         std::cout << "[execute-bundle] runtime path produced the IR (no fallback)\n";
     }
 
-    ir.source = *source;
+    if (!parsed_serialized_design_ir)
+        ir.source = *source;
     ir.source_file = input_url.empty() ? input_file : input_url;
     if (ir.imported_at.empty()) ir.imported_at = current_utc_timestamp();
     if (ir.capture_method.empty()) ir.capture_method = "adapter_parse";
@@ -1302,26 +1373,22 @@ int main(int argc, char* argv[]) {
             std::cout << cpp.header;
             std::cout << "\n=== Generated Pulp C++ source (" << paths.source.string() << ") ===\n\n";
             std::cout << cpp.source;
+            std::cout << "\n=== Generated Pulp C++ binding manifest (" << paths.binding_manifest.string() << ") ===\n\n";
+            std::cout << cpp.binding_manifest;
             return 0;
         }
 
         if (!write_file(paths.header.string(), cpp.header)) return 1;
         if (!write_file(paths.source.string(), cpp.source)) return 1;
+        if (!write_file(paths.binding_manifest.string(), cpp.binding_manifest)) return 1;
 
-        size_t node_count = 0, text_count = 0, container_count = 0, widget_count = 0;
-        std::function<void(const IRNode&)> count_nodes = [&](const IRNode& n) {
-            node_count++;
-            if (n.audio_widget != AudioWidgetType::none) widget_count++;
-            else if (n.type == "text" || n.type == "label") text_count++;
-            else if (!n.children.empty() || n.type == "frame") container_count++;
-            for (auto& c : n.children) count_nodes(c);
-        };
-        count_nodes(ir.root);
+        const auto counts = count_design_ir_elements(ir.root);
 
-        std::cout << "Wrote " << paths.source.string() << " and "
-                  << paths.header.string() << " (" << node_count << " elements: "
-                  << container_count << " containers, " << widget_count << " widgets, "
-                  << text_count << " labels, " << ir.asset_manifest.assets.size() << " asset"
+        std::cout << "Wrote " << paths.source.string() << ", "
+                  << paths.header.string() << ", and "
+                  << paths.binding_manifest.string() << " (" << counts.nodes << " elements: "
+                  << counts.containers << " containers, " << counts.widgets << " widgets, "
+                  << counts.text << " labels, " << ir.asset_manifest.assets.size() << " asset"
                   << (ir.asset_manifest.assets.size() == 1 ? "" : "s") << ")\n";
         return 0;
     }
@@ -1412,23 +1479,15 @@ int main(int argc, char* argv[]) {
     }
 
     // Count elements by type
-    size_t node_count = 0, text_count = 0, container_count = 0, widget_count = 0;
-    std::function<void(const IRNode&)> count_nodes = [&](const IRNode& n) {
-        node_count++;
-        if (n.audio_widget != AudioWidgetType::none) widget_count++;
-        else if (n.type == "text" || n.type == "label") text_count++;
-        else if (!n.children.empty() || n.type == "frame") container_count++;
-        for (auto& c : n.children) count_nodes(c);
-    };
-    count_nodes(ir.root);
+    const auto counts = count_design_ir_elements(ir.root);
 
     auto t_write = std::chrono::steady_clock::now();
     if (*source == DesignSource::designmd) {
         std::cout << "DESIGN.md → tokens only (no ui.js; system spec, not screen)";
     } else {
-        std::cout << "Wrote " << output_file << " (" << node_count << " elements: "
-                  << container_count << " containers, " << widget_count << " widgets, "
-                  << text_count << " labels";
+        std::cout << "Wrote " << output_file << " (" << counts.nodes << " elements: "
+                  << counts.containers << " containers, " << counts.widgets << " widgets, "
+                  << counts.text << " labels";
     }
 
     // Write tokens (W3C DTCG by default; --format json-tailwind /
@@ -1539,14 +1598,14 @@ int main(int argc, char* argv[]) {
     // parser produces only a handful of elements AND the HTML looks
     // like a JS-bundler entry, the user almost certainly wanted to run
     // the bundle directly. Soft warning — we still wrote ui.js.
-    if (*source == DesignSource::claude && node_count <= 12 &&
+    if (*source == DesignSource::claude && counts.nodes <= 12 &&
         looks_like_bundler_entry(content)) {
         std::cerr << "\n"
                   << "Note: this HTML looks like a JS-bundler entry "
                   << "(mount-point + script tag). The static parser "
                   << "only captured the placeholder chrome ("
-                  << node_count << " element"
-                  << (node_count == 1 ? "" : "s")
+                  << counts.nodes << " element"
+                  << (counts.nodes == 1 ? "" : "s")
                   << ").\n"
                   << "      For native-react / @pulp/react bundles, run "
                   << "the bundle directly:\n"
@@ -1651,10 +1710,10 @@ int main(int argc, char* argv[]) {
         dbg << "  \"output_file\": \"" << output_file << "\",\n";
         dbg << "  \"mode\": \"" << (use_web_compat ? "web_compat" : "bridge_native_js") << "\",\n";
         dbg << "  \"elements\": {\n";
-        dbg << "    \"total\": " << node_count << ",\n";
-        dbg << "    \"containers\": " << container_count << ",\n";
-        dbg << "    \"widgets\": " << widget_count << ",\n";
-        dbg << "    \"labels\": " << text_count << "\n";
+        dbg << "    \"total\": " << counts.nodes << ",\n";
+        dbg << "    \"containers\": " << counts.containers << ",\n";
+        dbg << "    \"widgets\": " << counts.widgets << ",\n";
+        dbg << "    \"labels\": " << counts.text << "\n";
         dbg << "  },\n";
         dbg << "  \"tokens\": {\n";
         dbg << "    \"colors\": " << ir.tokens.colors.size() << ",\n";
@@ -1689,7 +1748,8 @@ int main(int argc, char* argv[]) {
             // Shapes that aren't audio widgets (not translated to Pulp widgets)
             if ((n.type == "ellipse" || n.type == "rectangle" || n.type == "path" ||
                  n.type == "polygon" || n.type == "line") &&
-                n.audio_widget == AudioWidgetType::none) {
+                n.audio_widget == AudioWidgetType::none &&
+                !is_native_widget_node(n)) {
                 if (!first_gap) dbg << ",\n";
                 first_gap = false;
                 dbg << "    {\"type\": \"" << n.type << "\", \"name\": \"" << n.name
