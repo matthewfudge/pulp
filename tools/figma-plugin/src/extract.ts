@@ -435,8 +435,15 @@ function extractTextStyle(t: TextNode, s: ExtractedStyle, ctx: WalkCtx): void {
     s.font_style = /italic/i.test(t.fontName.style) ? "italic" : "normal";
   }
   if (typeof t.fontWeight === "number") s.font_weight = t.fontWeight;
-  if (typeof t.letterSpacing === "object" && t.letterSpacing?.unit === "PIXELS") {
-    s.letter_spacing = (t.letterSpacing as { value: number }).value;
+  if (typeof t.letterSpacing === "object" && t.letterSpacing) {
+    const ls = t.letterSpacing as { value: number; unit: "PIXELS" | "PERCENT" };
+    if (ls.unit === "PIXELS") {
+      s.letter_spacing = ls.value;
+    } else if (ls.unit === "PERCENT" && typeof t.fontSize === "number") {
+      // Figma encodes "tracking" as percent-of-font-size. Convert to pixels
+      // so downstream consumers don't need to know about the percent unit.
+      s.letter_spacing = (ls.value / 100) * t.fontSize;
+    }
   }
   if (typeof t.lineHeight === "object" && t.lineHeight) {
     if (t.lineHeight.unit === "PIXELS") s.line_height = (t.lineHeight as { value: number }).value;
