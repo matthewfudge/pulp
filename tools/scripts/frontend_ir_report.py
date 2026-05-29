@@ -11,6 +11,7 @@ import pathlib
 import re
 from typing import Any
 
+from frontend_ir_proofs import apply_native_proofs, load_native_proof
 from frontend_ir_validation import (
     FALLBACK_ROUTES,
     NATIVE_ROUTES,
@@ -949,6 +950,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--route-manifest", required=True, type=pathlib.Path)
     parser.add_argument("--source-audit", type=pathlib.Path)
+    parser.add_argument("--native-proof", action="append", type=pathlib.Path, default=[],
+                        help="native compile/linkage proof artifact to attach to validation evidence")
     parser.add_argument("--output", required=True, type=pathlib.Path)
     parser.add_argument("--repo-root", type=pathlib.Path, default=pathlib.Path.cwd())
     args = parser.parse_args(argv)
@@ -956,6 +959,8 @@ def main(argv: list[str] | None = None) -> int:
     route_manifest = load_json(args.route_manifest)
     source_audit = load_json(args.source_audit) if args.source_audit else {}
     report = build_frontend_ir(route_manifest, source_audit, args.route_manifest, args.repo_root)
+    if args.native_proof:
+        apply_native_proofs(report, [load_native_proof(path) for path in args.native_proof], args.repo_root)
     validate_frontend_ir(report)
     write_json(args.output, report)
     return 0

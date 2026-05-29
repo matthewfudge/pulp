@@ -468,6 +468,155 @@ class FrontendIrReportTests(unittest.TestCase):
             self.assertEqual(report["resources"][1]["mime"], "application/json")
             self.assertEqual(report["routes"], [])
 
+    def test_cli_applies_phase_g_cpp_only_native_proof(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            route_manifest_path = root / "reports/route.json"
+            proof_path = root / "reports/native-proof.json"
+            output_path = root / "reports/frontend-ir.json"
+            (root / "fixtures").mkdir()
+            (root / "fixtures/UI.jsx").write_text("export default function UI() { return null; }\n", encoding="utf-8")
+            (root / "reports/generated").mkdir(parents=True)
+            (root / "reports/generated/ui-ir.json").write_text("{}\n", encoding="utf-8")
+            write_json(
+                route_manifest_path,
+                {
+                    "schema": "pulp-native-ui-route-manifest-v1",
+                    "fixture": "fixture-proof",
+                    "inputs": {
+                        "sourceJsx": {"path": "fixtures/UI.jsx"},
+                        "ir": {"path": "reports/generated/ui-ir.json"},
+                    },
+                    "route_metrics": {
+                        "js_engine_initialized": True,
+                    },
+                    "source_contract_overlay": {
+                        "node_route_rows": [
+                            {
+                                "id": "knob.1",
+                                "stable_source_path": "fixtures/UI.jsx:10:Knob[0]",
+                                "source_line": 10,
+                                "required_native_primitive": "knob",
+                                "route_type": "native_cpp",
+                            },
+                        ],
+                    },
+                },
+            )
+            write_json(
+                proof_path,
+                {
+                    "schema": "pulp-native-ui-phase-g-cpp-only-audit-v1",
+                    "fixture": "fixture-proof",
+                    "target": "pulp-test-design-import-cpp-only",
+                    "binary": {
+                        "path": "build-cpu/test/pulp-test-design-import-cpp-only",
+                        "exists": True,
+                        "bytes": 1234,
+                        "sha256": "c" * 64,
+                    },
+                    "cmake": {
+                        "links_view_core_only": True,
+                        "cpp_only_flag_present": True,
+                    },
+                    "criteria": {
+                        "target_built": True,
+                        "cpp_only_compile_flag_present": True,
+                        "target_links_view_core_only": True,
+                        "binary_has_no_forbidden_script_symbols": True,
+                        "generated_source_has_no_script_symbol_needles": True,
+                        "js_engine_unavailable_in_target": True,
+                    },
+                    "phase_g_cpp_only_proven": True,
+                },
+            )
+
+            rc = fir.main([
+                "--route-manifest",
+                str(route_manifest_path),
+                "--native-proof",
+                str(proof_path),
+                "--output",
+                str(output_path),
+                "--repo-root",
+                str(root),
+            ])
+
+            self.assertEqual(rc, 0)
+            report = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["validation"]["compile"]["status"], "pass")
+            self.assertEqual(report["validation"]["compile"]["source"], "phase_g_cpp_only")
+            self.assertFalse(report["validation"]["binary_dependencies"]["js_engine_present"])
+            self.assertEqual(report["validation"]["binary_dependencies"]["source"], "phase_g_cpp_only")
+            self.assertTrue(report["validation"]["binary_dependencies"]["target_links_view_core_only"])
+            self.assertTrue(report["validation"]["binary_dependencies"]["cpp_only_flag_present"])
+            self.assertEqual(len(report["validation"]["proofs"]), 2)
+            self.assertIn("native_proof:reports/native-proof.json", report["routes"][0]["validation_refs"])
+
+    def test_cli_applies_matching_phase_h_compile_probe(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            route_manifest_path = root / "reports/route.json"
+            proof_path = root / "reports/compile-probe.json"
+            output_path = root / "reports/frontend-ir.json"
+            write_json(
+                route_manifest_path,
+                {
+                    "schema": "pulp-native-ui-source-node-route-manifest-v1",
+                    "fixture": "planning:fixtures:compressor-strip",
+                    "inputs": {
+                        "sourceJsx": {"path": "fixtures/compressor-strip.tsx"},
+                    },
+                    "source_contract_overlay": {
+                        "route_rows": [
+                            {
+                                "stable_source_path": "fixtures/compressor-strip.tsx:48:input[0]",
+                                "source_line": 48,
+                                "route_type": "native_cpp",
+                                "required_native_primitive": "fader",
+                            },
+                        ],
+                    },
+                },
+            )
+            write_json(
+                proof_path,
+                {
+                    "schema": "pulp-native-ui-phase-h-import-cpp-compile-probe-v1",
+                    "rows": [
+                        {
+                            "fixture_id": "planning:fixtures:compressor-strip",
+                            "path": "fixtures/compressor-strip.tsx",
+                            "source_cpp": "reports/generated/compressor-strip.cpp",
+                            "source_header": "reports/generated/compressor-strip.hpp",
+                            "object_path": "/tmp/compressor-strip.o",
+                            "exit_code": 0,
+                            "object_bytes": 4096,
+                            "status": "pass",
+                        },
+                    ],
+                },
+            )
+
+            rc = fir.main([
+                "--route-manifest",
+                str(route_manifest_path),
+                "--native-proof",
+                str(proof_path),
+                "--output",
+                str(output_path),
+                "--repo-root",
+                str(root),
+            ])
+
+            self.assertEqual(rc, 0)
+            report = json.loads(output_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["validation"]["compile"]["status"], "pass")
+            self.assertEqual(report["validation"]["compile"]["source"], "phase_h_import_cpp_compile_probe")
+            self.assertEqual(report["validation"]["compile"]["object_bytes"], 4096)
+            self.assertEqual(len(report["validation"]["proofs"]), 1)
+            self.assertIn("native_proof:reports/compile-probe.json", report["routes"][0]["validation_refs"])
+
 
 if __name__ == "__main__":
     unittest.main()
