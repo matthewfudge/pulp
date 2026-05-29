@@ -1384,10 +1384,24 @@ These three pieces, all checked in this branch, are the standard inner-loop for 
 2. `tools/scripts/render-figma-import.sh <ui.js> <out.png>` — auto-reads the `<ui.js>.meta.json` sidecar (canvas size from root frame) and renders with the right `--width / --height`. No more remembering numbers.
 3. `pulp-import-design ... --output <ui.js>` auto-emits `<ui.js>.meta.json` alongside. Has `{ canvas: { width, height }, source }`. Consume it; don't hardcode.
 
-### Native vector knob (silver) — alternative to PNG sprites
+### Knob rendering — silver by default, sprite on opt-in
 
-When the user wants crisp interactive knobs without PNG bleed artefacts: `pulp import-design --knob-style=silver`. Replaces `setKnobSpriteStrip` emissions with `setWidgetStyle('silver')`. The native-vector path uses `WidgetRenderStyle::silver` — a Canvas2D radial-gradient chrome body with inner bezel ring, specular arc, and indicator notch. Works on CPU raster (pulp-screenshot) AND GPU Graphite. No PNG bleed, no Skia raster→texture upload, crisp at any size.
+**Default for the figma-plugin lane: silver (native vector).** The native vector path is the durable answer for native UI rendering — crisp at any scale, no PNG bleed artefacts, no Skia Graphite raster→texture upload, works on CPU raster (`pulp-screenshot`) AND the GPU window. Knob captions ("VALUE") are synthesised when the original Figma component-instance had them baked into the PNG.
 
-When to choose sprite-strip: the user wants pixel-exact Figma reproduction or has a multi-frame rotational filmstrip from the designer.
+**Opt back into PNG sprites: `--knob-style=sprite`.** Use when the design depends on Figma's pixel-exact knob rendering — for example, a hero plugin whose marketing screenshots show specific chrome highlights, or a multi-frame rotational filmstrip the designer supplied. The cost is visible PNG bleed (shadow halos around the knob bottom edges that read as "brush stroke" bands across the gradient panel) and bigger file size.
 
-When to choose silver: the user wants crisp scaling, interactivity, and doesn't need pixel-exact-Figma fidelity. Default when in doubt.
+**Per-node override — Figma name suffix `@sprite` / `@silver`.** A node named `Knob/Hero@sprite` forces sprite for that one knob regardless of the global flag. `Knob/Send@silver` forces silver. Lets a designer cherry-pick a hero knob to be pixel-exact while everything else uses the crisper vector path. Convention chosen to match Figma's own `Knob/State=hover` variant syntax and Mitosis / Penpot's `@target` code-hint convention.
+
+**Decision matrix**:
+
+| Constraint | Recommendation |
+|---|---|
+| Quick visual prototype, want crisp result | Default (silver) |
+| Plugin marketing screenshots must match Figma exactly | `--knob-style=sprite` |
+| Designer supplied a 64-frame rotational filmstrip | `--knob-style=sprite` |
+| Mostly silver but ONE hero knob must match Figma | Default + name the hero `Knob@sprite` |
+| Want to A/B test which looks better | Render once each way; visual-diff against the Figma reference |
+
+**Recommending sprite to a user**: don't position it as a "fallback". For designers who chose a specific Figma knob style, sprite IS the right path. Frame it as "pixel-exact PNG (with bleed)" vs "native vector (without bleed)" — the tradeoff is real and per-design.
+
+**Claude Code surfacing**: when someone runs `/import-design` on a Figma file, ask if they want silver (default) or sprite. If they're unsure, default silver and add a note that they can re-import with `--knob-style=sprite` to compare. If they have one specific knob that "needs to look like the Figma", suggest the `@sprite` suffix on that node's name in the Figma file.

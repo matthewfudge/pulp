@@ -681,7 +681,17 @@ int main(int argc, char* argv[]) {
     bool validate = false;           // --validate: render + compare after import
     bool use_web_compat = false;     // --web-compat: use DOM API instead of native
     bool preview_mode = false;       // --preview: minimal widget style for design comparison
-    bool use_silver_knobs = false;   // --knob-style=silver: native vector chrome knobs instead of sprite PNGs
+    // figma-plugin lane only: knob render style.
+    // Default ON (silver) because the native vector path produces cleaner
+    // results across the board (no PNG bleed artefacts around the bottom
+    // edges of the gradient panel, no shadow-halo "brush stroke" bands
+    // around big knobs, crisp at any scale, works on CPU raster + GPU
+    // Graphite). Sprite is still available via --knob-style=sprite when
+    // a designer wants pixel-exact Figma reproduction.
+    //
+    // Per-node override: a Figma node name ending in `@sprite` or
+    // `@silver` overrides the global default for THAT knob only.
+    bool use_silver_knobs = true;    // figma-plugin default; sprite via --knob-style=sprite
     bool debug_json = false;         // --debug: output JSON report with all metrics
     std::string debug_output;        // --debug-output: path for JSON report
     int render_width = 340;
@@ -768,11 +778,14 @@ int main(int argc, char* argv[]) {
             preview_mode = true;
         } else if (std::strcmp(argv[i], "--knob-style") == 0 && i + 1 < argc) {
             std::string ks = argv[++i];
-            if (ks == "silver") use_silver_knobs = true;
-            // Other values (sprite, standard, etc.) fall through to default.
+            if (ks == "silver")      use_silver_knobs = true;
+            else if (ks == "sprite") use_silver_knobs = false;
+            // Other values (auto, standard) fall through; auto could
+            // pick by per-design heuristic in the future.
         } else if (std::strncmp(argv[i], "--knob-style=", 13) == 0) {
             std::string ks = argv[i] + 13;
-            if (ks == "silver") use_silver_knobs = true;
+            if (ks == "silver")      use_silver_knobs = true;
+            else if (ks == "sprite") use_silver_knobs = false;
         } else if (std::strcmp(argv[i], "--debug") == 0) {
             debug_json = true;
         } else if (std::strcmp(argv[i], "--debug-output") == 0 && i + 1 < argc) {

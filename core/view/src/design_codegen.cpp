@@ -519,8 +519,33 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
             // from canvas primitives + radial gradient + indicator notch
             // (WidgetRenderStyle::silver). Crisp at any size, no PNG
             // bleed, no GPU texture upload.
+            //
+            // Per-node override: a Figma node name ending in "@sprite"
+            // or "@silver" overrides the global default for THIS knob
+            // only. Lets a designer mark specific knobs as
+            // pixel-exact-PNG (e.g. a hero knob whose Figma rendering
+            // is intentional) while the rest of the design uses the
+            // crisper vector path. Convention rationale: same `@` style
+            // Figma uses for variants (`Knob/State=hover`) and that
+            // Mitosis / Penpot adopted for code-target hints.
+            bool node_wants_sprite = false;
+            bool node_wants_silver = false;
+            {
+                const std::string& name = node.name;
+                auto ends_with = [&](std::string_view suf) {
+                    if (name.size() < suf.size()) return false;
+                    return name.compare(name.size() - suf.size(), suf.size(), suf) == 0;
+                };
+                if (ends_with("@sprite")) node_wants_sprite = true;
+                else if (ends_with("@silver")) node_wants_silver = true;
+            }
+            bool use_silver_here =
+                node_wants_silver ? true :
+                node_wants_sprite ? false :
+                opts.use_silver_knobs;
+
             auto skin_it = node.attributes.find("asset_path");
-            if (opts.use_silver_knobs) {
+            if (use_silver_here) {
                 ss << ind << "setWidgetStyle('" << id << "', 'silver');\n";
             } else if (skin_it != node.attributes.end() && !skin_it->second.empty()) {
                 int frames = 1;
