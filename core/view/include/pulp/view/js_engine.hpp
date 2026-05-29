@@ -199,7 +199,7 @@ protected:
         std::string quoted_hidden = quote_string(hidden_name);
         std::string quoted_name = quote_string(name);
         std::string script =
-            "globalThis[" + quoted_name + "] = (...args) => Promise.resolve().then(() => globalThis[" + quoted_hidden + "](...args));\n"
+            "globalThis[" + quoted_name + "] = ((fn) => (...args) => Promise.resolve().then(() => fn(...args)))(globalThis[" + quoted_hidden + "]);\n"
             "delete globalThis[" + quoted_hidden + "];\n"
             "globalThis[" + quoted_name + "];";
         evaluate(script);

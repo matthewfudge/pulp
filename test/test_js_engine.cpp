@@ -455,6 +455,37 @@ TEST_CASE("JsEngine native promise functions return real Promise objects", "[js_
     END_FOR_EACH_ENGINE
 }
 
+TEST_CASE("JsEngine native promise functions resolve through captured callbacks",
+          "[js_engine][api-contract]") {
+    FOR_EACH_ENGINE(engine)
+        if (!engine->supports_promises()) {
+            SUCCEED("promises intentionally unsupported on this backend");
+            continue;
+        }
+
+        engine->register_promise_function("asyncAdd", [](const choc::value::Value* args, size_t count) {
+            int total = 0;
+            for (size_t i = 0; i < count; ++i)
+                total += args[i].getWithDefault<int32_t>(0);
+            return choc::value::createInt32(total);
+        });
+
+        engine->evaluate(R"(
+            globalThis.__pulpPromiseValue = -1;
+            globalThis.__pulpPromiseError = "";
+            asyncAdd(20, 22).then(
+                (value) => { globalThis.__pulpPromiseValue = value; },
+                (error) => { globalThis.__pulpPromiseError = String(error && error.message ? error.message : error); }
+            );
+            void 0;
+        )");
+        engine->pump_message_loop();
+
+        REQUIRE(engine->evaluate("globalThis.__pulpPromiseError").toString() == "");
+        REQUIRE(engine->evaluate("globalThis.__pulpPromiseValue").getWithDefault<int>(0) == 42);
+    END_FOR_EACH_ENGINE
+}
+
 TEST_CASE("JsEngine Phase 13 smoke can assemble browser-style GPU bridge primitives", "[js_engine][phase13]") {
     auto engines_ = available_engines();
     REQUIRE_FALSE(engines_.empty());
