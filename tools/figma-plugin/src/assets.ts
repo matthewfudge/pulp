@@ -90,7 +90,14 @@ export class AssetCache {
     let data: Uint8Array;
     let mime: string;
     try {
-      data = await exportable.exportAsync({ format });
+      // Export PNGs at 2× scale so they stay crisp when Pulp's renderer
+      // displays at retina (2×) output. SVG ignores scale (it's vector-
+      // resolution-independent already).
+      const settings: ExportSettings =
+        format === "PNG"
+          ? { format: "PNG", constraint: { type: "SCALE", value: 2 } }
+          : { format };
+      data = await exportable.exportAsync(settings);
       if (!data || data.length < 50) {
         return { error: `${format} export produced ${data?.length ?? 0} bytes; likely empty/degenerate node` };
       }
