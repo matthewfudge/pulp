@@ -443,12 +443,28 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
                 ss << ind << "setWidgetStyle('" << wid << "', 'minimal');\n";
         };
 
-        // Create a wrapper column for the widget + value label
-        std::string col_id = id + "_col";
-        ss << ind << "createCol('" << col_id << "', " << pid << ");\n";
-        emit_position_if_absolute(col_id);
-        ss << ind << "setFlex('" << col_id << "', 'align_items', 'center');\n";
-        ss << ind << "setFlex('" << col_id << "', 'gap', 4);\n";
+        // When the IR has NO inlined label or value text children, the widget
+        // doesn't need its own wrapper column — the parent (typically a Figma
+        // auto-layout row that already arranges siblings) does the layout.
+        // Wrapping in a col with +20 padding for absent labels makes the col
+        // taller than the parent's hugged row height, breaking Yoga's flex
+        // layout (Track A regression on the ELYSIUM knob row: the wrapper
+        // was 28x61 / 62x111 / 28x61 inside a 158x91 parent).
+        bool needs_label_wrapper = !label_text.empty() || !value_text.empty();
+
+        // Create a wrapper column for the widget + value label (only when
+        // there's actual label/value text to stack below the widget).
+        std::string col_id = needs_label_wrapper ? (id + "_col") : parent_id;
+        if (needs_label_wrapper) {
+            ss << ind << "createCol('" << col_id << "', " << pid << ");\n";
+            emit_position_if_absolute(col_id);
+            ss << ind << "setFlex('" << col_id << "', 'align_items', 'center');\n";
+            ss << ind << "setFlex('" << col_id << "', 'gap', 4);\n";
+        } else {
+            // No wrapper. Emit any absolute position on the widget itself.
+            // (emit_position_if_absolute is called below at the createKnob site
+            // by using id directly — we don't need to repeat here.)
+        }
 
         if (wtype == AudioWidgetType::knob) {
             // Knob sizing priority:
@@ -469,9 +485,12 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
                 shape_h = std::stof(node.attributes.at("shape_height"));
             float frame_w = shape_w;
             float col_h = shape_h + 20 + (value_text.empty() ? 0 : 16);
-            ss << ind << "setFlex('" << col_id << "', 'height', " << col_h << ");\n";
-            ss << ind << "setFlex('" << col_id << "', 'min_width', " << frame_w << ");\n";
+            if (needs_label_wrapper) {
+                ss << ind << "setFlex('" << col_id << "', 'height', " << col_h << ");\n";
+                ss << ind << "setFlex('" << col_id << "', 'min_width', " << frame_w << ");\n";
+            }
             ss << ind << "createKnob('" << id << "', '" << col_id << "');\n";
+            if (!needs_label_wrapper) emit_position_if_absolute(id);
             ss << ind << "setFlex('" << id << "', 'width', " << shape_w << ");\n";
             ss << ind << "setFlex('" << id << "', 'height', " << shape_h << ");\n";
             // Clear built-in label — use separate Yoga-positioned labels for exact placement
