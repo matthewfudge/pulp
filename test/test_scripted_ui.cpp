@@ -1,11 +1,18 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#if __has_include(<pulp/render/gpu_surface.hpp>)
+#include <pulp/render/gpu_surface.hpp>
+#define PULP_TEST_HAS_GPU_SURFACE 1
+#else
+#define PULP_TEST_HAS_GPU_SURFACE 0
+#endif
 #include <pulp/view/scripted_ui.hpp>
 #include <pulp/view/widgets.hpp>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <thread>
+#include <utility>
 
 using namespace pulp::view;
 using namespace pulp::state;
@@ -36,6 +43,57 @@ bool wait_for_reload(const std::function<bool()>& poller) {
     }
     return poller();
 }
+
+#if PULP_TEST_HAS_GPU_SURFACE
+class TestGpuSurface final : public pulp::render::GpuSurface {
+public:
+    explicit TestGpuSurface(AdapterInfo info) : info_(std::move(info)) {}
+
+    bool initialize(const Config& config) override {
+        initialized_ = true;
+        width_ = config.width;
+        height_ = config.height;
+        has_surface_ = config.native_surface_handle != nullptr;
+        return true;
+    }
+    void resize(uint32_t width, uint32_t height) override {
+        width_ = width;
+        height_ = height;
+    }
+    bool begin_frame() override { return false; }
+    void end_frame() override {}
+    bool is_initialized() const override { return initialized_; }
+    bool has_surface() const override { return has_surface_; }
+    uint32_t width() const override { return width_; }
+    uint32_t height() const override { return height_; }
+    void* dawn_device_handle() const override { return nullptr; }
+    void* dawn_queue_handle() const override { return nullptr; }
+    void* dawn_instance_handle() const override { return nullptr; }
+    void* current_texture_handle() const override { return nullptr; }
+    AdapterInfo adapter_info() const override { return info_; }
+
+private:
+    AdapterInfo info_;
+    bool initialized_ = false;
+    bool has_surface_ = false;
+    uint32_t width_ = 1;
+    uint32_t height_ = 1;
+};
+
+static pulp::render::GpuSurface::AdapterInfo test_gpu_info() {
+    pulp::render::GpuSurface::AdapterInfo info;
+    info.available = true;
+    info.native_bridge = false;
+    info.backend = "Dawn/WebGPU";
+    info.backend_type = "Mock";
+    info.name = "Pulp Test Mock Adapter";
+    info.vendor = "Pulp";
+    info.architecture = "unavailable";
+    info.description = info.name;
+    info.preferred_canvas_format = "bgra8unorm";
+    return info;
+}
+#endif
 
 } // namespace
 
@@ -303,20 +361,23 @@ TEST_CASE("ScriptedUiSession::attach_gpu_surface forwards to bridge",
     REQUIRE(session.bridge()->gpu_surface() == nullptr);
     REQUIRE(session.gpu_surface() == nullptr);
 
-    // Attach a fake (non-null) surface. We use a sentinel pointer because the
-    // contract being pinned here is "the session forwards the pointer to its
-    // bridge AND remembers it for the next hot-reload-triggered rebuild". A
-    // live Dawn surface is not required for this contract — the live counterpart
+#if PULP_TEST_HAS_GPU_SURFACE
+    // Attach a test (non-null) surface. The contract being pinned here is "the
+    // session forwards the pointer to its bridge AND remembers it for the next
+    // hot-reload-triggered rebuild". A live Dawn surface is not required for
+    // this contract — the live counterpart
     // belongs in slice 3's [jsc][navigator-gpu][live] case.
-    auto* fake_surface =
-        reinterpret_cast<pulp::render::GpuSurface*>(uintptr_t{0xFEEDFACE});
-    session.attach_gpu_surface(fake_surface);
-    REQUIRE(session.gpu_surface() == fake_surface);
-    REQUIRE(session.bridge()->gpu_surface() == fake_surface);
+    TestGpuSurface mock_surface(test_gpu_info());
+    session.attach_gpu_surface(&mock_surface);
+    REQUIRE(session.gpu_surface() == &mock_surface);
+    REQUIRE(session.bridge()->gpu_surface() == &mock_surface);
 
     // Idempotent re-attach.
-    session.attach_gpu_surface(fake_surface);
-    REQUIRE(session.bridge()->gpu_surface() == fake_surface);
+    session.attach_gpu_surface(&mock_surface);
+    REQUIRE(session.bridge()->gpu_surface() == &mock_surface);
+#else
+    SUCCEED("render::GpuSurface test double unavailable in GPU-off builds");
+#endif
 
     // Detach.
     session.attach_gpu_surface(nullptr);
