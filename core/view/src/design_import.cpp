@@ -1092,11 +1092,24 @@ static IRNode parse_ir_node(const choc::value::ValueView& obj) {
             float gap = S.top - F.bottom;
             if (gap <= 0.0f) continue;
             if (gap >= F.shadow_reach) continue;
-            // Snap S up so it abuts F's bottom. Mutates the child in place.
-            float new_top = F.bottom;
+            // Leave the shadow's y-offset (`oy`) worth of room above S so
+            // the panel's drop shadow has somewhere to render. Without
+            // this opening the sibling overpaints the shadow (Pulp draws
+            // shadows in the same z-layer as the View, so a later sibling
+            // covers it). Closing only `gap - oy` of the geometric gap
+            // gives us both: no exposed canvas band (the shadow's blur
+            // fills the remaining space softly) AND a visible shadow
+            // fade matching Figma's render where the shadow lays softly
+            // over the sibling's top edge.
+            float oy_only = 0.0f, blur_only = 0.0f;
+            if (node.children[F.idx].style.box_shadow)
+                parse_shadow_offset_blur(*node.children[F.idx].style.box_shadow,
+                                         oy_only, blur_only);
+            float preserve = std::max(0.0f, oy_only);
+            float close = std::max(0.0f, gap - preserve);
+            if (close <= 0.0f) continue;
+            float new_top = S.top - close;
             node.children[S.idx].style.top = new_top;
-            // Keep cached bottom in sync for any subsequent pair this loop
-            // iteration would consider (k+2 vs the snapped k+1).
             S.bottom -= (S.top - new_top);
             S.top = new_top;
         }
