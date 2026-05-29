@@ -8,10 +8,10 @@ import hashlib
 import json
 import mimetypes
 import pathlib
-import re
 from typing import Any
 
 from frontend_ir_proofs import apply_native_proofs, load_native_proof
+from frontend_ir_sources import WATCH_INPUT_KEYS, artifact_from_input, metric_key, resource_id_key, source_input
 from frontend_ir_tokens import resolve_source_token_refs
 from frontend_ir_validation import (
     FALLBACK_ROUTES,
@@ -50,6 +50,7 @@ def repo_relative(path: pathlib.Path, repo_root: pathlib.Path) -> str:
         return path.resolve().relative_to(repo_root.resolve()).as_posix()
     except ValueError:
         return path.as_posix()
+
 
 def route_name(value: str | None) -> str:
     normalized = (value or "").strip().lower().replace("-", "_")
@@ -122,14 +123,6 @@ def row_node_id(row: dict[str, Any], index: int) -> str:
     return f"row.{index}.{suffix}"
 
 
-def metric_key(value: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_]+", "_", value).strip("_").lower() or "unknown"
-
-
-def resource_id_key(value: str) -> str:
-    return metric_key(re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", value))
-
-
 def inline_source_audit(route_manifest: dict[str, Any]) -> dict[str, Any]:
     inputs = route_manifest.get("inputs", {})
     if not isinstance(inputs, dict):
@@ -159,10 +152,17 @@ def count_map(source_audit: dict[str, Any], rows: list[Any] | None = None) -> di
         for key in (
             "parse_errors",
             "jsx_elements",
+            "html_elements",
             "map_calls",
             "ternaries",
             "set_param_calls",
+            "class_attributes",
+            "class_names",
+            "css_rules",
             "style_objects",
+            "style_attributes",
+            "inline_style_attributes",
+            "inline_style_values",
             "css_values",
             "css_values_valid",
             "css_values_invalid",
@@ -384,17 +384,9 @@ def mime_for_path(path: str) -> str | None:
 
 def input_resource(key: str, value: Any, rows: list[Any], repo_root: pathlib.Path,
                    requested_by: str) -> dict[str, Any] | None:
-    path_value = ""
-    sha = ""
-    if isinstance(value, dict):
-        path = value.get("path")
-        if isinstance(path, str) and path:
-            path_value = path
-        candidate_sha = value.get("sha256")
-        if isinstance(candidate_sha, str):
-            sha = candidate_sha
-    elif isinstance(value, str) and value and ("/" in value or "." in pathlib.Path(value).name):
-        path_value = value
+    artifact = artifact_from_input(value)
+    path_value = artifact.get("path", "")
+    sha = artifact.get("sha256", "")
 
     if not path_value:
         return None
@@ -406,7 +398,7 @@ def input_resource(key: str, value: Any, rows: list[Any], repo_root: pathlib.Pat
         "requested_by": [requested_by],
         "route_usage": route_usage_for_input(key, rows),
         "transforms": [],
-        "watch": key in {"sourceJsx", "bundle", "sourceAudit"},
+        "watch": key in WATCH_INPUT_KEYS,
     }
     if sha:
         resource["sha256"] = sha
@@ -780,7 +772,7 @@ def style_counts(nodes: list[dict[str, Any]], source_counts: dict[str, int] | No
             (("css_values_valid",), "source_css_values_valid_syntax"),
             (("css_values_invalid",), "source_css_values_invalid_syntax"),
             (("style_objects", "inlineStyleObjects"), "source_style_objects"),
-            (("styleAttributes",), "source_style_attributes"),
+            (("styleAttributes", "style_attributes", "inline_style_attributes"), "source_style_attributes"),
             (("style_keys",), "source_style_keys"),
             (("materiality_style_values_normalized",), "source_style_values_normalized"),
             (("materiality_css_lexer_matches",), "source_css_lexer_matches"),
@@ -866,10 +858,8 @@ def build_frontend_ir(
     if not source_audit:
         source_audit = inline_source_audit(route_manifest)
 
-    source_jsx = route_manifest.get("inputs", {}).get("sourceJsx", {})
-    if not isinstance(source_jsx, dict):
-        source_jsx = {}
-    source_path = source_jsx.get("path") or source_audit.get("input") or ""
+    source_artifact = source_input(route_manifest)
+    source_path = source_artifact.get("path") or source_audit.get("input") or ""
     if not isinstance(source_path, str):
         source_path = ""
 
@@ -944,7 +934,7 @@ def build_frontend_ir(
             "notes": notes,
         },
     }
-    sha = source_jsx.get("sha256")
+    sha = source_artifact.get("sha256")
     if isinstance(sha, str) and sha:
         report["source"]["sha256"] = sha
     return report

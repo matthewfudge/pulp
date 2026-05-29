@@ -309,6 +309,89 @@ class FrontendIrReportTests(unittest.TestCase):
         self.assertIn("did not provide a DesignIR", " ".join(report["validation"]["notes"]))
         fir.validate_frontend_ir(report)
 
+    def test_builds_report_from_generic_source_file_input(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            root = pathlib.Path(td)
+            source_path = root / "fixtures/static-panel.html"
+            source_path.parent.mkdir()
+            source_path.write_text("<main><button>Run</button></main>\n", encoding="utf-8")
+            route_manifest = {
+                "schema": "pulp-generic-source-route-manifest-v1",
+                "fixture": "fixture-source-file",
+                "inputs": {
+                    "sourceFile": "fixtures/static-panel.html",
+                    "sourceAuditSummary": {
+                        "input": {
+                            "bytes": source_path.stat().st_size,
+                        },
+                        "summary": {
+                            "html_elements": 2,
+                        },
+                    },
+                },
+                "source_contract_overlay": {
+                    "source": {
+                        "source_of_truth": "local_file",
+                    },
+                    "route_rows": [
+                        {
+                            "stable_source_path": "fixtures/static-panel.html:1:main[0]",
+                            "source_line": 1,
+                            "route_type": "native_html",
+                            "required_native_primitive": "layout",
+                        },
+                        {
+                            "stable_source_path": "fixtures/static-panel.html:1:button[0]",
+                            "source_line": 1,
+                            "route_type": "native_html",
+                            "required_native_primitive": "button",
+                        },
+                    ],
+                },
+            }
+
+            report = fir.build_frontend_ir(
+                route_manifest,
+                {},
+                root / "reports/route.json",
+                root,
+            )
+
+            self.assertEqual(report["source"]["kind"], "html")
+            self.assertEqual(report["source"]["path"], "fixtures/static-panel.html")
+            self.assertEqual(report["validation"]["source_counts"]["html_elements"], 2)
+            self.assertEqual(report["resources"][0]["id"], "input.source_file")
+            self.assertTrue(report["resources"][0]["watch"])
+            self.assertEqual(report["resources"][0]["byte_size"], source_path.stat().st_size)
+            self.assertEqual(report["validation"]["resource_counts"]["route_usage_native_html"], 1)
+            fir.validate_frontend_ir(report)
+
+    def test_source_input_accepts_html_dict_and_source_file_string(self) -> None:
+        self.assertEqual(
+            fir.source_input({
+                "inputs": {
+                    "sourceHtml": {
+                        "path": "fixtures/panel.html",
+                        "sha256": "d" * 64,
+                    },
+                },
+            }),
+            {
+                "path": "fixtures/panel.html",
+                "sha256": "d" * 64,
+            },
+        )
+        self.assertEqual(
+            fir.source_input({
+                "inputs": {
+                    "sourceFile": "fixtures/panel.html",
+                },
+            }),
+            {
+                "path": "fixtures/panel.html",
+            },
+        )
+
     def test_resolves_static_source_token_object_references(self) -> None:
         with tempfile.TemporaryDirectory() as td:
             root = pathlib.Path(td)
