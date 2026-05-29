@@ -2813,3 +2813,74 @@ TEST_CASE("filter chain triggers save_layer_with_filters at paint",
     REQUIRE(save_count > 0);
 }
 
+
+// ── Phase iOS-D.3b Slice 1: GpuSurface late-attach into WidgetBridge ────────
+// planning/2026-05-29-ios-d3b-threejs-webgpu-program.md § Slice 1
+//
+// These tests pin the new attach_gpu_surface() / has_native_gpu_bridge()
+// API and the ScriptedUiSession-side plumbing. They DO NOT need a real
+// Dawn surface — passing nullptr exercises the detach/idempotent paths,
+// and passing the same pointer twice exercises the idempotence guard.
+// A live-surface companion test belongs in slice 3 ([jsc][navigator-gpu][live])
+// where Dawn is available.
+
+TEST_CASE("WidgetBridge gpu_surface late-attach is idempotent and nullable",
+          "[widget_bridge][gpu-surface-plumbing][issue-ios-d3b-slice1]") {
+    pulp::view::ScriptEngine engine;
+    pulp::view::View root;
+    pulp::state::StateStore store;
+
+    // 1. Constructed without a surface → no native bridge.
+    auto bridge = std::make_unique<pulp::view::WidgetBridge>(engine, root, store);
+    REQUIRE(bridge->gpu_surface() == nullptr);
+    REQUIRE(bridge->has_native_gpu_bridge() == false);
+
+    // 2. attach_gpu_surface(nullptr) on a bridge that already has no
+    //    surface is a no-op. has_native_gpu_bridge stays false.
+    bridge->attach_gpu_surface(nullptr);
+    REQUIRE(bridge->gpu_surface() == nullptr);
+    REQUIRE(bridge->has_native_gpu_bridge() == false);
+
+    // 3. Attaching a non-null surface stores the pointer. We use a fake
+    //    pointer here because widget_bridge_gpu_info(non-null-but-not-Dawn)
+    //    returns native_bridge=false, so has_native_gpu_bridge stays false.
+    //    The accessor itself is the contract being pinned: it returns
+    //    whatever was last attached, regardless of whether it's a real
+    //    Dawn surface or not.
+    auto* fake_surface =
+        reinterpret_cast<pulp::render::GpuSurface*>(uintptr_t{0xDEADBEEF});
+    bridge->attach_gpu_surface(fake_surface);
+    REQUIRE(bridge->gpu_surface() == fake_surface);
+    // has_native_gpu_bridge depends on the surface actually exposing a Dawn
+    // native bridge; the fake pointer cannot, so we don't assert it true here.
+    // The live counterpart test in slice 3 will assert it true with a real
+    // Dawn surface.
+
+    // 4. attach_gpu_surface(same-ptr) is idempotent (no-op fast-path).
+    bridge->attach_gpu_surface(fake_surface);
+    REQUIRE(bridge->gpu_surface() == fake_surface);
+
+    // 5. attach_gpu_surface(nullptr) detaches cleanly.
+    bridge->attach_gpu_surface(nullptr);
+    REQUIRE(bridge->gpu_surface() == nullptr);
+    REQUIRE(bridge->has_native_gpu_bridge() == false);
+}
+
+TEST_CASE("WidgetBridge ctor with non-null gpu_surface stores it",
+          "[widget_bridge][gpu-surface-plumbing][issue-ios-d3b-slice1]") {
+    pulp::view::ScriptEngine engine;
+    pulp::view::View root;
+    pulp::state::StateStore store;
+
+    auto* fake_surface =
+        reinterpret_cast<pulp::render::GpuSurface*>(uintptr_t{0xCAFEBABE});
+    pulp::view::WidgetBridge bridge(engine, root, store, fake_surface);
+    REQUIRE(bridge.gpu_surface() == fake_surface);
+}
+
+// ScriptedUiSession::attach_gpu_surface coverage lives in test_scripted_ui.cpp
+// — that file already brings in <pulp/view/scripted_ui.hpp> which transitively
+// pulls in choc's <FileWatcher.h> → CoreServices → MacTypes.h, defining a
+// global `Size` that clashes with `pulp::view::Size` once this file does
+// `using namespace pulp::view`. Keep the ScriptedUiSession test where the
+// transitive include is already managed.

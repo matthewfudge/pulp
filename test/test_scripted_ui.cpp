@@ -267,3 +267,61 @@ TEST_CASE("ScriptedUiSession keeps repaint callback across reload", "[view][scri
 
     fs::remove_all(temp_dir);
 }
+
+// ── Phase iOS-D.3b Slice 1: ScriptedUiSession::attach_gpu_surface ──────────
+// planning/2026-05-29-ios-d3b-threejs-webgpu-program.md § Slice 1
+//
+// Pins the late-attach plumbing that lets format adapters hand a host's
+// live GpuSurface to the JS-side widget bridge AFTER the bridge has been
+// constructed. Without this, navigator.gpu / canvas.getContext('webgpu')
+// stay on mocks and 3D scenes (Three.js, raw WebGPU) render black.
+
+TEST_CASE("ScriptedUiSession::attach_gpu_surface forwards to bridge",
+          "[scripted_ui][gpu-surface-plumbing][issue-ios-d3b-slice1]") {
+    auto tmp_dir = make_temp_dir("scripted-ui-gpu-surface");
+    auto script_path = tmp_dir / "ui.js";
+    {
+        std::ofstream out(script_path);
+        // Minimal valid script that exercises bridge construction. createPanel
+        // returns an id; assigning it is enough to load without touching any
+        // host-only paths (no canvas, no GPU draws).
+        out << "var p = createPanel({});";
+    }
+
+    View root;
+    StateStore store;
+    ScriptedUiSession session(root, store,
+                              ScriptedUiOptions{.script_path = script_path,
+                                                .enable_hot_reload = false,
+                                                .enable_theme_reload = false});
+
+    std::string err;
+    REQUIRE(session.load(&err));
+    REQUIRE(session.bridge() != nullptr);
+
+    // Before attach: bridge has no surface (matches the ctor default).
+    REQUIRE(session.bridge()->gpu_surface() == nullptr);
+    REQUIRE(session.gpu_surface() == nullptr);
+
+    // Attach a fake (non-null) surface. We use a sentinel pointer because the
+    // contract being pinned here is "the session forwards the pointer to its
+    // bridge AND remembers it for the next hot-reload-triggered rebuild". A
+    // live Dawn surface is not required for this contract — the live counterpart
+    // belongs in slice 3's [jsc][navigator-gpu][live] case.
+    auto* fake_surface =
+        reinterpret_cast<pulp::render::GpuSurface*>(uintptr_t{0xFEEDFACE});
+    session.attach_gpu_surface(fake_surface);
+    REQUIRE(session.gpu_surface() == fake_surface);
+    REQUIRE(session.bridge()->gpu_surface() == fake_surface);
+
+    // Idempotent re-attach.
+    session.attach_gpu_surface(fake_surface);
+    REQUIRE(session.bridge()->gpu_surface() == fake_surface);
+
+    // Detach.
+    session.attach_gpu_surface(nullptr);
+    REQUIRE(session.gpu_surface() == nullptr);
+    REQUIRE(session.bridge()->gpu_surface() == nullptr);
+
+    fs::remove_all(tmp_dir);
+}

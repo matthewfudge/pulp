@@ -954,6 +954,34 @@ WidgetBridge::~WidgetBridge() {
     root_.on_global_click = {};
 }
 
+// Phase iOS-D.3b Slice 1 — late-attach of the GpuSurface for the common
+// case where ScriptedUiSession / ViewBridge is constructed BEFORE the
+// PluginViewHost (and therefore before the surface exists). Mirrors the
+// 4th constructor argument; idempotent.
+void WidgetBridge::attach_gpu_surface(render::GpuSurface* gpu_surface) {
+    if (gpu_surface_ == gpu_surface) return;
+    gpu_surface_ = gpu_surface;
+    if (gpu_surface_ != nullptr) {
+        if (widget_bridge_gpu_info(gpu_surface_).native_bridge) {
+            if (!native_gpu_bridge_state_) {
+                native_gpu_bridge_state_ = std::make_unique<NativeGpuBridgeState>();
+            }
+        } else {
+            // Surface present but no native bridge available — release any
+            // stale state from a previous attach.
+            native_gpu_bridge_state_.reset();
+        }
+    } else {
+        // Explicit detach: drop the native bridge state so future per-frame
+        // canvas/draw calls fall back to mocks cleanly.
+        native_gpu_bridge_state_.reset();
+    }
+}
+
+bool WidgetBridge::has_native_gpu_bridge() const noexcept {
+    return gpu_surface_ != nullptr && native_gpu_bridge_state_ != nullptr;
+}
+
 void WidgetBridge::dispatch_global_key(int key_code, uint16_t modifiers, bool is_down) {
     // Codex P1 (PR #2137): hold the registry lock for the entire
     // fan-out. Earlier draft copied raw pointers under-lock then
