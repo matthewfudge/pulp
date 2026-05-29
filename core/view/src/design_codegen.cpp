@@ -673,8 +673,21 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
             ss << ind << "setTextAlign('" << id << "', '" << *node.style.text_align << "');\n";
         if (node.style.letter_spacing)
             ss << ind << "setLetterSpacing('" << id << "', " << *node.style.letter_spacing << ");\n";
-        if (node.style.width)
-            ss << ind << "setFlex('" << id << "', 'min_width', " << *node.style.width << ");\n";
+        // Inflate min-width when the label is text-transformed to uppercase.
+        // Figma stores the source-text width but renders the transformed
+        // glyphs — uppercase Latin is typically ~15-20% wider than the
+        // original mixed-case. Without compensation the label's reserved
+        // box is too narrow for the rendered glyphs, so the text spills
+        // into the next flex sibling (visible bug: "FILTER & EQHOLLOW
+        // PUNCH" — the EQ label overflows its 77-px slot, painting on
+        // top of the dropdown's "Hollow Punch" text).
+        if (node.style.width) {
+            bool uppercase = node.style.text_transform &&
+                             *node.style.text_transform == "uppercase";
+            float w = *node.style.width;
+            if (uppercase) w *= 1.20f;  // empirical: caps run ~15-20% wider
+            ss << ind << "setFlex('" << id << "', 'min_width', " << w << ");\n";
+        }
 
         ss << "\n";
         return;
