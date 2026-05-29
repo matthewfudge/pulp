@@ -187,15 +187,17 @@ def coverage_checks(report: dict[str, Any]) -> list[dict[str, Any]]:
     else:
         checks.append(check("no_unknown_primitives", PASS_STATUS, "all observed primitive roles are cataloged"))
 
+    nodes_without_route = non_negative_int(summary.get("nodes_without_route"))
     if nodes == 0:
         checks.append(check("route_coverage", FAIL_STATUS, "report has no nodes"))
-    elif routes != nodes:
+    elif nodes_without_route > 0 or routes != nodes:
         checks.append(check(
             "route_coverage",
             FAIL_STATUS,
             "not every node has route coverage",
             nodes=nodes,
             routes=routes,
+            nodes_without_route=nodes_without_route,
         ))
     else:
         checks.append(check("route_coverage", PASS_STATUS, "every node has route coverage", nodes=nodes))

@@ -126,7 +126,12 @@ def build_codegen_artifact_report(
     direct = routes & entry_ids
     missing = routes - entry_ids
     extra = entry_ids - routes
-    splits = split_candidates(missing, entry_ids)
+    # Only count "extra" entries (sub-bindings not claimed by their own native
+    # route) as split candidates. Searching all entry_ids would let an entry
+    # that directly binds a *different* route (e.g. "foo.label") account for an
+    # unrelated unbound route "foo" purely on a string-prefix collision,
+    # downgrading a real binding hole from FAIL to WARN.
+    splits = split_candidates(missing, extra)
 
     return {
         "schema": SCHEMA,

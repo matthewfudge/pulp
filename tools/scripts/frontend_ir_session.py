@@ -221,6 +221,12 @@ def recommended_reload(scope: list[str], classification_preserved: bool) -> str:
         return "full_reimport"
     if scope == ["resources"]:
         return "resource_reload"
+    # A validation-only delta (proofs/screenshots refreshed, no source/style/
+    # resource/token/tweak change) only needs a validation refresh. This must
+    # be checked before the token/tweak branch below, which would otherwise
+    # swallow {"validation"} and make validation_refresh unreachable.
+    if set(scope) == {"validation"}:
+        return "validation_refresh"
     if all(item in {"tokens", "tweaks", "validation"} for item in scope):
         return "token_tweak_reload"
     if any(item in {"style_contract", "resources", "tokens", "tweaks"} for item in scope):

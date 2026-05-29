@@ -155,6 +155,13 @@ def evidence_checks(report: dict[str, Any]) -> list[dict[str, Any]]:
     return checks
 
 
+def refs_real_artifact(value: Any) -> bool:
+    """A proof/audit artifact must reference an actual file, not just be an
+    empty dict. Otherwise `js_engine_present: false` plus a bare `{}` would
+    satisfy native-readiness with no evidence behind it."""
+    return isinstance(value, dict) and isinstance(value.get("path"), str) and bool(value.get("path"))
+
+
 def native_readiness_checks(report: dict[str, Any]) -> list[dict[str, Any]]:
     checks = evidence_checks(report)
     if any(item["status"] == FAIL_STATUS for item in checks):
@@ -187,8 +194,8 @@ def native_readiness_checks(report: dict[str, Any]) -> list[dict[str, Any]]:
         binary_dependencies = {}
     js_present = binary_dependencies.get("js_engine_present")
     has_binary_proof = (
-        isinstance(binary_dependencies.get("proof_artifact"), dict) or
-        isinstance(binary_dependencies.get("audit_artifact"), dict)
+        refs_real_artifact(binary_dependencies.get("proof_artifact")) or
+        refs_real_artifact(binary_dependencies.get("audit_artifact"))
     )
     if js_present is False and has_binary_proof:
         checks.append(check("binary_no_js_engine", PASS_STATUS, "binary dependency proof reports no JS engine"))
