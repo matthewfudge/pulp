@@ -451,13 +451,23 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
         ss << ind << "setFlex('" << col_id << "', 'gap', 4);\n";
 
         if (wtype == AudioWidgetType::knob) {
-            // shape_width/height = child ellipse size (widget), frame width = column container
-            float shape_w = kMinKnobSize, shape_h = kMinKnobSize;
+            // Knob sizing priority:
+            //   1. node.attributes["shape_width"/"shape_height"] — explicit
+            //      override from designs that ship a non-default child
+            //      ellipse size.
+            //   2. node.style.width / height — figma-plugin lane sets these
+            //      to the actual Figma instance bounds.
+            //   3. kMinKnobSize fallback for purely heuristic detections.
+            // The previous default-min behavior stretched skinned knobs to
+            // 56x56 regardless of source size; with sprite-strip skins
+            // (Track A) that distorted the PNG and overlapped neighbors.
+            float shape_w = node.style.width.value_or(kMinKnobSize);
+            float shape_h = node.style.height.value_or(kMinKnobSize);
             if (node.attributes.count("shape_width"))
                 shape_w = std::stof(node.attributes.at("shape_width"));
             if (node.attributes.count("shape_height"))
                 shape_h = std::stof(node.attributes.at("shape_height"));
-            float frame_w = node.style.width.value_or(shape_w + 20);
+            float frame_w = shape_w;
             float col_h = shape_h + 20 + (value_text.empty() ? 0 : 16);
             ss << ind << "setFlex('" << col_id << "', 'height', " << col_h << ");\n";
             ss << ind << "setFlex('" << col_id << "', 'min_width', " << frame_w << ");\n";
