@@ -1364,6 +1364,14 @@ Each entry: *symptom → diagnostic step → root cause → fix*. Use this list 
 - **Fix**: the shadow-snap rule (above, #7). Preserves the shadow's `oy` while closing the geometric gap.
 - **Lesson**: visual "gaps" the designer drew often rely on effect extents the importer ignores. When designing layout rules, consider effect extents alongside geometric bounds.
 
+#### 13. Connector line in flex row swallowed by first-item slot
+
+- **Symptom**: a horizontal hairline used to communicate a DSP pipeline (`[SEND]——[1/4 DELAY]——[REVERB]——[+]`) renders as a short line on the left of the row, NOT visually connecting the boxes.
+- **Diagnostic**: a flex ROW where the first child is a hairline (height ≤ 2px or width ≤ 2px) and subsequent siblings are widget-sized boxes — total flex content would overflow the row width if all participated.
+- **Root cause**: Figma designs put the line as a FULL-ROW background BEHIND the boxes (z-order: first = behind). The dropdowns / buttons cover it, leaving visible segments BETWEEN them — which reads as "connection". Our flex layout sequenced the line as the first item, compressing it on the left.
+- **Fix**: in `parse_ir_node` post-pass, when the row matches the pattern, mutate the line to `position: absolute`, `left: 0`, `width: row_width`, `top: (row_h - line_h) / 2`, centred vertically. Stays first in flex source order so the renderer still draws it behind subsequent siblings.
+- **Lesson**: Figma's "I/O connection" / "pipeline" / "signal flow" visuals all use the same shape — a hairline as the FIRST flex child, boxes after. The importer needs to recognise it as a CONNECTOR, not as a sibling that should participate in flex sizing.
+
 ### Subtleties you should catch BEFORE the user does
 
 When importing a new Figma file, run these checks proactively:
@@ -1391,6 +1399,8 @@ These three pieces, all checked in this branch, are the standard inner-loop for 
 **Opt back into PNG sprites: `--knob-style=sprite`.** Use when the design depends on Figma's pixel-exact knob rendering — for example, a hero plugin whose marketing screenshots show specific chrome highlights, or a multi-frame rotational filmstrip the designer supplied. The cost is visible PNG bleed (shadow halos around the knob bottom edges that read as "brush stroke" bands across the gradient panel) and bigger file size.
 
 **Per-node override — Figma name suffix `@sprite` / `@silver`.** A node named `Knob/Hero@sprite` forces sprite for that one knob regardless of the global flag. `Knob/Send@silver` forces silver. Lets a designer cherry-pick a hero knob to be pixel-exact while everything else uses the crisper vector path. Convention chosen to match Figma's own `Knob/State=hover` variant syntax and Mitosis / Penpot's `@target` code-hint convention.
+
+**Scope today (knob only)**: the codegen currently honours `@sprite` / `@silver` only on Knob nodes because sprite-strip rendering is only implemented for the Knob widget. The convention is intentionally GENERAL — naming `Fader/Hero@sprite` won't break anything but won't have a visible effect yet. Sprite-strip support for Fader / Meter / XYPad / Waveform / Spectrum is tracked as a follow-up enhancement; the `@sprite` convention will pick those widgets up automatically once each grows a sprite-strip path. **When a user asks for sprite on a fader, set expectation**: "the convention works for any widget but Fader sprite-strip support is a separate landing — for now Faders render native vector regardless of `@sprite`."
 
 **Decision matrix**:
 
