@@ -1136,6 +1136,43 @@ static IRNode parse_ir_node(const choc::value::ValueView& obj) {
         }
     }
 
+    // ── Connector-line spanning rule ────────────────────────────────────
+    // Pattern: a flex row whose FIRST child is a horizontal hairline (height
+    // ≤ a couple of px, width > 1) and whose SUBSEQUENT children are
+    // boxes/widgets/buttons that visually sit ON TOP of the line. Figma
+    // designers use this to communicate a connected pipeline — the line
+    // threads BEHIND the items so the visible bits are the gaps between
+    // boxes. Without a fix, our flex layout puts the line in the
+    // first-item slot (compressed to its 106-ish px width on the left),
+    // breaking the connection visual. Convert the line to absolute,
+    // span the full row width, and centre it vertically. Because it
+    // stays first in z-order, subsequent children draw on top — the
+    // visible segments emerge as gaps. Generalises the FX RACK pattern
+    // in ELYSIUM (Vector 177 + 1/4 DELAY + REVERB + "+") to any flex
+    // row with a connector hairline + ≥ 2 sibling widgets.
+    if (node.layout.direction == LayoutDirection::row && node.children.size() >= 3) {
+        auto& first = node.children.front();
+        float fw = first.style.width.value_or(0.0f);
+        float fh = first.style.height.value_or(0.0f);
+        bool is_horizontal_hairline = (fh > 0.0f && fh <= 2.0f && fw > 4.0f);
+        size_t non_line_followers = 0;
+        for (size_t i = 1; i < node.children.size(); ++i) {
+            const auto& c = node.children[i];
+            float cw = c.style.width.value_or(0.0f);
+            float ch = c.style.height.value_or(0.0f);
+            if (cw >= 8.0f && ch >= 8.0f) ++non_line_followers;
+        }
+        float row_w = node.style.width.value_or(0.0f);
+        float row_h = node.style.height.value_or(0.0f);
+        if (is_horizontal_hairline && non_line_followers >= 2 && row_w > 0.0f && row_h > 0.0f) {
+            first.style.position = "absolute";
+            first.style.left = 0.0f;
+            first.style.top  = (row_h - fh) * 0.5f;
+            first.style.width  = row_w;          // span the full row
+            first.style.height = fh;             // keep stroke weight
+        }
+    }
+
     // Audio widget detection (deferred until after children are parsed)
     // Rule: a node is an audio widget ONLY if:
     //   1. Its name matches an audio widget pattern (knob, fader, meter, etc.)

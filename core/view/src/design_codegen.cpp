@@ -710,10 +710,22 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
         // 14 shifted its glyph baseline up so it no longer aligned with the
         // icon centre.
         float font_h = node.style.font_size.value_or(14.0f);
-        float label_h = node.style.height
+        bool ir_height_is_explicit = node.style.height.has_value();
+        float label_h = ir_height_is_explicit
             ? std::max(*node.style.height, font_h * 1.0f)
             : std::max(font_h * 1.4f, kMinLabelHeight);
         ss << ind << "setFlex('" << id << "', 'height', " << label_h << ");\n";
+        // When the IR carries an explicit height that's meaningfully taller
+        // than the font (Figma's Auto-Layout / text-frame conventions use
+        // a height-greater-than-font-size to RESERVE a vertical slot the
+        // text is supposed to be CENTRED within), emit setVerticalAlign:
+        // center so Pulp's Label draws its glyphs at the slot's optical
+        // middle. Without this Label defaults to top-aligned, and the
+        // SEARCH input's "Search" text rides above the magnifying-glass
+        // icon instead of baseline-aligning with it.
+        if (ir_height_is_explicit && label_h > font_h * 1.15f) {
+            ss << ind << "setVerticalAlign('" << id << "', 'center');\n";
+        }
 
         if (node.style.font_size)
             ss << ind << "setFontSize('" << id << "', " << *node.style.font_size << ");\n";
