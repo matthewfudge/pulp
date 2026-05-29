@@ -6478,22 +6478,69 @@ void WidgetBridge::register_api() {
             else if (inner.substr(0, 7) == "to left") { x0=1; y0=0; x1=0; y1=0; color_start = inner.find(',') + 1; }
             else if (inner.substr(0, 6) == "to top") { x0=0; y0=1; x1=0; y1=0; color_start = inner.find(',') + 1; }
 
-            // Parse color stops
+            // Parse color stops. Paren-aware comma split so we don't shred
+            // tokens like `rgba(228, 237, 246, 1.000) 0.0%`. Per-token, also
+            // peel off any trailing position annotation (Npx, N%) and use it
+            // as the explicit stop position when present.
             std::vector<canvas::Color> colors;
             std::vector<float> positions;
-            std::string colorStr = inner.substr(color_start);
-            std::istringstream ss(colorStr);
-            std::string tok;
-            int count = 0;
             std::vector<std::string> tokens;
-            while (std::getline(ss, tok, ',')) {
-                while (!tok.empty() && tok[0] == ' ') tok.erase(0, 1);
-                while (!tok.empty() && tok.back() == ' ') tok.pop_back();
-                if (!tok.empty()) tokens.push_back(tok);
+            {
+                std::string colorStr = inner.substr(color_start);
+                std::string cur;
+                int paren = 0;
+                for (char c : colorStr) {
+                    if (c == '(') paren++;
+                    else if (c == ')') paren--;
+                    if (c == ',' && paren <= 0) {
+                        // Trim
+                        while (!cur.empty() && cur.front() == ' ') cur.erase(0, 1);
+                        while (!cur.empty() && cur.back() == ' ') cur.pop_back();
+                        if (!cur.empty()) tokens.push_back(cur);
+                        cur.clear();
+                    } else {
+                        cur.push_back(c);
+                    }
+                }
+                while (!cur.empty() && cur.front() == ' ') cur.erase(0, 1);
+                while (!cur.empty() && cur.back() == ' ') cur.pop_back();
+                if (!cur.empty()) tokens.push_back(cur);
             }
+
             for (size_t i = 0; i < tokens.size(); ++i) {
-                colors.push_back(parseColor(tokens[i]));
-                positions.push_back(tokens.size() > 1 ? static_cast<float>(i) / (tokens.size() - 1) : 0);
+                std::string tok = tokens[i];
+                // Look for explicit position at the END of the token:
+                //   "#aabbcc 30%"     or "rgba(...) 30%"     or "#aabbcc 12px"
+                // The position is whatever comes after the LAST space when the
+                // tail looks like a number followed by % or px (or just a number).
+                std::optional<float> explicitPos;
+                {
+                    auto sp = tok.find_last_of(' ');
+                    if (sp != std::string::npos) {
+                        std::string tail = tok.substr(sp + 1);
+                        // Strip trailing unit
+                        bool isPct = false;
+                        if (!tail.empty() && tail.back() == '%') {
+                            isPct = true;
+                            tail.pop_back();
+                        } else if (tail.size() >= 2 && tail.substr(tail.size() - 2) == "px") {
+                            tail = tail.substr(0, tail.size() - 2);
+                        }
+                        if (!tail.empty() && (std::isdigit(static_cast<unsigned char>(tail[0])) || tail[0] == '.' || tail[0] == '-')) {
+                            try {
+                                float v = std::stof(tail);
+                                explicitPos = isPct ? v / 100.0f : v;
+                                tok = tok.substr(0, sp);
+                                while (!tok.empty() && tok.back() == ' ') tok.pop_back();
+                            } catch (...) {
+                                // not a number; leave tok untouched
+                            }
+                        }
+                    }
+                }
+                colors.push_back(parseColor(tok));
+                positions.push_back(explicitPos.value_or(
+                    tokens.size() > 1 ? static_cast<float>(i) / (tokens.size() - 1) : 0));
             }
             if (!colors.empty()) {
                 v->set_background_gradient_linear(x0, y0, x1, y1, colors, positions);
