@@ -10,6 +10,7 @@
 #include <pulp/view/widgets/svg_line.hpp>
 #include <pulp/view/modal.hpp>
 #include <pulp/view/asset_manager.hpp>
+#include <pulp/view/sprite_strip.hpp>
 #include <pulp/view/design_import.hpp>
 #if __has_include(<pulp/render/gpu_surface.hpp>)
 #include <pulp/render/gpu_surface.hpp>
@@ -1588,6 +1589,60 @@ void WidgetBridge::register_api() {
         auto path = args.get<std::string>(1, "");
         if (auto* img = dynamic_cast<ImageView*>(widget(id)))
             img->set_image_path(path);
+        return choc::value::Value();
+    });
+
+    // setKnobSpriteStrip(id, pngPath, frameCount, orientation?) — Track A1
+    //
+    // Industry-standard knob skin pattern: pngPath points to a vertical
+    // (default) or horizontal filmstrip of N frames, each showing the
+    // knob at one step of its 0..1 value range. Frame N is selected at
+    // paint time from the knob's current value. Full Figma visual
+    // fidelity + full interactivity (the knob keeps receiving mouse
+    // input).
+    //
+    // The same wire works for N=1 (single-frame static body) and
+    // N=64+ (smooth rotation). The plugin can use either depending on
+    // whether it generated multi-frame rotational output.
+    engine_.register_function("setKnobSpriteStrip", [this](choc::javascript::ArgumentList args) {
+        auto id = args.get<std::string>(0, "");
+        auto path = args.get<std::string>(1, "");
+        int frame_count = static_cast<int>(args.get<double>(2, 1));
+        std::string orientation_s = args.get<std::string>(3, "vertical");
+
+        auto* k = dynamic_cast<Knob*>(widget(id));
+        if (!k || path.empty() || frame_count <= 0) return choc::value::Value();
+
+        // Strip a file:// prefix if present.
+        if (path.rfind("file://", 0) == 0) path = path.substr(7);
+
+        // Decode once to learn the strip's total pixel dimensions. The actual
+        // per-frame rendering happens in Knob::paint via Skia's cached
+        // decode (draw_image_from_file_rect) — we never round-trip the raw
+        // RGBA bytes through the bridge or through the SpriteStrip object.
+        std::ifstream f(path, std::ios::binary);
+        if (!f.good()) {
+            std::cerr << "[setKnobSpriteStrip] could not open " << path << "\n";
+            return choc::value::Value();
+        }
+        std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(f)),
+                                    std::istreambuf_iterator<char>());
+        auto img = AssetManager::instance().load_image_from_memory(bytes.data(), bytes.size());
+        if (!img.valid()) {
+            std::cerr << "[setKnobSpriteStrip] PNG decode failed for " << path << "\n";
+            return choc::value::Value();
+        }
+
+        auto strip = std::make_shared<SpriteStrip>();
+        auto orientation = (orientation_s == "horizontal")
+                               ? SpriteStrip::Orientation::horizontal
+                               : SpriteStrip::Orientation::vertical;
+        strip->load_from_file(path,
+                              static_cast<int>(img.width),
+                              static_cast<int>(img.height),
+                              frame_count, orientation);
+        k->set_sprite_strip(std::move(strip));
+        k->request_repaint();
         return choc::value::Value();
     });
 

@@ -288,29 +288,39 @@ void Knob::paint(canvas::Canvas& canvas) {
         int frame = sprite_strip_->frame_for_value(value_);
         int fx, fy;
         sprite_strip_->frame_offset(frame, fx, fy);
-        // Draw the frame from the filmstrip as an image
-        // The sprite strip stores raw RGBA8 pixel data; render via draw_image_from_data
-        // by extracting the frame's pixel region
-        size_t frame_bytes = static_cast<size_t>(sprite_strip_->frame_width() *
-                                                  sprite_strip_->frame_height() * 4);
-        size_t offset = static_cast<size_t>(fy * sprite_strip_->total_width() * 4 +
-                                             fx * 4);
-        if (offset + frame_bytes <= sprite_strip_->data_size()) {
-            // For proper rendering, we'd need to extract and upload just this frame.
-            // For now, render the full strip offset via canvas transform.
-            canvas.save();
-            canvas.clip_rect(0, 0, b.width, b.height);
-            // Scale the frame to fit the knob bounds
-            float sx = b.width / static_cast<float>(sprite_strip_->frame_width());
-            float sy = b.height / static_cast<float>(sprite_strip_->frame_height());
-            canvas.scale(sx, sy);
-            canvas.translate(static_cast<float>(-fx), static_cast<float>(-fy));
-            canvas.draw_image_from_data(sprite_strip_->data(),
-                                         sprite_strip_->data_size(),
-                                         0, 0,
-                                         static_cast<float>(sprite_strip_->total_width()),
-                                         static_cast<float>(sprite_strip_->total_height()));
-            canvas.restore();
+        float fw = static_cast<float>(sprite_strip_->frame_width());
+        float fh = static_cast<float>(sprite_strip_->frame_height());
+        if (sprite_strip_->source() == SpriteStrip::Source::image_file) {
+            // Skia-cached decode path (Track A1). Let the canvas crop to the
+            // frame's source rect and rescale into the knob's bounds in one
+            // call — no canvas-transform gymnastics required and no raw-pixel
+            // bridge round-trip.
+            canvas.draw_image_from_file_rect(
+                sprite_strip_->path(),
+                static_cast<float>(fx), static_cast<float>(fy), fw, fh,
+                0, 0, b.width, b.height);
+        } else {
+            // Legacy raw-RGBA path. NOTE: SkiaCanvas::draw_image_from_data
+            // expects ENCODED bytes (PNG/JPEG), so callers that fed decoded
+            // pixels here will draw nothing. Kept for backward compatibility
+            // and any future raw-pixmap canvas API.
+            size_t frame_bytes = static_cast<size_t>(fw * fh * 4);
+            size_t offset = static_cast<size_t>(fy * sprite_strip_->total_width() * 4 +
+                                                 fx * 4);
+            if (offset + frame_bytes <= sprite_strip_->data_size()) {
+                canvas.save();
+                canvas.clip_rect(0, 0, b.width, b.height);
+                float sx = b.width / fw;
+                float sy = b.height / fh;
+                canvas.scale(sx, sy);
+                canvas.translate(static_cast<float>(-fx), static_cast<float>(-fy));
+                canvas.draw_image_from_data(sprite_strip_->data(),
+                                             sprite_strip_->data_size(),
+                                             0, 0,
+                                             static_cast<float>(sprite_strip_->total_width()),
+                                             static_cast<float>(sprite_strip_->total_height()));
+                canvas.restore();
+            }
         }
         // Fall through to draw labels on top
     }
