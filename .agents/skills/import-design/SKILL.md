@@ -1247,3 +1247,147 @@ CLI surface:
 - `<name>.defaults.json` diagnostic written alongside `shortcuts.json` showing accepted candidates + collisions
 
 What's NOT in Phase A: Pulp-framework defaults for the built-in `SettingsPanel` Audio/MIDI sub-tabs (`Cmd+Opt+A` / `Cmd+Opt+M`). Phase B follow-up — needs `TabPanel` select-tab JS API + standalone-only emission gate. Spec: `planning/2026-05-16-default-keyboard-shortcuts.md`.
+
+## Figma-plugin lane — failure modes + fixes (2026-05)
+
+Hard-won lessons from porting the ELYSIUM synthesizer Figma file end-to-end. Every item below was a SUBTLE visual bug that took a user callout to catch the first time. The fixes are all generalizable importer rules, NOT design-specific patches.
+
+### What "import quality" actually means
+
+`pulp import-design` lands a Figma → Pulp visual at three quality tiers:
+
+1. **Renders, structurally faithful** (90% threshold) — frames, layout, text content, asset placements line up. Bottom row content not overlapping top row. ~A day of work on a new file.
+2. **Pixel-honest** (95%) — every Figma effect that has a representation in the IR also paints (shadows, borders, gradients, rounded corners, sub-region tints).
+3. **Designer-perceived parity** (99%) — chrome look, optical centering, kerning compensation, shadow extents, indicator notches all match what the designer drew.
+
+Every fix below moved us up one tier. Each was a SINGLE-LINE FIGMA DATUM that was being dropped or mis-interpreted in the chain.
+
+### Failure-mode catalogue
+
+Each entry: *symptom → diagnostic step → root cause → fix*. Use this list when reviewing a new design import for the FIRST time — sample each known failure mode before claiming "done".
+
+#### 1. `setCornerRadius('All', N)` silently dropped
+
+- **Symptom**: every Figma frame with a single uniform `border-radius` paints with sharp corners.
+- **Diagnostic**: pixel-sample a known-radius corner; if the transition from background to fill happens in one pixel, the radius isn't reaching the View.
+- **Root cause**: the codegen emits `'All'` as the uniform-radius identifier, but the bridge only handled `'TopLeft'/'TopRight'/'BottomLeft'/'BottomRight'`.
+- **Fix**: bridge accepts `'All'` and routes to `View::set_border_radius` (commit `00ea36202`).
+- **Lesson**: when adding a new keyword to codegen, grep the BRIDGE for the dispatch table that consumes it. Don't assume "the bridge handles all keywords the codegen emits."
+
+#### 2. Box-shadow CSS string passed verbatim to bridge that expects parsed args
+
+- **Symptom**: every panel drops a generic, off-spec shadow regardless of the Figma values.
+- **Diagnostic**: greppr the generated JS for `setBoxShadow(id, '0px Npx Mpx Kpx #...')` — if it's a string instead of numeric args, the bridge falls back to defaults.
+- **Root cause**: bridge signature is `setBoxShadow(id, ox, oy, blur, spread, color, inset?)` — six args, not one CSS string.
+- **Fix**: codegen parses `<ox> <oy> <blur> [<spread>] <color>` into args (commit `bf5e2d621`).
+- **Lesson**: any time the IR stores a CSS-spec string (box-shadow, transform, filter), check whether the bridge wants the original string OR parsed components. Document the expectation alongside the bridge `register_function`.
+
+#### 3. Flat-fallback gradient stored in `background_gradient` field
+
+- **Symptom**: sub-region tints inside cells (slightly lighter or darker rectangles within a larger frame) never paint.
+- **Diagnostic**: walk the IR for any node with `background_gradient: "#xxxxxx"` (a bare hex, not a `linear-gradient(...)` string).
+- **Root cause**: `extract.ts` falls back to a flat first-stop colour when Figma reports `GRADIENT_RADIAL` / `GRADIENT_ANGULAR` / `GRADIENT_DIAMOND` (we don't support those). The fallback stored hex in the gradient field, but the codegen's `setBackgroundGradient` path requires a `linear-gradient(...)` string and silently failed.
+- **Fix**: `extract.ts` now stores fallback in `background_color`; `parse_ir_style` demotes any `background_gradient` that's missing the `gradient(` substring (commit `91a67ac31`).
+- **Lesson**: extractor fallbacks must produce data that survives the codegen's parser. If a fallback writes to a field that gets routed through a stricter parser downstream, the value never paints.
+
+#### 4. Frame strokes dropped by codegen
+
+- **Symptom**: vertical / horizontal separator lines between Figma columns (encoded as `border: 1px solid rgba(...)` on flex frames) don't appear.
+- **Diagnostic**: grep the IR for nodes with `border_color` + `border_width > 0` — if their generated JS lacks `setBorder(...)`, the codegen branch never emitted it.
+- **Root cause**: codegen had no `setBorder` emission for the container path.
+- **Fix**: emit `setBorder(id, color, width, radius)` whenever `node.style.border_color` + `border_width > 0` exist (commit `80a3472f1`). Bridge's `parseColor` already accepts `rgba(...)`.
+- **Lesson**: codegen branches must emit EVERY visual style the IR carries. When adding a new style field to `IRStyle`, add a codegen test case that asserts the bridge call lands.
+
+#### 5. Zero-width-axis vectors invisible (Figma 1px lines)
+
+- **Symptom**: thin separator lines and chart grid lines vanish.
+- **Diagnostic**: any IR node with `type: "image"` and `width ≈ 0` (e.g. 5e-06) or `height ≈ 0`, plus a non-trivial `border_width`.
+- **Root cause**: Figma stores 1px strokes as VECTOR nodes with one degenerate axis + a stroke. The captured PNG is a 1-pixel-wide image; downstream renderer paints essentially nothing.
+- **Fix**: `parse_ir_node` "stroke promotion" pass — when an axis is < 0.5 and `border_width >= 0.5`, snap the axis to `max(stroke_weight, 1)` and demote `type: image` → `frame` with `background_color = border_color` (commits `f4ea1d067`, `496b738b8`).
+- **Lesson**: don't trust Figma's bounding-box width/height for stroke geometry. Always re-derive from the stroke weight.
+- **Threshold detail**: Figma "1px" strokes often land as 0.97px due to fractional raster alignment. Use 0.5 as the floor, not 1.0.
+
+#### 6. Child fills don't inherit rounded parent's clip
+
+- **Symptom**: a gradient panel that sits inside a rounded-corner parent paints with SHARP corners (the gradient rect is rectangular even though its container is rounded).
+- **Diagnostic**: pair-grep for a frame with `border-radius > 0` and a child positioned at (0,0) matching the parent's size — if the child has `border-radius: 0`, it'll paint rectangular.
+- **Root cause**: Figma relies on the parent's `overflow: clip` + radius to round the children visually. Pulp's renderer doesn't clip children to the parent's border-radius.
+- **Fix**: in `parse_ir_node`, after parsing children, propagate the parent's `border_radius` to any child that fills the parent at origin (commit `bf5e2d621`).
+- **Lesson**: any time Figma uses a CSS spec that relies on PARENT geometry (overflow:clip, position:sticky, background-attachment:fixed), our IR has to either reproduce the clip or pre-bake it onto the child.
+
+#### 7. Shadow-zone sibling overlaps swallow the shadow
+
+- **Symptom**: a panel with a downward drop shadow looks like a hard-edge transition into the sibling below — no visible fade.
+- **Diagnostic**: sample a vertical pixel strip from panel-bottom past the next sibling's top; if there's no transitional gradient, the shadow is being painted then covered.
+- **Root cause**: Pulp draws box-shadow in the same z-layer as the View. A later sibling positioned at `panel.bottom + small_gap` paints over the shadow.
+- **Fix**: in `parse_ir_node`, post-children pass that detects `Fi` with a downward shadow + `Fi+1` sitting in the shadow zone; snaps `Fi+1` UP but leaves the shadow's `oy` worth of room so the shadow renders into the partial opening (commits `f4ea1d067`, `7d305ec2a`).
+- **Lesson**: layout rules that "preserve visual continuity" need to model both the geometric box AND the effect extent. Box-shadow `oy + blur/2` is the canonical effect extent.
+
+#### 8. Uppercase-transformed labels overflow their min-width
+
+- **Symptom**: header text like "FILTER & EQ" overflows into the next sibling, producing "FILTER & EQHOLLOW PUNCH" with no space.
+- **Diagnostic**: an uppercase label whose `style.width` (Figma's reported source-text width) is meaningfully less than the rendered uppercase glyph width.
+- **Root cause**: Figma stores `Label.width` as the SOURCE-text rendered width but applies `text-transform: uppercase` at render time. Uppercase Latin runs ~15-20% wider.
+- **Fix**: when emitting `min_width` for an uppercase-transformed label, multiply by 1.20 (commit `ae0d955ed`).
+- **Lesson**: any IR width that was measured pre-transform must be inflated if a transform widens the glyphs. Same logic applies to `font-feature-settings`, `font-variant: small-caps`, `letter-spacing`.
+
+#### 9. Cap-height vs math-center alignment
+
+- **Symptom**: a colored-dot indicator next to a label glyph reads as "below the text", not centered with it. Visually the dot looks dropped.
+- **Diagnostic**: pixel-sample the dot's center y and the text glyph optical center y; if they differ by ~font_size × 0.15, this is the bug.
+- **Root cause**: Yoga's `align-items: center` aligns box-centers, but the line-box reserves descender space the uppercase glyphs don't use, so the GLYPH optical center sits ~font_size × 0.15 above the box-center. The dot, being math-centered, sits visually low.
+- **Fix**: when a row has `align_items: center` + an uppercase text child + a small image child (`min(w,h) ≤ font_size`), emit `setFlex(image, 'margin_top', -round(font_size * 0.30))`. Factor of 0.30 = 2 × 0.15 because Yoga's flex centering shifts position by margin_top/2 (commit `53decc5e1`).
+- **Lesson**: Yoga's `align-items` ignores baseline information for non-baseline children. When mixing icons with caps text, compensate at codegen.
+- **Engine dependency**: Pulp's `yoga_layout.cpp` previously dropped negative margins (gated on `v > 0`). Fixed in the same commit by routing `Dimension::px` values through Yoga even when negative — CSS-spec compliance.
+
+#### 10. Knob PNG natural-size vs layout box
+
+- **Symptom**: a Figma silver-knob sprite renders squished to its layout box because the PNG has visible shadow bleed past the bounding box.
+- **Diagnostic**: compare PNG pixel dims to `style.width × 2` (since plugin exports at 2× scale). If PNG is significantly larger, it has bleed.
+- **Root cause**: PNG was being fit (via `draw_image_from_file_rect`) into the layout box, distorting aspect and shrinking the visible knob body.
+- **Fix**: in `Knob::paint`, draw the PNG at its natural logical size (`pixel_size / 2`) centered on the layout box, allowing overflow. Generalize: when `pulp-import-design` resolves an asset that exceeds the layout box by ≥1.5× on either axis, emit `setObjectFit('none')` so `ImageView` honours natural pixel size (commits in the bf5e2d621 round + the asset_bleed flagging path).
+- **Lesson**: PNG-encoded designs leak bleed past their bounding boxes. The fix isn't "force-fit", it's "honour natural size with overflow", because the bleed is the designer's intent.
+
+#### 11. Negative margins silently dropped by Yoga wrapper
+
+- **Symptom**: an emitted `setFlex(id, 'margin_top', -2)` has zero effect on layout.
+- **Diagnostic**: trace the negative value through `yoga_layout.cpp::apply_margin` — the legacy float path gates on `v > 0`.
+- **Root cause**: Pulp's wrapper over Yoga dropped negative margins. CSS spec supports them.
+- **Fix**: route `Dimension::px` values through to Yoga even when negative (commit `53decc5e1`).
+- **Lesson**: any time the importer emits a CSS-spec value that doesn't visually land, check the bridge wrapper. Pulp's wrappers over Yoga / Skia sometimes have legacy "only positive" / "only non-zero" gates that pre-date CSS-spec compliance.
+
+#### 12. Shadow render-bounds vs bounding-bounds mismatch
+
+- **Symptom**: a sibling that should butt against the panel bottom shows a visible 5px canvas-color gap.
+- **Diagnostic**: walk absolute-positioned siblings within a parent; if `child.top - prev_sibling.bottom > 0` and the prev sibling has a downward shadow, this is the case.
+- **Root cause**: Figma designs place the next sibling at `panel.bottom + 5px` expecting the shadow's blur (typically 18px) to fill that gap. Pulp's shadow ends precisely at the sibling, leaving canvas color showing.
+- **Fix**: the shadow-snap rule (above, #7). Preserves the shadow's `oy` while closing the geometric gap.
+- **Lesson**: visual "gaps" the designer drew often rely on effect extents the importer ignores. When designing layout rules, consider effect extents alongside geometric bounds.
+
+### Subtleties you should catch BEFORE the user does
+
+When importing a new Figma file, run these checks proactively:
+
+1. **For every node with `background_gradient`**: assert it contains `gradient(` — bare hex / rgba values mean the extractor fell back from an unsupported gradient type and the codegen will swallow it. (Pattern #3.)
+2. **For every uppercase-transformed label in a flex row**: confirm an adjacent image with `min(w,h) ≤ font_size` has a `margin_top: -N` emission. (Pattern #9.)
+3. **For every frame with `border_radius > 0`**: confirm filling children inherit the radius. (Pattern #6.)
+4. **For every frame with a downward `box_shadow`**: confirm the next absolute-positioned sibling sits within the shadow's effective bottom (`top + oy + blur/2`). (Pattern #7.)
+5. **For every image node with `width < 0.5` or `height < 0.5`**: confirm `border_width >= 0.5` got promoted to a visible-axis rect. Greppr generated JS for `createImage` with degenerate `setFlex('width', tiny)` — that's a bug surface. (Pattern #5.)
+6. **For every container with `setCornerRadius('All', N)`**: pixel-sample a corner; ensure the bridge actually applied the radius. (Pattern #1.)
+7. **For every captured asset PNG**: compare pixel size to layout box. If ratio ≥ 1.5×, the asset has bleed and needs natural-size rendering (`setObjectFit('none')` for ImageView, sprite-strip natural-size for Knob). (Pattern #10.)
+
+### Tooling that should run on every Figma import
+
+These three pieces, all checked in this branch, are the standard inner-loop for visual-fidelity work. Use them; don't eyeball.
+
+1. `tools/scripts/figma_import_diff.py <ref.png> <render.png>` — side-by-side composite, pixel-diff heatmap, per-region delta scores. Top-K offending regions ranked by mean delta. Use after EVERY codegen change.
+2. `tools/scripts/render-figma-import.sh <ui.js> <out.png>` — auto-reads the `<ui.js>.meta.json` sidecar (canvas size from root frame) and renders with the right `--width / --height`. No more remembering numbers.
+3. `pulp-import-design ... --output <ui.js>` auto-emits `<ui.js>.meta.json` alongside. Has `{ canvas: { width, height }, source }`. Consume it; don't hardcode.
+
+### Native vector knob (silver) — alternative to PNG sprites
+
+When the user wants crisp interactive knobs without PNG bleed artefacts: `pulp import-design --knob-style=silver`. Replaces `setKnobSpriteStrip` emissions with `setWidgetStyle('silver')`. The native-vector path uses `WidgetRenderStyle::silver` — a Canvas2D radial-gradient chrome body with inner bezel ring, specular arc, and indicator notch. Works on CPU raster (pulp-screenshot) AND GPU Graphite. No PNG bleed, no Skia raster→texture upload, crisp at any size.
+
+When to choose sprite-strip: the user wants pixel-exact Figma reproduction or has a multi-frame rotational filmstrip from the designer.
+
+When to choose silver: the user wants crisp scaling, interactivity, and doesn't need pixel-exact-Figma fidelity. Default when in doubt.
