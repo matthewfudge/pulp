@@ -11,7 +11,7 @@ import pathlib
 from typing import Any
 
 from frontend_ir_proofs import apply_native_proofs, load_native_proof
-from frontend_ir_sources import WATCH_INPUT_KEYS, artifact_from_input, metric_key, resource_id_key, source_input
+from frontend_ir_sources import WATCH_INPUT_KEYS, artifacts_from_input, metric_key, resource_id_key, source_input
 from frontend_ir_tokens import resolve_source_token_refs
 from frontend_ir_validation import (
     FALLBACK_ROUTES,
@@ -167,6 +167,10 @@ def count_map(source_audit: dict[str, Any], rows: list[Any] | None = None) -> di
             "css_values_valid",
             "css_values_invalid",
             "svg_vector_nodes",
+            "stylesheet_links",
+            "local_stylesheet_resources",
+            "image_assets",
+            "local_image_resources",
             "native_candidate_components",
             "standard_source_component_instances",
             "expanded_native_candidate_instances",
@@ -382,17 +386,19 @@ def mime_for_path(path: str) -> str | None:
     return mime
 
 
-def input_resource(key: str, value: Any, rows: list[Any], repo_root: pathlib.Path,
-                   requested_by: str) -> dict[str, Any] | None:
-    artifact = artifact_from_input(value)
+def input_resource(key: str, artifact: dict[str, str], rows: list[Any], repo_root: pathlib.Path,
+                   requested_by: str, index: int | None = None) -> dict[str, Any] | None:
     path_value = artifact.get("path", "")
     sha = artifact.get("sha256", "")
 
     if not path_value:
         return None
 
+    resource_id = f"input.{resource_id_key(key)}"
+    if index is not None:
+        resource_id = f"{resource_id}.{index}"
     resource: dict[str, Any] = {
-        "id": f"input.{resource_id_key(key)}",
+        "id": resource_id,
         "original_uri": path_value,
         "resolved_uri": path_value,
         "requested_by": [requested_by],
@@ -422,9 +428,18 @@ def resources_from_manifest(route_manifest: dict[str, Any], rows: list[Any], rep
     requested_by = str(route_manifest.get("fixture") or route_manifest.get("schema") or "route_manifest")
     resources = []
     for key, value in inputs.items():
-        resource = input_resource(key, value, rows, repo_root, requested_by)
-        if resource is not None:
-            resources.append(resource)
+        artifacts = artifacts_from_input(value)
+        for index, artifact in enumerate(artifacts):
+            resource = input_resource(
+                key,
+                artifact,
+                rows,
+                repo_root,
+                requested_by,
+                index if len(artifacts) > 1 else None,
+            )
+            if resource is not None:
+                resources.append(resource)
     return resources
 
 

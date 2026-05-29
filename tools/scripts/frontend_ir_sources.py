@@ -9,7 +9,17 @@ from typing import Any
 
 
 SOURCE_INPUT_KEYS = ("sourceJsx", "sourceHtml", "sourceFile")
-WATCH_INPUT_KEYS = frozenset((*SOURCE_INPUT_KEYS, "bundle", "sourceAudit"))
+WATCH_INPUT_KEYS = frozenset((
+    *SOURCE_INPUT_KEYS,
+    "assets",
+    "bundle",
+    "fonts",
+    "sourceAudit",
+    "sourceCss",
+    "styleSheets",
+    "tokens",
+    "tweaks",
+))
 
 
 def metric_key(value: str) -> str:
@@ -33,6 +43,18 @@ def artifact_from_input(value: Any) -> dict[str, str]:
     if isinstance(value, str) and value and ("/" in value or "." in pathlib.Path(value).name):
         artifact["path"] = value
     return artifact
+
+
+def artifacts_from_input(value: Any) -> list[dict[str, str]]:
+    if isinstance(value, list):
+        artifacts: list[dict[str, str]] = []
+        for item in value:
+            artifact = artifact_from_input(item)
+            if artifact.get("path"):
+                artifacts.append(artifact)
+        return artifacts
+    artifact = artifact_from_input(value)
+    return [artifact] if artifact.get("path") else []
 
 
 def source_input(route_manifest: dict[str, Any]) -> dict[str, str]:
