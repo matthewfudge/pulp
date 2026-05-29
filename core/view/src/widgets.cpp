@@ -402,15 +402,18 @@ void Knob::paint(canvas::Canvas& canvas) {
         canvas.fill_circle(cx, cy, full_r);
 
         // 3. Chrome body — two-circle radial gradient from light source
-        //    at the upper-left to mid-tone toward lower-right.
-        canvas::Color light = canvas::Color::rgba(0.97f, 0.98f, 0.99f, 1.0f);
-        canvas::Color mid   = canvas::Color::rgba(0.82f, 0.84f, 0.87f, 1.0f);
-        canvas::Color dim   = canvas::Color::rgba(0.55f, 0.58f, 0.63f, 1.0f);
+        //    at the upper-left to mid-tone toward lower-right. Palette
+        //    tuned to match the Figma reference: highlight ~RGB 200, mid
+        //    body ~150, shadow side ~95. Without the darker mid-body the
+        //    knob looks washed-out and the indicator loses contrast.
+        canvas::Color light = canvas::Color::rgba(0.82f, 0.84f, 0.88f, 1.0f);
+        canvas::Color mid   = canvas::Color::rgba(0.62f, 0.65f, 0.70f, 1.0f);
+        canvas::Color dim   = canvas::Color::rgba(0.40f, 0.43f, 0.49f, 1.0f);
         canvas::Color grads[3] = { light, mid, dim };
-        float stops[3] = { 0.0f, 0.55f, 1.0f };
+        float stops[3] = { 0.0f, 0.50f, 1.0f };
         canvas.set_fill_gradient_radial_two_circles(
-            cx - body_r * 0.35f, cy - body_r * 0.40f, body_r * 0.05f, // bright pinprick top-left
-            cx + body_r * 0.20f, cy + body_r * 0.30f, body_r * 1.25f, // dim envelope bottom-right
+            cx - body_r * 0.30f, cy - body_r * 0.40f, body_r * 0.05f,
+            cx + body_r * 0.25f, cy + body_r * 0.35f, body_r * 1.20f,
             grads, stops, 3);
         canvas.fill_circle(cx, cy, body_r);
         canvas.clear_fill_gradient();
