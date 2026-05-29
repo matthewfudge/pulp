@@ -467,6 +467,21 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
             // Clear built-in label — use separate Yoga-positioned labels for exact placement
             ss << ind << "setLabel('" << id << "', ' ');\n";
             ss << ind << "setValue('" << id << "', " << node.audio_default << ");\n";
+            // Track A3 — attach a designer-supplied sprite-strip skin when the
+            // figma-plugin CLI lane (or anyone else) pre-resolved an asset_path
+            // onto this knob node. Frame count defaults to 1 (static body);
+            // a multi-frame strip lets the indicator rotate by value.
+            auto skin_it = node.attributes.find("asset_path");
+            if (skin_it != node.attributes.end() && !skin_it->second.empty()) {
+                int frames = 1;
+                auto fc_it = node.attributes.find("sprite_strip_frame_count");
+                if (fc_it != node.attributes.end()) {
+                    try { frames = std::max(1, std::stoi(fc_it->second)); } catch (...) {}
+                }
+                ss << ind << "setKnobSpriteStrip('" << id << "', '"
+                   << js_single_quote_escape(skin_it->second) << "', "
+                   << frames << ", 'vertical');\n";
+            }
             emit_style(id);
             // Per-knob stroke color from child ellipse (used by minimal paint path)
             if (!stroke_color.empty())

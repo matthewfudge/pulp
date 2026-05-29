@@ -189,6 +189,32 @@ async function walk(
   // INSTANCE: capture component metadata so Phase 3 can recognize Pulp library widgets.
   if (node.type === "INSTANCE") {
     await captureInstanceMetadata(node as InstanceNode, ex, ctx);
+
+    // Track A2 — audio-widget instances export as a single PNG so the
+    // import lane can attach them as a sprite-strip skin via the A1
+    // setKnobSpriteStrip bridge. The native widget keeps full
+    // interactivity; the PNG provides Figma-quality visual fidelity.
+    // Detection is conservative (name-based) and ONLY fires for INSTANCE
+    // nodes whose main-component name maps to a known audio-widget kind.
+    // Non-audio instances continue to walk their child structure as
+    // normal.
+    const widgetKind = audioWidgetKindFromName(
+      ex.main_component_name ?? node.name,
+    );
+    if (widgetKind) {
+      const res = await ctx.assets.captureExportedNode(node, "PNG");
+      if ("assetId" in res) {
+        ex.asset_ref = res.assetId;
+        ex.library_widget_kind = widgetKind;
+        // Drop children so the importer doesn't double-render the
+        // body's vector layers underneath the skinned widget.
+        ex.children = [];
+        return ex;
+      } else {
+        pushDiag(ctx, "info", "widget-export-failed", "capture_partial",
+          `Audio-widget instance ${node.name}: ${res.error}`);
+      }
+    }
   }
 
   // Resolve any pending image fills now that we're async.
@@ -591,6 +617,20 @@ function pushDiag(
 
 function pathOf(ctx: WalkCtx): string {
   return ctx.pathStack.join("");
+}
+
+/// Detect audio widget kind from an instance's main-component name. Used
+/// to flatten widget instances to a PNG skin (Track A2). Patterns match
+/// Pulp's IR-side detect_audio_widget() (core/view/src/design_import.cpp).
+function audioWidgetKindFromName(name: string): import("./extract-model").AudioWidgetKind | undefined {
+  const lower = name.toLowerCase();
+  if (lower.includes("knob") || lower.includes("dial")) return "knob";
+  if (lower.includes("fader") || lower.includes("slider")) return "fader";
+  if (lower.includes("meter") || lower.includes("level") || lower.includes("vu")) return "meter";
+  if (lower.includes("xypad") || lower.includes("xy_pad") || lower.includes("xy-pad")) return "xy_pad";
+  if (lower.includes("waveform")) return "waveform";
+  if (lower.includes("spectrum")) return "spectrum";
+  return undefined;
 }
 
 /// Heuristic: returns true if the node and all its recursive descendants are
