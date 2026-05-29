@@ -58,6 +58,26 @@ def sample_report() -> dict:
                 "transforms": [],
             },
         ],
+        "tokens": {
+            "colors.accent": {
+                "type": "color",
+                "value": "#fff",
+                "resolved_value": "#fff",
+            },
+            "colors.missing": {
+                "type": "reference",
+                "value": "colors.missing",
+            },
+        },
+        "tweaks": [
+            {
+                "node_id": "html.0.button",
+                "property": "tokens.color.accent",
+                "value": "#ff6600",
+                "invalidates": ["style"],
+                "classification_preserved": True,
+            }
+        ],
         "nodes": [
             {
                 "id": "html.0.button",
@@ -136,8 +156,16 @@ class FrontendIrInspectorTests(unittest.TestCase):
         self.assertEqual(report["schema"], "pulp-frontend-ir-inspector-v0")
         self.assertEqual(report["summary"]["nodes"], 1)
         self.assertEqual(report["summary"]["resources"], 2)
+        self.assertEqual(report["summary"]["tokens"], 2)
+        self.assertEqual(report["summary"]["tweaks"], 1)
         self.assertEqual(report["summary"]["watchable_resources"], 2)
         self.assertEqual(report["summary"]["routes"]["native_html"], 1)
+        self.assertEqual(report["tokens"]["resolved"], 1)
+        self.assertEqual(report["tokens"]["unresolved"], 1)
+        self.assertEqual(report["tokens"]["types"], {"color": 1, "reference": 1})
+        self.assertEqual(report["tweaks"]["classification_preserved"], 1)
+        self.assertEqual(report["tweaks"]["invalidations"], {"style": 1})
+        self.assertEqual(report["tweaks"]["nodes"], ["html.0.button"])
         self.assertEqual(report["route_resource_usage"]["native_html"], ["input.source_html", "input.style_sheets"])
         self.assertEqual(report["resource_log"][1]["id"], "input.style_sheets")
         self.assertEqual(report["nodes"][0]["route"]["chosen_route"], "native_html")
@@ -148,6 +176,7 @@ class FrontendIrInspectorTests(unittest.TestCase):
         self.assertEqual(report["nodes"][0]["state"]["parameters"], 1)
         self.assertEqual(report["nodes"][0]["resources"]["explicit"], ["input.style_sheets"])
         self.assertEqual(report["nodes"][0]["resources"]["requested_by_node"], ["input.style_sheets"])
+        self.assertEqual(report["nodes"][0]["tweaks"][0]["property"], "tokens.color.accent")
         self.assertEqual(report["validation"]["gates"][0]["verdict"], "ready")
         self.assertEqual(report["validation"]["session_diff"]["summary"]["recommended_reload"], "style_resource_reload")
 

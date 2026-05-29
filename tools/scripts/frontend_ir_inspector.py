@@ -179,9 +179,73 @@ def state_summary(state: dict[str, Any]) -> dict[str, int]:
     }
 
 
+def token_summary(report: dict[str, Any]) -> dict[str, Any]:
+    tokens = as_dict(report.get("tokens"))
+    type_counts: dict[str, int] = {}
+    resolved = 0
+    for token in tokens.values():
+        if not isinstance(token, dict):
+            continue
+        token_type = token.get("type")
+        if isinstance(token_type, str) and token_type:
+            type_counts[token_type] = type_counts.get(token_type, 0) + 1
+        if "resolved_value" in token:
+            resolved += 1
+    return {
+        "total": len(tokens),
+        "resolved": resolved,
+        "unresolved": len(tokens) - resolved,
+        "types": dict(sorted(type_counts.items())),
+    }
+
+
+def tweak_cards_for_node(tweaks: list[Any], node_id: str) -> list[dict[str, Any]]:
+    cards = []
+    for tweak in tweaks:
+        if not isinstance(tweak, dict) or tweak.get("node_id") != node_id:
+            continue
+        cards.append({
+            "property": tweak.get("property", ""),
+            "value": tweak.get("value"),
+            "invalidates": as_list(tweak.get("invalidates")),
+            "classification_preserved": tweak.get("classification_preserved"),
+        })
+    return sorted(cards, key=lambda item: str(item.get("property", "")))
+
+
+def tweak_summary(report: dict[str, Any]) -> dict[str, Any]:
+    tweaks = as_list(report.get("tweaks"))
+    invalidation_counts: dict[str, int] = {}
+    node_ids = set()
+    preserved = 0
+    route_or_source_invalidating = 0
+    for tweak in tweaks:
+        if not isinstance(tweak, dict):
+            continue
+        node_id = tweak.get("node_id")
+        if isinstance(node_id, str) and node_id:
+            node_ids.add(node_id)
+        if tweak.get("classification_preserved") is True:
+            preserved += 1
+        invalidates = as_list(tweak.get("invalidates"))
+        if any(scope in {"source", "route"} for scope in invalidates):
+            route_or_source_invalidating += 1
+        for scope in invalidates:
+            if isinstance(scope, str) and scope:
+                invalidation_counts[scope] = invalidation_counts.get(scope, 0) + 1
+    return {
+        "total": len(tweaks),
+        "classification_preserved": preserved,
+        "source_or_route_invalidating": route_or_source_invalidating,
+        "invalidations": dict(sorted(invalidation_counts.items())),
+        "nodes": sorted(node_ids),
+    }
+
+
 def node_cards(report: dict[str, Any]) -> list[dict[str, Any]]:
     routes = route_by_node(report)
     resources = as_list(report.get("resources"))
+    tweaks = as_list(report.get("tweaks"))
     cards = []
     for node in as_list(report.get("nodes")):
         if not isinstance(node, dict):
@@ -207,6 +271,7 @@ def node_cards(report: dict[str, Any]) -> list[dict[str, Any]]:
                 "explicit": as_list(node.get("resources")),
                 "requested_by_node": resources_requested_by_node(resources, str(node_id), source_span),
             },
+            "tweaks": tweak_cards_for_node(tweaks, str(node_id)),
         }
         cards.append(card)
     return sorted(cards, key=lambda item: str(item.get("id", "")))
@@ -247,6 +312,8 @@ def build_inspector_report(report: dict[str, Any], gates: list[dict[str, Any]] |
     cards = node_cards(report)
     root = repo_root or pathlib.Path.cwd()
     source = as_dict(report.get("source"))
+    tokens = token_summary(report)
+    tweaks = tweak_summary(report)
     return {
         "schema": "pulp-frontend-ir-inspector-v0",
         "fixture_id": str(report.get("fixture_id", "")),
@@ -263,6 +330,8 @@ def build_inspector_report(report: dict[str, Any], gates: list[dict[str, Any]] |
         "summary": {
             "nodes": len(cards),
             "resources": len(resources),
+            "tokens": tokens["total"],
+            "tweaks": tweaks["total"],
             "watchable_resources": sum(1 for resource in resources if isinstance(resource, dict) and resource.get("watch") is True),
             "routes": count_routes(routes),
             "js_required_routes": sum(
@@ -274,6 +343,8 @@ def build_inspector_report(report: dict[str, Any], gates: list[dict[str, Any]] |
                 if isinstance(route, dict) and isinstance(route.get("fallback_reason"), str) and route["fallback_reason"]
             ),
         },
+        "tokens": tokens,
+        "tweaks": tweaks,
         "route_resource_usage": route_resource_usage(resources),
         "resource_log": resource_log(report),
         "nodes": cards,
