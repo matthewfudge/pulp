@@ -865,6 +865,43 @@ git worktree add /tmp/pulp-audit origin/main
 - AI tools are collaborators, not autopilots. Review all generated code.
 - Tests validate AI output. Don't trust, verify.
 
+### Local-dev audio etiquette (interim — see issue #3173)
+
+Several Pulp dev workflows can produce host audio out of the user's
+speakers without warning: `xcrun simctl launch` of an iOS Sim app that
+opens a virtual coreaudio device, `auval` validating an AU plug-in,
+loading any AUv3/VST3/CLAP into a host (Logic, GarageBand, REAPER,
+AUM, Cubasis) for scan or validation, or any test that exercises the
+audio render path with non-zero gain on an unmuted bus. If the user
+is listening to music, on a call, near sleeping people, or just away
+from the desk, mystery audio is at minimum confusing and at worst
+embarrassing or harmful.
+
+Until issue [#3173](https://github.com/danielraffel/pulp/issues/3173)
+ships a real solution (announce-before / bounded-duration / muting /
+configurable signature / `audio_consent` knob), the interim contract
+for every agent (Claude Code, Codex, human-driven scripts) is:
+
+1. **Announce before launching.** In the user-facing message that
+   dispatches the work, include a one-liner naming the source and an
+   expected duration: "heads up — about to launch the iOS Sim with
+   the demo plugin; audio may be active for ~30s while the cube
+   renders." Same for `auval`, host launches, etc.
+2. **Cap the duration.** Pre-PR / pre-merge verification steps that
+   open an audio device should have a hard wall-clock cap. Don't let
+   a verify wait hang an open coreaudio session for hours; terminate
+   the launch after the relevant marker fires (or after ~90s if it
+   doesn't).
+3. **Tear down promptly.** When verification is done, terminate the
+   launched app and shut down the Sim (`xcrun simctl terminate ...`
+   + `xcrun simctl shutdown ...`) rather than leaving it open. Same
+   for `auval` host processes, REAPER / Logic test instances.
+
+When [#3173](https://github.com/danielraffel/pulp/issues/3173) lands a
+real solution, **remove this section** and replace it with a pointer
+to the new mechanism. This contract exists only because the proper
+fix is still on the issue tracker.
+
 ---
 
 ## Shared Agent Skills
