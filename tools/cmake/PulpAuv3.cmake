@@ -450,9 +450,20 @@ function(_pulp_add_auv3_ios target name bundle_id version manufacturer manufactu
     endif()
 
     # iOS-D.3b Slice 3: Embed three.iife.js + web-compat-three-shim.js
-    # into the .appex Resources/threejs/ so the JSC engine can load
+    # into the .appex `threejs/` subdirectory so the JSC engine can load
     # Three.js via plain `evaluate()` at runtime (iOS public JSC API
     # has no ESM module loader — see slice 2 / Codex pass-1 finding).
+    #
+    # iOS bundle layout is FLAT: `[NSBundle resourcePath]` IS the
+    # bundle root, NOT `<appex>/Resources/` (that is macOS-only).
+    # The matching loader in `core/view/src/threejs_resources_apple.mm`
+    # uses `[bundle pathForResource:@"three.iife" ofType:@"js"
+    #                inDirectory:@"threejs"]`, which resolves to
+    # `<resourcePath>/threejs/three.iife.js` = `<appex>/threejs/...`.
+    # Slice 3 originally wrote to `<appex>/Resources/threejs/` and
+    # NSBundle silently failed to locate the file at runtime (post-merge
+    # review on PR #3156). Writing under `<appex>/threejs/` directly
+    # aligns the build-time layout with the runtime lookup.
     #
     # The bundler script runs at build time, reading the pinned
     # three.webgpu.js (ESM) and emitting a self-contained IIFE wrapper.
@@ -464,17 +475,17 @@ function(_pulp_add_auv3_ios target name bundle_id version manufacturer manufactu
         find_program(_PULP_NODE_EXE NAMES node nodejs)
         if(_PULP_NODE_EXE)
             set(_three_in  "${threejs_SOURCE_DIR}/build/three.webgpu.js")
-            set(_three_iife "$<TARGET_BUNDLE_DIR:${target}_AUv3>/Resources/threejs/three.iife.js")
+            set(_three_iife "$<TARGET_BUNDLE_DIR:${target}_AUv3>/threejs/three.iife.js")
             set(_three_shim_src "${CMAKE_SOURCE_DIR}/core/view/js/web-compat-three-shim.js")
-            set(_three_shim_out "$<TARGET_BUNDLE_DIR:${target}_AUv3>/Resources/threejs/web-compat-three-shim.js")
+            set(_three_shim_out "$<TARGET_BUNDLE_DIR:${target}_AUv3>/threejs/web-compat-three-shim.js")
             set(_bundler_script "${CMAKE_SOURCE_DIR}/tools/scripts/bundle_threejs_for_jsc.mjs")
             add_custom_command(TARGET ${target}_AUv3 POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E make_directory
-                        "$<TARGET_BUNDLE_DIR:${target}_AUv3>/Resources/threejs"
+                        "$<TARGET_BUNDLE_DIR:${target}_AUv3>/threejs"
                 COMMAND ${_PULP_NODE_EXE} ${_bundler_script}
                         --input "${_three_in}" --output "${_three_iife}"
                 COMMAND ${CMAKE_COMMAND} -E copy "${_three_shim_src}" "${_three_shim_out}"
-                COMMENT "iOS-D.3b: bundle Three.js IIFE + shim into ${target}.appex Resources/threejs"
+                COMMENT "iOS-D.3b: bundle Three.js IIFE + shim into ${target}.appex/threejs/"
                 VERBATIM
             )
         else()
