@@ -42,6 +42,14 @@ struct FaderSkin {
     bool has_fill = false;
     bool has_thumb = false;
     bool has_thumb_border = false;
+    // Horizontal extents recovered from the captured art, in ASSET PIXELS
+    // (the importer divides by the asset scale to get logical px). The track
+    // is the thin low-saturation central column at a non-thumb row; the thumb
+    // is the widest opaque row (the silver slab). pulp #3191 width fix.
+    float track_width_px = 0.0f;
+    float thumb_width_px = 0.0f;
+    bool has_track_width = false;
+    bool has_thumb_width = false;
     bool any() const { return has_track || has_fill || has_thumb || has_thumb_border; }
 };
 
@@ -52,6 +60,12 @@ struct MeterSkin {
     std::vector<canvas::Color> gradient;  // low → high
     canvas::Color background{};
     bool has_background = false;
+    // Horizontal extent of the coloured bar, in ASSET PIXELS (the importer
+    // divides by the asset scale to get logical px). Recovered from the bar's
+    // own vertical region so faint label glyphs below it don't widen it.
+    // pulp #3191 width fix.
+    float bar_width_px = 0.0f;
+    bool has_bar_width = false;
     bool valid() const { return gradient.size() >= 2; }
 };
 

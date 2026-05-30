@@ -216,6 +216,43 @@ mind when touching this:
 - **This is a generalizable importer rule**, not a per-fixture patch: it reads
   the figma-plugin data and produces the contract for ANY recognized widget.
 
+### Skinned fader/meter WIDTH derivation (pulp #3191)
+
+Recognized faders/meters must render their track/fill/bar at the captured art's
+NARROW inset width, not the full node box. The sampler in
+`core/view/src/widget_skin_derive.cpp` recovers horizontal extents from the
+captured PNG pixels (`row_art_bounds` scans opaque pixels OUTWARD from the centre
+column `cx`, so disjoint label glyphs on the same row never widen the result):
+
+- **Meter:** `derive_meter_skin` reports `bar_width_px` = median opaque row width
+  inside the bar's OWN vertical region `[top, bottom)` (found via `find_art_region`
+  on `cx`). That excludes the label text below the bar.
+- **Fader:** `derive_fader_skin` reports `thumb_width_px` (widest opaque row = the
+  silver slab) and `track_width_px` (median of the NARROW rows ≤ ~40% of the
+  widest = the thin track/fill column).
+
+Gotchas learned wiring this:
+- The **widest row in the whole asset is usually the label text**, not the thumb.
+  `find_art_region`/`cx` scoping is what keeps the thumb measurement honest — do
+  not measure the widest row over the entire image.
+- `pulp_import_design.cpp` divides art px by `asset_scale = img.width /
+  node_box_width_px` (figma-plugin exports at 2×, but DERIVE it, don't hardcode
+  2). It stamps `shape_width` = thumb/bar width (→ widget width) and
+  `skin_track_width` (fader only). The column `min_width` keeps the box width so
+  the narrow widget centres.
+- Render path: meter codegen reads `shape_width` → widget width (already wired);
+  fader needs BOTH — `shape_width` → widget/thumb width AND `setFaderTrackWidth`
+  → `Fader::set_skin_track_width`, which makes `Fader::paint` draw the track at
+  exactly that thin centred width instead of `0.18 * box`.
+- **Verify by reference-diff, never by eyeball.** Measure visible-art width as a
+  % of the node box in BOTH the captured asset and the rendered PNG; target
+  within ~15%. For the smoke export the derived values were fader-track 5px
+  (5.2% box), fader-thumb 28px (29% box), meter-bar 18px (26% box), all matching
+  the reference within 3%.
+- Everything is derived from sampled pixels / node data — NO per-instance or
+  hardcoded pixel constants (repo rule: every visual importer fix must be a
+  generalizable rule reading the design data).
+
 The Phase 5/7/9 benchmark harness lives at `pulp-design-import-bench` and is driven
 by `tools/scripts/design_import_benchmark.py`. Run it under no-launch env
 (`PULP_DISABLE_PLUGIN_EDITOR=1 PULP_HEADLESS=1 PULP_TEST_MODE=1

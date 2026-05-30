@@ -303,6 +303,112 @@ TEST_CASE("derive_fader_skin recovers track / fill / thumb colours",
     REQUIRE(skin.fill_color.b > skin.fill_color.g);
 }
 
+TEST_CASE("derive_*_skin recovers horizontal art widths (pulp #3191 width fix)",
+          "[view][widget][issue-3191]") {
+    // The captured art's visible element is a NARROW inset region, not the full
+    // node box. The sampler must recover those horizontal extents from the
+    // pixels so the widget renders narrow + centred. We build synthetic images
+    // whose art is a known inset width and assert the recovered px.
+
+    SECTION("meter bar width from a narrow centred bar") {
+        // 40-wide box; the coloured bar is x=[14..25] (12 px) — a 30% inset,
+        // mirroring the captured meter's ~26%-of-box bar. Faint label glyphs
+        // below the bar must NOT widen the recovered bar width.
+        const int W = 40, H = 100;
+        std::vector<uint8_t> px(static_cast<size_t>(W) * H * 4, 0);
+        auto set = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+            uint8_t* p = px.data() + (static_cast<size_t>(y) * W + x) * 4;
+            p[0] = r; p[1] = g; p[2] = b; p[3] = 255;
+        };
+        // Bar: art rows 10..80, x in [14..25]; green→red bottom→top.
+        for (int y = 10; y < 80; ++y)
+            for (int x = 14; x <= 25; ++x) {
+                float t = static_cast<float>(y - 10) / (79 - 10);
+                set(x, y, static_cast<uint8_t>((1.0f - t) * 255),
+                          static_cast<uint8_t>(t * 255), 30);
+            }
+        // A WIDE faint label glyph row well below the bar (rows 88..90, full
+        // width). Must not be picked up as the bar (bar vertical region wins).
+        for (int y = 88; y < 91; ++y)
+            for (int x = 2; x < W - 2; ++x) set(x, y, 100, 100, 100);
+
+        SkinImage img{px.data(), W, H};
+        auto skin = derive_meter_skin(img, 5);
+        REQUIRE(skin.valid());
+        REQUIRE(skin.has_bar_width);
+        // Bar spans x=[14..25] → 12 px (not the 40-px box, not the wide label).
+        REQUIRE(skin.bar_width_px == Catch::Approx(12.0f).margin(1.0f));
+    }
+
+    SECTION("fader track width (thin) vs thumb width (wide slab)") {
+        // 60-wide box. Thin track x=[28..31] (4 px) over the whole art; a wide
+        // silver thumb slab x=[18..41] (24 px) at rows 40..48; a thin blue fill
+        // (same 4 px) in the lower half. The sampler must report the THUMB
+        // width as the widget width and the TRACK width as the thin line.
+        const int W = 60, H = 100;
+        std::vector<uint8_t> px(static_cast<size_t>(W) * H * 4, 0);
+        auto set = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+            uint8_t* p = px.data() + (static_cast<size_t>(y) * W + x) * 4;
+            p[0] = r; p[1] = g; p[2] = b; p[3] = 255;
+        };
+        for (int y = 10; y < 80; ++y) {
+            if (y >= 40 && y < 48) {
+                for (int x = 18; x <= 41; ++x) set(x, y, 234, 234, 240);  // thumb
+            } else if (y >= 55) {
+                for (int x = 28; x <= 31; ++x) set(x, y, 54, 119, 207);    // fill
+            } else {
+                for (int x = 28; x <= 31; ++x) set(x, y, 31, 33, 41);      // track
+            }
+        }
+        SkinImage img{px.data(), W, H};
+        auto skin = derive_fader_skin(img);
+        REQUIRE(skin.has_thumb_width);
+        REQUIRE(skin.has_track_width);
+        // Thumb slab spans x=[18..41] → 24 px.
+        REQUIRE(skin.thumb_width_px == Catch::Approx(24.0f).margin(1.0f));
+        // Track is the thin 4-px column, NOT the 24-px thumb or 60-px box.
+        REQUIRE(skin.track_width_px == Catch::Approx(4.0f).margin(1.0f));
+    }
+}
+
+TEST_CASE("Skinned Fader honours derived thin track width (pulp #3191)",
+          "[view][widget][issue-3191]") {
+    // A skinned fader whose widget box was sized to the captured thumb width
+    // must draw its TRACK at the derived thin width (centred), not a fraction
+    // of the widget box. We render into a RecordingCanvas and assert the track
+    // rect spans ~the derived width, far narrower than the box.
+    Fader fader;
+    // Box is deliberately WIDE (60 px) so the old skinned heuristic
+    // (0.18*box → ~11 px, clamped) would visibly differ from the derived
+    // 5-px track. Honour-the-derived-width is the behaviour under test.
+    fader.set_bounds({0, 0, 60, 200});
+    fader.set_value(0.5f);
+    fader.set_skin_track_color(Color::rgba8(31, 33, 41));
+    fader.set_skin_thumb_color(Color::rgba8(234, 234, 240));
+    fader.set_skin_track_width(5.0f);       // derived thin track
+    REQUIRE(fader.has_skin());
+    REQUIRE(fader.has_skin_track_width());
+
+    RecordingCanvas rc;
+    fader.paint(rc);
+    // Rect geometry is in f[0..3] = x, y, w, h. The track is the FIRST
+    // full-height rounded rect (drawn before fill + thumb). Assert it is the
+    // derived thin width (~5 px) and centred — NOT a fraction of the 28-px box
+    // (the old skinned heuristic would have drawn 28*0.18 ≈ 5 here by accident,
+    // so make the box wide enough that 0.18*box would clearly differ).
+    auto rects = commands_of(rc, DrawCommand::Type::fill_rounded_rect);
+    bool found_thin_track = false;
+    for (const auto& r : rects) {
+        if (r.f[3] >= 180.0f) {  // full-height → the track
+            found_thin_track = true;
+            REQUIRE(r.f[2] == Catch::Approx(5.0f).margin(1.5f));            // width
+            REQUIRE(r.f[0] == Catch::Approx((60.0f - 5.0f) * 0.5f).margin(1.5f));  // centred x
+            break;
+        }
+    }
+    REQUIRE(found_thin_track);
+}
+
 TEST_CASE("Unskinned Fader/Meter keep their default look (back-compat)",
           "[view][widget][issue-3191]") {
     // Fader: no skin → circular thumb + 2 rounded rects (unchanged).

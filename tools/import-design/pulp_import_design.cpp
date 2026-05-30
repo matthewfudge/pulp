@@ -1831,12 +1831,37 @@ int main(int argc, char* argv[]) {
                                     };
                                     pulp::view::SkinImage si{img.rgba.data(),
                                                              img.width, img.height};
+                                    // Asset scale = captured PNG width / the
+                                    // node's logical box width. The figma-plugin
+                                    // exports at 2× but we derive it from the
+                                    // data rather than assume, so a re-scaled
+                                    // export still maps art px → logical px.
+                                    // pulp #3191 width fix.
+                                    float node_w = n.style.width.value_or(0.0f);
+                                    float asset_scale =
+                                        (node_w > 0.0f && img.width > 0)
+                                            ? static_cast<float>(img.width) / node_w
+                                            : 2.0f;
+                                    if (asset_scale <= 0.0f) asset_scale = 2.0f;
+                                    auto fmt_px = [](float v) {
+                                        std::ostringstream os;
+                                        os << v;
+                                        return os.str();
+                                    };
                                     if (want_fader) {
                                         auto fs_skin = pulp::view::derive_fader_skin(si);
                                         if (fs_skin.has_track)        n.attributes["skin_track_color"]        = hex(fs_skin.track_color);
                                         if (fs_skin.has_fill)         n.attributes["skin_fill_color"]         = hex(fs_skin.fill_color);
                                         if (fs_skin.has_thumb)        n.attributes["skin_thumb_color"]        = hex(fs_skin.thumb_color);
                                         if (fs_skin.has_thumb_border) n.attributes["skin_thumb_border_color"] = hex(fs_skin.thumb_border_color);
+                                        // Widths: the widget/thumb box uses the
+                                        // derived thumb-slab width; the track is
+                                        // the narrow central column. Both in
+                                        // logical px (asset px / scale).
+                                        if (fs_skin.has_thumb_width)
+                                            n.attributes["shape_width"] = fmt_px(fs_skin.thumb_width_px / asset_scale);
+                                        if (fs_skin.has_track_width)
+                                            n.attributes["skin_track_width"] = fmt_px(fs_skin.track_width_px / asset_scale);
                                     } else {
                                         auto ms = pulp::view::derive_meter_skin(si);
                                         if (ms.valid()) {
@@ -1849,6 +1874,11 @@ int main(int argc, char* argv[]) {
                                             if (ms.has_background)
                                                 n.attributes["skin_meter_background"] = hex(ms.background);
                                         }
+                                        // Bar width → the meter's widget width
+                                        // (logical px); the column min_width keeps
+                                        // the box spacing so the narrow bar centres.
+                                        if (ms.has_bar_width)
+                                            n.attributes["shape_width"] = fmt_px(ms.bar_width_px / asset_scale);
                                     }
                                 }
                             }

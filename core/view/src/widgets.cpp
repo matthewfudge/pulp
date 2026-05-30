@@ -645,9 +645,15 @@ void Fader::paint(canvas::Canvas& canvas) {
             : resolve_color("control.track", canvas::Color::rgba8(60, 60, 60));
         canvas.set_fill_color({track_color.r, track_color.g, track_color.b, track_color.a});
 
-        // Skinned faders draw a thicker, more visible track to match the
-        // captured slab look; the default chrome keeps the thin 4px line.
-        float track_thick = skinned ? std::max(6.0f, std::min(track_width * 0.18f, 12.0f)) : 4.0f;
+        // Track thickness. When the importer derived the captured track width
+        // (pulp #3191), honour it exactly (clamped to the widget box) so the
+        // track is the narrow line the art shows — not a fraction of the box,
+        // which over-wide widget bounds would balloon. Otherwise fall back to
+        // the previous heuristic (skinned: ~18% of box; default: 4px line).
+        float track_thick =
+            has_skin_track_width_ ? std::min(skin_track_width_, track_width)
+            : skinned             ? std::max(6.0f, std::min(track_width * 0.18f, 12.0f))
+                                  : 4.0f;
         float track_radius = track_thick * 0.5f;
         if (vert) {
             float tx = (b.width - track_thick) * 0.5f;
@@ -683,7 +689,11 @@ void Fader::paint(canvas::Canvas& canvas) {
             const float scale = hover_thumb_scale_.value();
             // Skinned faders default to a wide rounded slab (matching the
             // captured Figma thumb) when explicit dimensions weren't given.
-            const float skin_default_w = vert ? std::min(b.width, track_width) * 0.62f
+            // pulp #3191: when the importer derived a thin track width, it also
+            // sized the widget box to the captured thumb width — so the thumb
+            // fills the box (no 0.62 shrink), and the track is the thin line.
+            const float skin_thumb_frac = has_skin_track_width_ ? 1.0f : 0.62f;
+            const float skin_default_w = vert ? std::min(b.width, track_width) * skin_thumb_frac
                                               : std::max(10.0f, track_length * 0.10f);
             const float skin_default_h = vert ? std::max(10.0f, track_length * 0.10f)
                                               : std::min(b.height, track_width) * 0.62f;

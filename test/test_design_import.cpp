@@ -3129,3 +3129,70 @@ TEST_CASE("Codegen emits setMeterColors + normalized level from derived skin",
     std::string plain_js = generate_pulp_js(ir, plain);
     REQUIRE(plain_js.find("setMeterColors(") == std::string::npos);
 }
+
+// ── pulp #3191 width fix: derived narrow widths flow to render ───────────────
+
+TEST_CASE("Codegen renders fader at derived thumb width + emits thin track width",
+          "[view][import][issue-3191]") {
+    DesignIR ir;
+    ir.root.type = "frame";
+    ir.root.name = "root";
+    ir.root.style.width = 200;
+    ir.root.style.height = 300;
+
+    IRNode fader;
+    fader.type = "frame";
+    fader.name = "Fader — Master";
+    fader.audio_widget = AudioWidgetType::fader;
+    fader.audio_min = -60.0f;
+    fader.audio_max = 6.0f;
+    fader.audio_default = 0.0f;
+    fader.style.width = 96;     // node box
+    fader.style.height = 230;
+    // Stamped by the sampler: thumb slab width (→ shape_width / widget width)
+    // and the thin track width (→ setFaderTrackWidth).
+    fader.attributes["shape_width"] = "28";
+    fader.attributes["skin_track_width"] = "5";
+    ir.root.children.push_back(fader);
+
+    CodeGenOptions opts;
+    opts.skin_faders = true;
+    std::string js = generate_pulp_js(ir, opts);
+
+    // The fader WIDGET renders at the narrow thumb width (28), while the column
+    // keeps the box width (96) so the narrow widget centres in its slot.
+    REQUIRE(js.find("setFlex('Fader__Master0', 'width', 28)") != std::string::npos);
+    REQUIRE(js.find("setFlex('Fader__Master0_col', 'min_width', 96)") != std::string::npos);
+    // The thin track width flows through to the render path.
+    REQUIRE(js.find("setFaderTrackWidth('Fader__Master0', 5)") != std::string::npos);
+}
+
+TEST_CASE("Codegen renders meter at derived narrow bar width, centred in column",
+          "[view][import][issue-3191]") {
+    DesignIR ir;
+    ir.root.type = "frame";
+    ir.root.name = "root";
+    ir.root.style.width = 200;
+    ir.root.style.height = 300;
+
+    IRNode meter;
+    meter.type = "frame";
+    meter.name = "Meter — Out L";
+    meter.audio_widget = AudioWidgetType::meter;
+    meter.audio_min = -60.0f;
+    meter.audio_max = 0.0f;
+    meter.audio_default = -6.0f;
+    meter.style.width = 69;     // node box
+    meter.style.height = 228;
+    meter.attributes["shape_width"] = "18";  // derived narrow bar width
+    ir.root.children.push_back(meter);
+
+    CodeGenOptions opts;
+    opts.skin_meters = true;
+    std::string js = generate_pulp_js(ir, opts);
+
+    // The meter renders at the narrow bar width (18), centred via the column
+    // which keeps the box width (69) as its min_width.
+    REQUIRE(js.find("setFlex('Meter__Out_L0', 'width', 18)") != std::string::npos);
+    REQUIRE(js.find("setFlex('Meter__Out_L0_col', 'min_width', 69)") != std::string::npos);
+}

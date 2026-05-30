@@ -55,6 +55,19 @@ bool find_art_region(const SkinImage& img, int cx, int& top, int& bottom) {
     return true;
 }
 
+// Horizontal extent of opaque pixels at a given row, measured outward from a
+// seed column so disjoint label glyphs elsewhere on the row don't widen the
+// result. Returns false when the seed pixel itself is transparent. left/right
+// are inclusive pixel indices; width = right - left + 1.
+bool row_art_bounds(const SkinImage& img, int y, int seed_x, int& left, int& right) {
+    if (y < 0 || y >= img.height) return false;
+    if (pixel(img, seed_x, y).a <= 40) return false;
+    left = right = seed_x;
+    while (left - 1 >= 0 && pixel(img, left - 1, y).a > 40) --left;
+    while (right + 1 < img.width && pixel(img, right + 1, y).a > 40) ++right;
+    return true;
+}
+
 }  // namespace
 
 FaderSkin derive_fader_skin(const SkinImage& img) {
@@ -121,6 +134,40 @@ FaderSkin derive_fader_skin(const SkinImage& img) {
         out.has_fill = true;
     }
 
+    // ── Horizontal widths (pulp #3191) ───────────────────────────────────────
+    // Thumb width: the widest opaque row in the art region (the silver slab).
+    // Track width: the opaque width at rows away from the thumb (the thin
+    // track/fill column). Measured outward from cx so disjoint glyphs never
+    // bleed in. Both are reported in asset pixels; the importer scales them.
+    {
+        int max_w = 0, l = 0, r = 0;
+        std::vector<int> widths;
+        widths.reserve(static_cast<size_t>(bottom - top));
+        for (int y = top; y < bottom; ++y) {
+            if (row_art_bounds(img, y, cx, l, r)) {
+                int w = r - l + 1;
+                widths.push_back(w);
+                if (w > max_w) max_w = w;
+            } else {
+                widths.push_back(0);
+            }
+        }
+        if (max_w > 0) {
+            out.thumb_width_px = static_cast<float>(max_w);
+            out.has_thumb_width = true;
+            // Track = median of the NARROW rows (those at most ~40% of the
+            // widest), i.e. the thin track/fill column outside the thumb slab.
+            std::vector<int> narrow;
+            for (int w : widths)
+                if (w > 0 && w <= std::max(1, max_w * 2 / 5)) narrow.push_back(w);
+            if (!narrow.empty()) {
+                std::sort(narrow.begin(), narrow.end());
+                out.track_width_px = static_cast<float>(narrow[narrow.size() / 2]);
+                out.has_track_width = true;
+            }
+        }
+    }
+
     return out;
 }
 
@@ -163,6 +210,24 @@ MeterSkin derive_meter_skin(const SkinImage& img, int stop_count) {
         int y = static_cast<int>(std::lround(fill_bottom - frac * fill_h));
         y = std::clamp(y, top, bottom - 1);
         out.gradient.push_back(to_color(pixel(img, cx, y)));
+    }
+
+    // ── Bar width (pulp #3191) ───────────────────────────────────────────────
+    // The visible coloured bar is a narrow inset region; its opaque width is
+    // constant down the bar's own vertical region [top, bottom). Take the
+    // median row width (outward from cx) so AA at the rounded top/bottom and
+    // any faint glyphs below don't skew it. Reported in asset pixels.
+    {
+        std::vector<int> widths;
+        widths.reserve(static_cast<size_t>(bottom - top));
+        int l = 0, r = 0;
+        for (int y = top; y < bottom; ++y)
+            if (row_art_bounds(img, y, cx, l, r)) widths.push_back(r - l + 1);
+        if (!widths.empty()) {
+            std::sort(widths.begin(), widths.end());
+            out.bar_width_px = static_cast<float>(widths[widths.size() / 2]);
+            out.has_bar_width = true;
+        }
     }
     return out;
 }

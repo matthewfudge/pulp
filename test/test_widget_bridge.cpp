@@ -216,6 +216,32 @@ TEST_CASE("WidgetBridge setFaderSkin applies derived colours to the fader",
     REQUIRE(f->thumb_shape() == Fader::ThumbShape::rectangle);
 }
 
+TEST_CASE("WidgetBridge setFaderTrackWidth sets the derived thin track width",
+          "[view][bridge][issue-3191]") {
+    ScriptEngine engine;
+    View root;
+    root.set_bounds({0, 0, 400, 300});
+    StateStore store;
+    WidgetBridge bridge(engine, root, store);
+
+    bridge.load_script(
+        "createFader('vol', 'vertical', '');"
+        "setFaderTrackWidth('vol', 5);");
+
+    auto* f = dynamic_cast<Fader*>(bridge.widget("vol"));
+    REQUIRE(f != nullptr);
+    REQUIRE(f->has_skin_track_width());
+    REQUIRE_THAT(f->skin_track_width(), Catch::Matchers::WithinAbs(5.0, 0.01));
+
+    // Non-positive width is a no-op (keeps the heuristic).
+    bridge.load_script(
+        "createFader('vol2', 'vertical', '');"
+        "setFaderTrackWidth('vol2', 0);");
+    auto* f2 = dynamic_cast<Fader*>(bridge.widget("vol2"));
+    REQUIRE(f2 != nullptr);
+    REQUIRE_FALSE(f2->has_skin_track_width());
+}
+
 TEST_CASE("WidgetBridge setMeterColors applies a value-driven gradient",
           "[view][bridge][issue-3191]") {
     ScriptEngine engine;

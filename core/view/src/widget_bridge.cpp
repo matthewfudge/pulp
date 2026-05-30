@@ -1729,6 +1729,22 @@ void WidgetBridge::register_api() {
             return choc::value::Value();
         });
 
+    // setFaderTrackWidth(id, widthPx)
+    //
+    // pulp #3191 — the importer derived the captured track's thin width (the
+    // narrow central column, distinct from the wide thumb slab). The skinned
+    // fader draws its track / fill at exactly this logical width (centred)
+    // instead of a fraction of the widget box, so an over-wide widget box no
+    // longer balloons the track. No-op for non-positive widths.
+    engine_.register_function("setFaderTrackWidth",
+        [this](choc::javascript::ArgumentList args) {
+            auto* f = dynamic_cast<Fader*>(widget(args.get<std::string>(0, "")));
+            if (!f) return choc::value::Value();
+            float w = static_cast<float>(args.get<double>(1, 0));
+            if (w > 0.0f) { f->set_skin_track_width(w); f->request_repaint(); }
+            return choc::value::Value();
+        });
+
     // setMeterColors(id, backgroundColor, "#stop0,#stop1,#stop2,...")
     //
     // Generalises the knob sprite-strip skin to the meter: the importer

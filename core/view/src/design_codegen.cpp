@@ -662,6 +662,13 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
                     ss << ind << "setFaderSkin('" << id << "', '"
                        << tc << "', '" << fc << "', '" << thc << "', '" << tbc << "');\n";
                 }
+                // pulp #3191 — derived thin track width (logical px). Drives the
+                // fader's track/fill thickness so it draws the narrow captured
+                // line instead of a fraction of the (wide) widget box.
+                if (node.attributes.count("skin_track_width")) {
+                    ss << ind << "setFaderTrackWidth('" << id << "', "
+                       << node.attributes.at("skin_track_width") << ");\n";
+                }
             }
             emit_style(id);
             if (!label_text.empty()) {

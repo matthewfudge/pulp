@@ -511,8 +511,17 @@ public:
     void set_skin_fill_color(canvas::Color c)  { fill_color_  = c; has_skin_fill_  = true; request_repaint(); }
     void set_skin_thumb_color(canvas::Color c) { thumb_color_ = c; has_skin_thumb_ = true; request_repaint(); }
     void set_skin_thumb_border_color(canvas::Color c) { thumb_border_color_ = c; has_skin_thumb_border_ = true; request_repaint(); }
+    // pulp #3191 — derived thin track width (logical px). When set, the skinned
+    // fader draws its track / fill at exactly this width (centred) instead of a
+    // fraction of the widget box, matching the captured art's narrow track.
+    void set_skin_track_width(float w) {
+        if (w > 0.0f) { skin_track_width_ = w; has_skin_track_width_ = true; request_repaint(); }
+    }
+    float skin_track_width() const { return skin_track_width_; }
+    bool has_skin_track_width() const { return has_skin_track_width_; }
     void clear_skin() {
         has_skin_track_ = has_skin_fill_ = has_skin_thumb_ = has_skin_thumb_border_ = false;
+        has_skin_track_width_ = false;
         request_repaint();
     }
     bool has_skin() const {
@@ -537,6 +546,8 @@ private:
     bool has_skin_fill_ = false;
     bool has_skin_thumb_ = false;
     bool has_skin_thumb_border_ = false;
+    float skin_track_width_ = 0.0f;
+    bool has_skin_track_width_ = false;
 };
 
 // ── RangeSlider ──────────────────────────────────────────────────────────────
