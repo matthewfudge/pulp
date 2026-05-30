@@ -187,6 +187,89 @@ TEST_CASE("Skinned Fader thumb border emits a stroked rect",
     REQUIRE(c.count(DrawCommand::Type::stroke_rounded_rect) == 1);
 }
 
+TEST_CASE("Skinned Fader strokes the empty track when a track border is set",
+          "[view][widget][issue-3192]") {
+    // pulp #3192 — the captured empty track has a visible lighter outline. When
+    // the importer derives that edge colour, the fader strokes the track rect so
+    // the empty channel above the thumb doesn't read as a flat dark slab.
+    Fader fader;
+    fader.set_bounds({0, 0, 96, 200});
+    fader.set_skin_track_color(Color::rgba8(0x1f, 0x21, 0x29));
+    fader.set_skin_track_border_color(Color::rgba8(0x3d, 0x3f, 0x47));
+    fader.set_value(0.5f);
+    REQUIRE(fader.has_skin_track_border_color());
+
+    RecordingCanvas c;
+    fader.paint(c);
+    // Exactly one stroked rect: the track outline (no thumb border set here).
+    REQUIRE(c.count(DrawCommand::Type::stroke_rounded_rect) == 1);
+}
+
+TEST_CASE("Skinned Fader with both track and thumb borders strokes twice",
+          "[view][widget][issue-3192]") {
+    Fader fader;
+    fader.set_bounds({0, 0, 96, 200});
+    fader.set_skin_track_color(Color::rgba8(0x1f, 0x21, 0x29));
+    fader.set_skin_track_border_color(Color::rgba8(0x3d, 0x3f, 0x47));
+    fader.set_skin_thumb_color(Color::rgba8(0xea, 0xea, 0xf0));
+    fader.set_skin_thumb_border_color(Color::rgba8(0x69, 0x69, 0x6f));
+    fader.set_value(0.5f);
+
+    RecordingCanvas c;
+    fader.paint(c);
+    // Track outline + thumb bevel.
+    REQUIRE(c.count(DrawCommand::Type::stroke_rounded_rect) == 2);
+}
+
+TEST_CASE("derive_fader_skin synthesises a lighter rim for a dark flat track",
+          "[view][widget][issue-3192]") {
+    // The captured empty track is dark; the design draws a faint lighter edge so
+    // it doesn't read as a flat slab. When the (flat) sampled pixels can't
+    // resolve a distinct edge, the sampler synthesises a rim by lightening the
+    // dark track colour — still derived from the captured track, no hardcode.
+    const int W = 30, H = 100;
+    std::vector<uint8_t> px(static_cast<size_t>(W) * H * 4, 0);
+    auto set = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+        uint8_t* p = px.data() + (static_cast<size_t>(y) * W + x) * 4;
+        p[0] = r; p[1] = g; p[2] = b; p[3] = 255;
+    };
+    for (int y = 10; y < 80; ++y)
+        for (int x = 0; x < W; ++x) {
+            if (y >= 40 && y < 48) set(x, y, 234, 234, 240);   // silver thumb
+            else if (y >= 55) set(x, y, 54, 119, 207);          // blue fill
+            else set(x, y, 31, 33, 41);                          // dark track
+        }
+    SkinImage img{px.data(), W, H};
+    auto skin = derive_fader_skin(img);
+    REQUIRE(skin.has_track);
+    REQUIRE(skin.has_track_border);
+    // The rim must be lighter than the dark track fill, but still dark-ish (a
+    // subtle edge, not a second fill).
+    REQUIRE(skin.track_border_color.r > skin.track_color.r);
+    REQUIRE(skin.track_border_color.r < 0.5f);
+}
+
+TEST_CASE("derive_fader_skin leaves a light/flat track borderless",
+          "[view][widget][issue-3192]") {
+    // A light track has no dark channel to outline → no synthesised rim.
+    const int W = 30, H = 100;
+    std::vector<uint8_t> px(static_cast<size_t>(W) * H * 4, 0);
+    auto set = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+        uint8_t* p = px.data() + (static_cast<size_t>(y) * W + x) * 4;
+        p[0] = r; p[1] = g; p[2] = b; p[3] = 255;
+    };
+    for (int y = 10; y < 80; ++y)
+        for (int x = 0; x < W; ++x) {
+            if (y >= 40 && y < 48) set(x, y, 250, 250, 252);   // bright thumb
+            else if (y >= 55) set(x, y, 54, 119, 207);          // blue fill
+            else set(x, y, 170, 173, 180);                       // LIGHT track
+        }
+    SkinImage img{px.data(), W, H};
+    auto skin = derive_fader_skin(img);
+    REQUIRE(skin.has_track);
+    REQUIRE_FALSE(skin.has_track_border);
+}
+
 TEST_CASE("Skinned Meter clips its gradient fill to the level",
           "[view][widget][issue-3191]") {
     Meter meter;

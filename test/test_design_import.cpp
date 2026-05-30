@@ -8,6 +8,7 @@
 #include <pulp/view/widget_bridge.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <chrono>
 #include <filesystem>
@@ -2045,6 +2046,201 @@ TEST_CASE("generate_pulp_js bridge_native_js mode handles audio widgets with Yog
     REQUIRE(js.find("createMeter('OutputMeter") != std::string::npos);
     REQUIRE(js.find("'Out'") != std::string::npos);
     REQUIRE(js.find("setMeterLevel") != std::string::npos);
+}
+
+// ── Figma-plugin fidelity fixes (pulp #3192) ──────────────────────────────────
+
+TEST_CASE("parse_design_ir_json parses nested padding object", "[view][import][issue-3192]") {
+    // The figma-plugin export ships container padding as a nested
+    // {top,right,bottom,left} object. The parser previously only understood a
+    // uniform float or camelCase per-side keys, so the nested form was dropped
+    // (parsed as 0) and content hugged the panel edge.
+    const auto json = std::string{R"json({
+        "type": "frame",
+        "name": "Panel",
+        "layout": { "padding": { "top": 24, "right": 32, "bottom": 24, "left": 32 } }
+    })json"};
+    const auto parsed = parse_design_ir_json(json);
+    REQUIRE(parsed.root.layout.padding_top == Catch::Approx(24.0f));
+    REQUIRE(parsed.root.layout.padding_right == Catch::Approx(32.0f));
+    REQUIRE(parsed.root.layout.padding_bottom == Catch::Approx(24.0f));
+    REQUIRE(parsed.root.layout.padding_left == Catch::Approx(32.0f));
+}
+
+TEST_CASE("parse_design_ir_json keeps uniform-float and per-side padding forms",
+          "[view][import][issue-3192]") {
+    // Back-compat: the legacy float and camelCase per-side forms must keep
+    // working alongside the new nested-object form.
+    const auto uniform = parse_design_ir_json(
+        R"json({ "type": "frame", "layout": { "padding": 10 } })json");
+    REQUIRE(uniform.root.layout.padding_top == Catch::Approx(10.0f));
+    REQUIRE(uniform.root.layout.padding_left == Catch::Approx(10.0f));
+
+    const auto per_side = parse_design_ir_json(
+        R"json({ "type": "frame", "layout": { "paddingTop": 5, "paddingLeft": 7 } })json");
+    REQUIRE(per_side.root.layout.padding_top == Catch::Approx(5.0f));
+    REQUIRE(per_side.root.layout.padding_left == Catch::Approx(7.0f));
+    REQUIRE(per_side.root.layout.padding_right == Catch::Approx(0.0f));
+}
+
+TEST_CASE("native codegen emits container padding (issue-3192)", "[view][import][issue-3192]") {
+    DesignIR ir;
+    ir.source = DesignSource::figma;
+    ir.root.type = "frame";
+    ir.root.name = "Panel";
+    ir.root.style.width = 400.0f;
+    ir.root.style.height = 300.0f;
+    ir.root.layout.padding_top = 24.0f;
+    ir.root.layout.padding_right = 32.0f;
+    ir.root.layout.padding_bottom = 24.0f;
+    ir.root.layout.padding_left = 32.0f;
+
+    CodeGenOptions opts;
+    opts.mode = CodeGenMode::bridge_native_js;
+    const auto js = generate_pulp_js(ir, opts);
+
+    // Non-uniform padding → per-side setFlex calls with the exact values.
+    REQUIRE(js.find("'padding_top', 24") != std::string::npos);
+    REQUIRE(js.find("'padding_right', 32") != std::string::npos);
+    REQUIRE(js.find("'padding_bottom', 24") != std::string::npos);
+    REQUIRE(js.find("'padding_left', 32") != std::string::npos);
+}
+
+TEST_CASE("native codegen wraps multi-line text at its design width (issue-3192)",
+          "[view][import][issue-3192]") {
+    DesignIR ir;
+    ir.source = DesignSource::figma;
+    ir.root.type = "frame";
+    ir.root.name = "Panel";
+    ir.root.style.width = 800.0f;
+
+    // A subtitle paragraph: design box is wider AND taller than one line, so it
+    // should wrap inside its width instead of overflowing.
+    IRNode subtitle;
+    subtitle.type = "text";
+    subtitle.name = "Subtitle";
+    subtitle.text_content = "A long subtitle that should soft-wrap inside its box";
+    subtitle.style.width = 720.0f;
+    subtitle.style.height = 26.0f;     // two lines at 11px
+    subtitle.style.font_size = 11.0f;
+    ir.root.children.push_back(subtitle);
+
+    // A title: same font but a one-line-high box → must stay single line
+    // (no forced wrap box) so it doesn't wrap when Pulp's metrics run wide.
+    IRNode title;
+    title.type = "text";
+    title.name = "Title";
+    title.text_content = "Title that fits one line";
+    title.style.width = 284.0f;
+    title.style.height = 22.0f;        // one line at 18px
+    title.style.font_size = 18.0f;
+    title.style.font_weight = 600;
+    ir.root.children.push_back(title);
+
+    CodeGenOptions opts;
+    opts.mode = CodeGenMode::bridge_native_js;
+    const auto js = generate_pulp_js(ir, opts);
+
+    // Subtitle: bounded width + multi-line so it wraps.
+    REQUIRE(js.find("setFlex('Subtitle") != std::string::npos);
+    REQUIRE(js.find("'width', 720") != std::string::npos);
+    REQUIRE(js.find("setMultiLine('Subtitle") != std::string::npos);
+
+    // Title: NO hard width / multi-line box (stays single line). It still gets a
+    // min_width, but must not be forced into a wrap box.
+    REQUIRE(js.find("setMultiLine('Title") == std::string::npos);
+    REQUIRE(js.find("'width', 284") == std::string::npos);
+}
+
+TEST_CASE("native codegen emits font weight and family for text (issue-3192)",
+          "[view][import][issue-3192]") {
+    DesignIR ir;
+    ir.source = DesignSource::figma;
+    ir.root.type = "frame";
+    ir.root.name = "Panel";
+
+    IRNode title;
+    title.type = "text";
+    title.name = "Title";
+    title.text_content = "Bold Inter Title";
+    title.style.font_size = 18.0f;
+    title.style.font_weight = 600;
+    title.style.font_family = "Inter";
+    ir.root.children.push_back(title);
+
+    CodeGenOptions opts;
+    opts.mode = CodeGenMode::bridge_native_js;
+    const auto js = generate_pulp_js(ir, opts);
+
+    REQUIRE(js.find("setFontWeight('Title") != std::string::npos);
+    REQUIRE(js.find("'600'") != std::string::npos);
+    REQUIRE(js.find("setFontFamily('Title") != std::string::npos);
+    REQUIRE(js.find("'Inter'") != std::string::npos);
+}
+
+TEST_CASE("native codegen log-tapers a Hz-unit knob's initial value (issue-3192)",
+          "[view][import][issue-3192]") {
+    // A frequency knob's value→angle map is logarithmic. The native silver knob
+    // maps a 0..1 value linearly to its sweep, so the imported value must be the
+    // LOG-normalised position — 880 Hz in [20, 20000] lands near centre (~0.55),
+    // not at the far end (a raw 880 would clamp to 1.0) and not at the linear
+    // position (~0.04, indicator pointing the wrong way).
+    DesignIR ir;
+    ir.source = DesignSource::figma;
+    ir.root.type = "frame";
+    ir.root.name = "Panel";
+
+    IRNode knob;
+    knob.type = "knob";
+    knob.name = "Cutoff";
+    knob.audio_widget = AudioWidgetType::knob;
+    knob.audio_label = "Cutoff";
+    knob.audio_min = 20.0f;
+    knob.audio_max = 20000.0f;
+    knob.audio_default = 880.0f;
+    knob.attributes["units"] = "Hz";
+    ir.root.children.push_back(knob);
+
+    CodeGenOptions opts;
+    opts.mode = CodeGenMode::bridge_native_js;
+    const auto js = generate_pulp_js(ir, opts);
+
+    // Compute the expected log-normalised value and assert the emitted setValue
+    // matches it (and is nowhere near the raw 880 or the linear ~0.04).
+    const float expected =
+        (std::log(880.0f) - std::log(20.0f)) / (std::log(20000.0f) - std::log(20.0f));
+    REQUIRE(expected == Catch::Approx(0.5478f).margin(0.01f));
+    // The emitted value should be the log position, not the raw value. Only one
+    // knob exists, so a "setValue('Cutoff" prefix uniquely identifies it.
+    REQUIRE(js.find("setValue('Cutoff") != std::string::npos);
+    REQUIRE(js.find("', 880") == std::string::npos);
+    REQUIRE(js.find("', 0.54") != std::string::npos);
+}
+
+TEST_CASE("native codegen uses linear taper for non-frequency knobs (issue-3192)",
+          "[view][import][issue-3192]") {
+    DesignIR ir;
+    ir.source = DesignSource::figma;
+    ir.root.type = "frame";
+    ir.root.name = "Panel";
+
+    IRNode knob;
+    knob.type = "knob";
+    knob.name = "Drive";
+    knob.audio_widget = AudioWidgetType::knob;
+    knob.audio_label = "Drive";
+    knob.audio_min = 0.0f;
+    knob.audio_max = 10.0f;
+    knob.audio_default = 5.0f;        // linear midpoint → 0.5
+    knob.attributes["units"] = "dB";
+    ir.root.children.push_back(knob);
+
+    CodeGenOptions opts;
+    opts.mode = CodeGenMode::bridge_native_js;
+    const auto js = generate_pulp_js(ir, opts);
+
+    REQUIRE(js.find("setValue('Drive") != std::string::npos);
+    REQUIRE(js.find("', 0.5)") != std::string::npos);
 }
 
 TEST_CASE("generate_pulp_js web-compat mode handles audio widgets", "[view][import]") {

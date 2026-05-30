@@ -253,6 +253,52 @@ Gotchas learned wiring this:
   hardcoded pixel constants (repo rule: every visual importer fix must be a
   generalizable rule reading the design data).
 
+### Native codegen fidelity gaps (pulp #3192)
+
+The render uses `generate_native_node` in `core/view/src/design_codegen.cpp`
+(createCol/createRow/createLabel/createKnob/setFlex…), NOT the `generate_node`
+DOM path. Several styles only existed on the DOM path; the native path needs its
+own emission. Fixes landed here, each grounded in the export data:
+
+- **Nested padding.** The figma-plugin export sends container padding as a nested
+  object `layout.padding = {top,right,bottom,left}`. `parse_ir_layout` in
+  `design_ir_json.cpp` only understood a uniform float / camelCase per-side keys,
+  so the nested form was dropped (→ 0, content hugged the edge). The parser now
+  accepts all three forms; the native container path already emitted per-side
+  `setFlex(id,'padding_*',…)`, so once parsed it renders.
+- **Text wrap.** A text node's `style.width` was emitted only as `min_width`, so a
+  long subtitle ran off the panel. Emit a hard `setFlex(id,'width',w)` +
+  `setMultiLine(id,true)` ONLY when the design box is taller than one line
+  (`height > font_size*1.6`) — that's the design's own signal that the string is a
+  wrapping paragraph. A one-line title (height ≈ one line) is deliberately NOT
+  bounded: forcing its hug-width as a wrap box makes it wrap when Pulp's font
+  metrics run a hair wider than Figma's.
+- **Knob value taper.** The native silver knob maps a 0..1 value LINEARLY to its
+  [-135°,+135°] sweep, so the imported value must already encode the param taper.
+  The knob path emitted the RAW `audio_default` (e.g. 880), which `set_value`
+  clamps to 1.0 (and a linear normalise put 880 Hz at ~0.04 — indicator pointing
+  the wrong way). Now: for a frequency-unit knob (`units` == hz/khz) use a LOG
+  normalise so 880 Hz in [20,20000] lands ~0.55 (indicator ~straight up, matching
+  the design); other units fall back to linear (value-min)/(max-min). The fader
+  already normalised; the knob was the outlier.
+- **font_weight/font_family** were ALREADY emitted on the native text path — no
+  fix needed; a regression test now pins them.
+- **Fader empty-track outline.** The captured empty track has a faint lighter
+  edge. `derive_fader_skin` first tries to RECOVER it (brightest low-sat pixel on
+  a dark track row vs the row-centre fill). **Gotcha:** the importer's in-tree
+  minimal PNG decoder (`decode_png_rgba` in `pulp_import_design.cpp`) FLATTENS the
+  sub-pixel anti-aliased rim — it reads the whole thin track column as uniform
+  fill, so the edge is unrecoverable from those pixels even though PIL sees it.
+  Fallback: SYNTHESISE the rim by lightening the sampled dark track colour
+  (`lum < 90` → `+30` per channel); a light/flat track stays borderless. Emitted
+  via `setFaderTrackBorder(id,'#rrggbb')` → `Fader::set_skin_track_border_color`,
+  which strokes the track rect in `Fader::paint`. Still derived from the captured
+  track colour — no hardcode.
+- **Knob bevel depth** (the silver knob reads more heavily 3D than the flatter
+  captured disc) is a `WidgetRenderStyle::silver` cosmetic gap, NOT data-driven —
+  left as a follow-up rather than guessing gradient constants that would affect
+  every imported knob.
+
 The Phase 5/7/9 benchmark harness lives at `pulp-design-import-bench` and is driven
 by `tools/scripts/design_import_benchmark.py`. Run it under no-launch env
 (`PULP_DISABLE_PLUGIN_EDITOR=1 PULP_HEADLESS=1 PULP_TEST_MODE=1
