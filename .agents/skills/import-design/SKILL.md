@@ -312,6 +312,24 @@ actually the dominant bottleneck for the measured fixture. Keep the legacy
 top-level `comparison` entry pointed at `baked-native`, and add per-lane
 results under `comparisons` for both baked lanes.
 
+### `IRStyle::box_shadow` is parsed layers, not a string (pulp #41)
+
+`IRStyle::box_shadow` is a `std::vector<IRBoxShadow>`, **not** an
+`optional<string>`. CSS `box-shadow` is a comma-separated layer list; the old
+single-string field silently dropped every layer past the first. Don't assign a
+raw CSS string to it or compare it to one — use the helpers in `design_ir.hpp`:
+
+- `parse_css_box_shadow(css)` → ordered `IRBoxShadow{offset_x,offset_y,blur,spread,color,inset,raw}` layers. Splits on **top-level commas only** (commas inside `rgba()`/`hsl()` stay intact); each layer keeps its trimmed `raw` text for lossless round-trip.
+- `box_shadow_to_css(layers)` → CSS string (prefers each layer's `raw`).
+
+Every IR ingest site (`design_ir_json` parse, `claude_bundle`, `v0_tsx`) parses
+into the vector; every emit site (`design_ir_json` write, `design_codegen` web +
+native, `native_common`) serializes back via `box_shadow_to_css`. Native
+`setBoxShadow` reads `box_shadow.front()`'s parsed fields directly — no
+re-tokenizing the raw string. **Gotcha:** the bridge takes one drop shadow, so
+multi-layer stacks render only their first layer natively even though the IR now
+preserves them all.
+
 ### Step 1: Identify source and input
 
 Ask the user or detect from context:
