@@ -1,0 +1,57 @@
+{
+  "schema": "pulp-source-contract-v0",
+  "kind": "importer_overlay",
+  "_comment": "Importer-emitted variant of source-contract-v0. node_route_rows derived from the real importer overlay shape in tools/scripts/test_frontend_ir_report.py (fixture-a / fixture-corpus). Describes a 2-node design: a Knob with a set_param event contract, and a range input/fader with a set_state state contract. Held in lockstep with audit-summary.json and golden-expectations.json so the importer and audit inference models cannot disagree about this design (pulp #3116).",
+  "source": {
+    "source_of_truth": "archived_fixture"
+  },
+  "node_route_rows": [
+    {
+      "id": "knob.gain",
+      "stable_source_path": "fixtures/Strip.tsx:10:Knob[0]",
+      "source_line": 10,
+      "source_component_family": "Knob",
+      "source_component_name": "Knob",
+      "required_native_primitive": "knob",
+      "route_type": "native_cpp",
+      "confidence": 0.9,
+      "recorder_eligibility": "candidate",
+      "style_token_references": ["colors.accent"],
+      "parameter_bindings": [
+        {
+          "param_key": "gain",
+          "binding_contract_id": "binding.gain",
+          "module": "OSC",
+          "param": "gain"
+        }
+      ],
+      "event_contracts": [
+        {
+          "kind": "set_param",
+          "param_key": "gain"
+        }
+      ],
+      "gesture_contracts": [
+        {
+          "boundaries": ["begin", "update", "end"]
+        }
+      ]
+    },
+    {
+      "id": "fader.threshold",
+      "stable_source_path": "fixtures/Strip.tsx:24:input[0]",
+      "source_line": 24,
+      "source_component_family": "input[type=range]",
+      "source_component_name": "input",
+      "required_native_primitive": "fader",
+      "route_type": "native_cpp",
+      "confidence": 0.85,
+      "state_contracts": [
+        {
+          "kind": "set_state_from_event_value",
+          "state_key": "threshold"
+        }
+      ]
+    }
+  ]
+}

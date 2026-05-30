@@ -353,6 +353,45 @@ both targets (`pulp-test-widget-bridge` and
 `test_targets`. When adding a new runtime-import dispatch test, place
 it in the runtime-import sibling — keeping the parent file shrinking.
 
+### Two distinct "source-contract" subjects — don't conflate them
+
+There are two unrelated things called "source-contract" under
+`tools/import-validation/`:
+
+1. **Source-PROVIDER registry** (`source-contracts.json`, the section above)
+   — Claude/Figma/Stitch/v0/Pencil trust metadata: parser symbols, fixtures,
+   roundtrip scripts. Per *provider*.
+
+2. **Per-NODE source-contract evidence** — the route/value/event/state/style
+   evidence about a single imported design's nodes. Two emitters historically
+   inferred this independently and could disagree: the C++ importer
+   (`source_contract_overlay.node_route_rows` on a route manifest) and the JS
+   audit (`jsx-contract-audit.mjs` → `inputs.sourceAuditSummary`). The
+   consumers are `tools/scripts/frontend_ir_routes.py`
+   (`route_rows`/`row_node_id`/`route_counts`/`primitive_counts`) and
+   `tools/scripts/frontend_ir_sources.py` (`count_map`/`source_spans`).
+
+For (2), pulp #3116 added one shared serialized shape so importer and audit
+output can be validated against a single definition in tests:
+
+- Schema: `tools/import-validation/schemas/source-contract-v0.schema.json`
+  (`pulp-source-contract-v0`, draft-2020-12). Lives in the public repo (not
+  `planning/schemas/`) so Python, JS, and C++ can all reach one definition.
+  It pins the `node_route_row` field set and the audit `materiality` counts
+  block; both deliberately keep `additionalProperties` permissive so existing
+  C++/JS emission is unchanged.
+- Golden fixtures + conformance test:
+  `tools/import-validation/fixtures/source-contract-v0/` and
+  `tools/import-validation/test_source_contract_schema.py`. The test runs an
+  importer overlay and an audit summary through the *real* frontend-IR
+  consumers and asserts they agree on the shared `golden-expectations.json`
+  counts (the "two inference models can't disagree" proof). stdlib only — no
+  `jsonschema` dependency; a small validator interprets the keyword subset in
+  the `frontend_ir_validation.py` style.
+
+The legacy inline `sourceAuditSummary` compat field stays in place; it is the
+audit-side input the schema validates, not something to remove in this slice.
+
 ### Step 3: Translate to Pulp code
 
 Use the appropriate mapping document as your translation reference:
