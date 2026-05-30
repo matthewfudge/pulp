@@ -8,6 +8,14 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02822"></a>
+## [0.282.2] - 2026-05-30
+
+- feat(figma-import): Phase 3 — Pulp library component recognition + Knob library key wired ([#3177](https://github.com/danielraffel/pulp/pull/3177))
+- feat(import-validation): shared source-contract-v0 schema + conformance fixture (#3116) ([#3174](https://github.com/danielraffel/pulp/pull/3174))
+- refactor(frontend-ir): model one-to-many native bindings explicitly (#3125) ([#3172](https://github.com/danielraffel/pulp/pull/3172))
+- refactor(frontend-ir): modularize evidence assembly out of frontend_ir_report (#3119) ([#3170](https://github.com/danielraffel/pulp/pull/3170))
+
 <a id="v02821"></a>
 ## [0.282.1] - 2026-05-29
 
@@ -3203,6 +3211,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.282.2]: https://github.com/danielraffel/pulp/releases/tag/v0.282.2
 [0.282.1]: https://github.com/danielraffel/pulp/releases/tag/v0.282.1
 [0.282.0]: https://github.com/danielraffel/pulp/releases/tag/v0.282.0
 [0.281.0]: https://github.com/danielraffel/pulp/releases/tag/v0.281.0
