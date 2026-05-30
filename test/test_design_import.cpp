@@ -3,10 +3,12 @@
 #include <pulp/state/store.hpp>
 #include <pulp/view/anchor_strategy.hpp>
 #include <pulp/view/design_import.hpp>
+#include <pulp/view/design_codegen.hpp>
 #include <pulp/view/script_engine.hpp>
 #include <pulp/view/widget_bridge.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <chrono>
 #include <filesystem>
@@ -1892,6 +1894,90 @@ TEST_CASE("generate_pulp_js produces valid web-compat JS", "[view][import]") {
     REQUIRE(js.find("theme.colors[\"bg.primary\"]") != std::string::npos);
 }
 
+TEST_CASE("generate_pulp_js reconstructs the value/range/unit/binding stack from metadata",
+          "[view][import][issue-3192]") {
+    // The figma-plugin export carries each widget's value / range / unit /
+    // binding as NODE METADATA (audio_min/max/default + attributes
+    // units/binding), NOT as child text nodes. The native codegen must
+    // reconstruct the Pulp Library display stack from that metadata: the widget
+    // label, the formatted value, then a small grey sub-stack (min / max / units
+    // / binding). This is generalizable from metadata — no per-instance
+    // hardcoding.
+    DesignIR ir;
+    ir.source = DesignSource::figma;
+    ir.root.type = "frame";
+    ir.root.name = "Panel";
+    ir.root.layout.direction = LayoutDirection::row;
+
+    IRNode knob;
+    knob.type = "frame";
+    knob.name = "Knob — Cutoff";
+    knob.audio_widget = AudioWidgetType::knob;
+    knob.audio_label = "Cutoff";
+    knob.audio_min = 20.0f;
+    knob.audio_max = 20000.0f;
+    knob.audio_default = 880.0f;
+    knob.has_audio_range = true;
+    knob.attributes["units"] = "Hz";
+    knob.attributes["binding"] = "filter.cutoff_hz";
+    ir.root.children.push_back(knob);
+
+    CodeGenOptions opts;
+    opts.include_comments = false;
+    auto js = generate_pulp_js(ir, opts);
+
+    // Widget label.
+    REQUIRE(js.find("'Cutoff'") != std::string::npos);
+    // Formatted value: 880 is whole → no decimals.
+    REQUIRE(js.find("'880'") != std::string::npos);
+    // Grey sub-stack: min / max / units / binding, each its own label.
+    REQUIRE(js.find("'20'") != std::string::npos);
+    REQUIRE(js.find("'20000'") != std::string::npos);
+    REQUIRE(js.find("'Hz'") != std::string::npos);
+    REQUIRE(js.find("'filter.cutoff_hz'") != std::string::npos);
+    // Sub-stack uses the small grey colour.
+    REQUIRE(js.find("'#6c7086'") != std::string::npos);
+}
+
+TEST_CASE("generate_pulp_js formats fractional audio values with one decimal",
+          "[view][import][issue-3192]") {
+    // The value formatter is generalizable: a whole value prints with no
+    // decimals (matching the reference's 880 / 0 / -60), a fractional value
+    // prints with one decimal (e.g. -6.5). NB: the reference shows the meter's
+    // whole -6 as "-6.0" because the Pulp Library meter component uses a fixed
+    // 1-decimal level format; that per-component decimal convention is not
+    // recoverable from the value alone (it's whole), so the generalizable rule
+    // formats whole -6 as "-6" — the exact "-6.0" trailing zero is a deferred
+    // cosmetic, not a fidelity-gated metric.
+    DesignIR ir;
+    ir.source = DesignSource::figma;
+    ir.root.type = "frame";
+
+    IRNode meter;
+    meter.type = "frame";
+    meter.name = "Meter — Out L";
+    meter.audio_widget = AudioWidgetType::meter;
+    meter.audio_label = "Out L";
+    meter.audio_min = -60.0f;
+    meter.audio_max = 0.0f;
+    meter.audio_default = -6.5f;   // genuinely fractional → 1 decimal
+    meter.has_audio_range = true;
+    meter.attributes["units"] = "dB";
+    meter.attributes["binding"] = "meter.out_l";
+    ir.root.children.push_back(meter);
+
+    CodeGenOptions opts;
+    opts.include_comments = false;
+    auto js = generate_pulp_js(ir, opts);
+
+    // Fractional value formatted with one decimal: -6.5.
+    REQUIRE(js.find("'-6.5'") != std::string::npos);
+    // Whole-number range bounds print without decimals.
+    REQUIRE(js.find("'-60'") != std::string::npos);
+    REQUIRE(js.find("'0'") != std::string::npos);
+    REQUIRE(js.find("'meter.out_l'") != std::string::npos);
+}
+
 TEST_CASE("generate_pulp_js escapes text containing newlines / quotes / backslashes (pulp #81)",
           "[view][import][issue-81]") {
     // pulp #81: a Claude Design HTML file with multi-line <style>/<script>
@@ -2044,6 +2130,201 @@ TEST_CASE("generate_pulp_js bridge_native_js mode handles audio widgets with Yog
     REQUIRE(js.find("createMeter('OutputMeter") != std::string::npos);
     REQUIRE(js.find("'Out'") != std::string::npos);
     REQUIRE(js.find("setMeterLevel") != std::string::npos);
+}
+
+// ── Figma-plugin fidelity fixes (pulp #3192) ──────────────────────────────────
+
+TEST_CASE("parse_design_ir_json parses nested padding object", "[view][import][issue-3192]") {
+    // The figma-plugin export ships container padding as a nested
+    // {top,right,bottom,left} object. The parser previously only understood a
+    // uniform float or camelCase per-side keys, so the nested form was dropped
+    // (parsed as 0) and content hugged the panel edge.
+    const auto json = std::string{R"json({
+        "type": "frame",
+        "name": "Panel",
+        "layout": { "padding": { "top": 24, "right": 32, "bottom": 24, "left": 32 } }
+    })json"};
+    const auto parsed = parse_design_ir_json(json);
+    REQUIRE(parsed.root.layout.padding_top == Catch::Approx(24.0f));
+    REQUIRE(parsed.root.layout.padding_right == Catch::Approx(32.0f));
+    REQUIRE(parsed.root.layout.padding_bottom == Catch::Approx(24.0f));
+    REQUIRE(parsed.root.layout.padding_left == Catch::Approx(32.0f));
+}
+
+TEST_CASE("parse_design_ir_json keeps uniform-float and per-side padding forms",
+          "[view][import][issue-3192]") {
+    // Back-compat: the legacy float and camelCase per-side forms must keep
+    // working alongside the new nested-object form.
+    const auto uniform = parse_design_ir_json(
+        R"json({ "type": "frame", "layout": { "padding": 10 } })json");
+    REQUIRE(uniform.root.layout.padding_top == Catch::Approx(10.0f));
+    REQUIRE(uniform.root.layout.padding_left == Catch::Approx(10.0f));
+
+    const auto per_side = parse_design_ir_json(
+        R"json({ "type": "frame", "layout": { "paddingTop": 5, "paddingLeft": 7 } })json");
+    REQUIRE(per_side.root.layout.padding_top == Catch::Approx(5.0f));
+    REQUIRE(per_side.root.layout.padding_left == Catch::Approx(7.0f));
+    REQUIRE(per_side.root.layout.padding_right == Catch::Approx(0.0f));
+}
+
+TEST_CASE("native codegen emits container padding (issue-3192)", "[view][import][issue-3192]") {
+    DesignIR ir;
+    ir.source = DesignSource::figma;
+    ir.root.type = "frame";
+    ir.root.name = "Panel";
+    ir.root.style.width = 400.0f;
+    ir.root.style.height = 300.0f;
+    ir.root.layout.padding_top = 24.0f;
+    ir.root.layout.padding_right = 32.0f;
+    ir.root.layout.padding_bottom = 24.0f;
+    ir.root.layout.padding_left = 32.0f;
+
+    CodeGenOptions opts;
+    opts.mode = CodeGenMode::bridge_native_js;
+    const auto js = generate_pulp_js(ir, opts);
+
+    // Non-uniform padding → per-side setFlex calls with the exact values.
+    REQUIRE(js.find("'padding_top', 24") != std::string::npos);
+    REQUIRE(js.find("'padding_right', 32") != std::string::npos);
+    REQUIRE(js.find("'padding_bottom', 24") != std::string::npos);
+    REQUIRE(js.find("'padding_left', 32") != std::string::npos);
+}
+
+TEST_CASE("native codegen wraps multi-line text at its design width (issue-3192)",
+          "[view][import][issue-3192]") {
+    DesignIR ir;
+    ir.source = DesignSource::figma;
+    ir.root.type = "frame";
+    ir.root.name = "Panel";
+    ir.root.style.width = 800.0f;
+
+    // A subtitle paragraph: design box is wider AND taller than one line, so it
+    // should wrap inside its width instead of overflowing.
+    IRNode subtitle;
+    subtitle.type = "text";
+    subtitle.name = "Subtitle";
+    subtitle.text_content = "A long subtitle that should soft-wrap inside its box";
+    subtitle.style.width = 720.0f;
+    subtitle.style.height = 26.0f;     // two lines at 11px
+    subtitle.style.font_size = 11.0f;
+    ir.root.children.push_back(subtitle);
+
+    // A title: same font but a one-line-high box → must stay single line
+    // (no forced wrap box) so it doesn't wrap when Pulp's metrics run wide.
+    IRNode title;
+    title.type = "text";
+    title.name = "Title";
+    title.text_content = "Title that fits one line";
+    title.style.width = 284.0f;
+    title.style.height = 22.0f;        // one line at 18px
+    title.style.font_size = 18.0f;
+    title.style.font_weight = 600;
+    ir.root.children.push_back(title);
+
+    CodeGenOptions opts;
+    opts.mode = CodeGenMode::bridge_native_js;
+    const auto js = generate_pulp_js(ir, opts);
+
+    // Subtitle: bounded width + multi-line so it wraps.
+    REQUIRE(js.find("setFlex('Subtitle") != std::string::npos);
+    REQUIRE(js.find("'width', 720") != std::string::npos);
+    REQUIRE(js.find("setMultiLine('Subtitle") != std::string::npos);
+
+    // Title: NO hard width / multi-line box (stays single line). It still gets a
+    // min_width, but must not be forced into a wrap box.
+    REQUIRE(js.find("setMultiLine('Title") == std::string::npos);
+    REQUIRE(js.find("'width', 284") == std::string::npos);
+}
+
+TEST_CASE("native codegen emits font weight and family for text (issue-3192)",
+          "[view][import][issue-3192]") {
+    DesignIR ir;
+    ir.source = DesignSource::figma;
+    ir.root.type = "frame";
+    ir.root.name = "Panel";
+
+    IRNode title;
+    title.type = "text";
+    title.name = "Title";
+    title.text_content = "Bold Inter Title";
+    title.style.font_size = 18.0f;
+    title.style.font_weight = 600;
+    title.style.font_family = "Inter";
+    ir.root.children.push_back(title);
+
+    CodeGenOptions opts;
+    opts.mode = CodeGenMode::bridge_native_js;
+    const auto js = generate_pulp_js(ir, opts);
+
+    REQUIRE(js.find("setFontWeight('Title") != std::string::npos);
+    REQUIRE(js.find("'600'") != std::string::npos);
+    REQUIRE(js.find("setFontFamily('Title") != std::string::npos);
+    REQUIRE(js.find("'Inter'") != std::string::npos);
+}
+
+TEST_CASE("native codegen log-tapers a Hz-unit knob's initial value (issue-3192)",
+          "[view][import][issue-3192]") {
+    // A frequency knob's value→angle map is logarithmic. The native silver knob
+    // maps a 0..1 value linearly to its sweep, so the imported value must be the
+    // LOG-normalised position — 880 Hz in [20, 20000] lands near centre (~0.55),
+    // not at the far end (a raw 880 would clamp to 1.0) and not at the linear
+    // position (~0.04, indicator pointing the wrong way).
+    DesignIR ir;
+    ir.source = DesignSource::figma;
+    ir.root.type = "frame";
+    ir.root.name = "Panel";
+
+    IRNode knob;
+    knob.type = "knob";
+    knob.name = "Cutoff";
+    knob.audio_widget = AudioWidgetType::knob;
+    knob.audio_label = "Cutoff";
+    knob.audio_min = 20.0f;
+    knob.audio_max = 20000.0f;
+    knob.audio_default = 880.0f;
+    knob.attributes["units"] = "Hz";
+    ir.root.children.push_back(knob);
+
+    CodeGenOptions opts;
+    opts.mode = CodeGenMode::bridge_native_js;
+    const auto js = generate_pulp_js(ir, opts);
+
+    // Compute the expected log-normalised value and assert the emitted setValue
+    // matches it (and is nowhere near the raw 880 or the linear ~0.04).
+    const float expected =
+        (std::log(880.0f) - std::log(20.0f)) / (std::log(20000.0f) - std::log(20.0f));
+    REQUIRE(expected == Catch::Approx(0.5478f).margin(0.01f));
+    // The emitted value should be the log position, not the raw value. Only one
+    // knob exists, so a "setValue('Cutoff" prefix uniquely identifies it.
+    REQUIRE(js.find("setValue('Cutoff") != std::string::npos);
+    REQUIRE(js.find("', 880") == std::string::npos);
+    REQUIRE(js.find("', 0.54") != std::string::npos);
+}
+
+TEST_CASE("native codegen uses linear taper for non-frequency knobs (issue-3192)",
+          "[view][import][issue-3192]") {
+    DesignIR ir;
+    ir.source = DesignSource::figma;
+    ir.root.type = "frame";
+    ir.root.name = "Panel";
+
+    IRNode knob;
+    knob.type = "knob";
+    knob.name = "Drive";
+    knob.audio_widget = AudioWidgetType::knob;
+    knob.audio_label = "Drive";
+    knob.audio_min = 0.0f;
+    knob.audio_max = 10.0f;
+    knob.audio_default = 5.0f;        // linear midpoint → 0.5
+    knob.attributes["units"] = "dB";
+    ir.root.children.push_back(knob);
+
+    CodeGenOptions opts;
+    opts.mode = CodeGenMode::bridge_native_js;
+    const auto js = generate_pulp_js(ir, opts);
+
+    REQUIRE(js.find("setValue('Drive") != std::string::npos);
+    REQUIRE(js.find("', 0.5)") != std::string::npos);
 }
 
 TEST_CASE("generate_pulp_js web-compat mode handles audio widgets", "[view][import]") {
@@ -3046,6 +3327,154 @@ TEST_CASE("parse_figma_plugin_json maps Phase 5 Pulp / Meter envelope onto IR wi
     REQUIRE(ir.root.audio_default == Catch::Approx(-12.0f));
     REQUIRE(ir.root.attributes.at("units") == "dB");
     REQUIRE(ir.root.attributes.at("binding") == "meter.out_l");
+}
+
+// ── pulp #3191: codegen emits derived skin setters for fader/meter ──────────
+
+TEST_CASE("Codegen emits setFaderSkin from derived skin attributes",
+          "[view][import][issue-3191]") {
+    DesignIR ir;
+    ir.root.type = "frame";
+    ir.root.name = "root";
+    ir.root.style.width = 200;
+    ir.root.style.height = 300;
+
+    IRNode fader;
+    fader.type = "frame";
+    fader.name = "Fader — Master";
+    fader.audio_widget = AudioWidgetType::fader;
+    fader.audio_min = -60.0f;
+    fader.audio_max = 6.0f;
+    fader.audio_default = 0.0f;  // 0 dB → normalized ≈ 0.909
+    fader.style.width = 96;
+    fader.style.height = 230;
+    // Stamped by the importer's PNG sampler (here supplied directly).
+    fader.attributes["skin_track_color"] = "#1f2129";
+    fader.attributes["skin_fill_color"] = "#3677cf";
+    fader.attributes["skin_thumb_color"] = "#eaeaf0";
+    fader.attributes["skin_thumb_border_color"] = "#69696f";
+    ir.root.children.push_back(fader);
+
+    CodeGenOptions opts;
+    opts.skin_faders = true;
+    std::string js = generate_pulp_js(ir, opts);
+
+    REQUIRE(js.find("setFaderSkin(") != std::string::npos);
+    REQUIRE(js.find("'#1f2129'") != std::string::npos);
+    REQUIRE(js.find("'#3677cf'") != std::string::npos);
+    // The captured value is normalised into [0,1] (≈0.909), not emitted raw.
+    REQUIRE(js.find("setValue(") != std::string::npos);
+    REQUIRE(js.find("setValue('Fader__Master2', 0)") == std::string::npos);
+
+    // Opt-out: --fader-style=default suppresses the skin call.
+    CodeGenOptions plain;
+    plain.skin_faders = false;
+    std::string plain_js = generate_pulp_js(ir, plain);
+    REQUIRE(plain_js.find("setFaderSkin(") == std::string::npos);
+}
+
+TEST_CASE("Codegen emits setMeterColors + normalized level from derived skin",
+          "[view][import][issue-3191]") {
+    DesignIR ir;
+    ir.root.type = "frame";
+    ir.root.name = "root";
+    ir.root.style.width = 200;
+    ir.root.style.height = 300;
+
+    IRNode meter;
+    meter.type = "frame";
+    meter.name = "Meter — Out L";
+    meter.audio_widget = AudioWidgetType::meter;
+    meter.audio_min = -60.0f;
+    meter.audio_max = 0.0f;
+    meter.audio_default = -6.0f;  // → normalized 0.9
+    meter.style.width = 69;
+    meter.style.height = 228;
+    meter.attributes["skin_meter_gradient"] = "#33a74d,#ffab33,#ff6b66";
+    meter.attributes["skin_meter_background"] = "#0f1217";
+    ir.root.children.push_back(meter);
+
+    CodeGenOptions opts;
+    opts.skin_meters = true;
+    std::string js = generate_pulp_js(ir, opts);
+
+    REQUIRE(js.find("setMeterColors(") != std::string::npos);
+    REQUIRE(js.find("#33a74d,#ffab33,#ff6b66") != std::string::npos);
+    // Level normalised to 0.9, not emitted as a raw dB value.
+    REQUIRE(js.find("setMeterLevel(") != std::string::npos);
+    REQUIRE(js.find("0.9") != std::string::npos);
+
+    CodeGenOptions plain;
+    plain.skin_meters = false;
+    std::string plain_js = generate_pulp_js(ir, plain);
+    REQUIRE(plain_js.find("setMeterColors(") == std::string::npos);
+}
+
+// ── pulp #3191 width fix: derived narrow widths flow to render ───────────────
+
+TEST_CASE("Codegen renders fader at derived thumb width + emits thin track width",
+          "[view][import][issue-3191]") {
+    DesignIR ir;
+    ir.root.type = "frame";
+    ir.root.name = "root";
+    ir.root.style.width = 200;
+    ir.root.style.height = 300;
+
+    IRNode fader;
+    fader.type = "frame";
+    fader.name = "Fader — Master";
+    fader.audio_widget = AudioWidgetType::fader;
+    fader.audio_min = -60.0f;
+    fader.audio_max = 6.0f;
+    fader.audio_default = 0.0f;
+    fader.style.width = 96;     // node box
+    fader.style.height = 230;
+    // Stamped by the sampler: thumb slab width (→ shape_width / widget width)
+    // and the thin track width (→ setFaderTrackWidth).
+    fader.attributes["shape_width"] = "28";
+    fader.attributes["skin_track_width"] = "5";
+    ir.root.children.push_back(fader);
+
+    CodeGenOptions opts;
+    opts.skin_faders = true;
+    std::string js = generate_pulp_js(ir, opts);
+
+    // The fader WIDGET renders at the narrow thumb width (28), while the column
+    // keeps the box width (96) so the narrow widget centres in its slot.
+    REQUIRE(js.find("setFlex('Fader__Master0', 'width', 28)") != std::string::npos);
+    REQUIRE(js.find("setFlex('Fader__Master0_col', 'min_width', 96)") != std::string::npos);
+    // The thin track width flows through to the render path.
+    REQUIRE(js.find("setFaderTrackWidth('Fader__Master0', 5)") != std::string::npos);
+}
+
+TEST_CASE("Codegen renders meter at derived narrow bar width, centred in column",
+          "[view][import][issue-3191]") {
+    DesignIR ir;
+    ir.root.type = "frame";
+    ir.root.name = "root";
+    ir.root.style.width = 200;
+    ir.root.style.height = 300;
+
+    IRNode meter;
+    meter.type = "frame";
+    meter.name = "Meter — Out L";
+    meter.audio_widget = AudioWidgetType::meter;
+    meter.audio_min = -60.0f;
+    meter.audio_max = 0.0f;
+    meter.audio_default = -6.0f;
+    meter.style.width = 69;     // node box
+    meter.style.height = 228;
+    meter.attributes["shape_width"] = "18";  // derived narrow bar width
+    ir.root.children.push_back(meter);
+
+    CodeGenOptions opts;
+    opts.skin_meters = true;
+    std::string js = generate_pulp_js(ir, opts);
+
+    // The meter renders at the narrow bar width (18), centred via the column
+    // which keeps the box width (69) as its min_width.
+    REQUIRE(js.find("setFlex('Meter__Out_L0', 'width', 18)") != std::string::npos);
+    REQUIRE(js.find("setFlex('Meter__Out_L0_col', 'min_width', 69)") != std::string::npos);
 }
 
 // ──────────────────────────────────────────────────────────────────────────

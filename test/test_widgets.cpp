@@ -2,6 +2,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <pulp/view/widgets.hpp>
+#include <pulp/view/widget_skin_derive.hpp>
 #include <pulp/view/window_host.hpp>
 #include <pulp/canvas/canvas.hpp>
 
@@ -135,6 +136,609 @@ TEST_CASE("Fader renders track and thumb", "[view][widget]") {
     REQUIRE(canvas.count(DrawCommand::Type::fill_rounded_rect) == 2);
     REQUIRE(canvas.count(DrawCommand::Type::fill_circle) == 1);
     REQUIRE(canvas.count(DrawCommand::Type::fill_text) >= 1);
+}
+
+// ── pulp #3191: hybrid skinned fader/meter ──────────────────────────────────
+
+TEST_CASE("Skinned Fader draws a value-positioned rounded-rect thumb",
+          "[view][widget][issue-3191]") {
+    Fader fader;
+    fader.set_bounds({0, 0, 96, 200});
+    fader.set_skin_track_color(Color::rgba8(0x1f, 0x21, 0x29));
+    fader.set_skin_fill_color(Color::rgba8(0x36, 0x77, 0xcf));
+    fader.set_skin_thumb_color(Color::rgba8(0xea, 0xea, 0xf0));
+    REQUIRE(fader.has_skin());
+
+    // A skinned fader draws procedurally (track + fill + slab thumb), NOT a
+    // baked sprite image — so the thumb still moves with value.
+    auto thumb_y = [&](float v) {
+        fader.set_value(v);
+        RecordingCanvas c;
+        fader.paint(c);
+        // No sprite image baked in.
+        REQUIRE(c.count(DrawCommand::Type::draw_image) == 0);
+        // track + fill + thumb slab = 3 rounded rects (no circle thumb).
+        REQUIRE(c.count(DrawCommand::Type::fill_rounded_rect) == 3);
+        REQUIRE(c.count(DrawCommand::Type::fill_circle) == 0);
+        // The thumb is the LAST rounded rect (drawn after track+fill).
+        auto rects = commands_of(c, DrawCommand::Type::fill_rounded_rect);
+        return rects.back().f[1];  // y of the thumb slab
+    };
+
+    // Vertical fader: value 0 → thumb at the BOTTOM (high y),
+    // value 1 → thumb at the TOP (low y). The thumb must MOVE.
+    float y_low = thumb_y(0.0f);
+    float y_mid = thumb_y(0.5f);
+    float y_high = thumb_y(1.0f);
+    REQUIRE(y_low > y_mid);
+    REQUIRE(y_mid > y_high);
+}
+
+TEST_CASE("Skinned Fader thumb border emits a stroked rect",
+          "[view][widget][issue-3191]") {
+    Fader fader;
+    fader.set_bounds({0, 0, 96, 200});
+    fader.set_skin_thumb_color(Color::rgba8(0xea, 0xea, 0xf0));
+    fader.set_skin_thumb_border_color(Color::rgba8(0x69, 0x69, 0x6f));
+    fader.set_value(0.5f);
+
+    RecordingCanvas c;
+    fader.paint(c);
+    REQUIRE(c.count(DrawCommand::Type::stroke_rounded_rect) == 1);
+}
+
+TEST_CASE("Skinned Fader strokes the empty track when a track border is set",
+          "[view][widget][issue-3192]") {
+    // pulp #3192 — the captured empty track has a visible lighter outline. When
+    // the importer derives that edge colour, the fader strokes the track rect so
+    // the empty channel above the thumb doesn't read as a flat dark slab.
+    Fader fader;
+    fader.set_bounds({0, 0, 96, 200});
+    fader.set_skin_track_color(Color::rgba8(0x1f, 0x21, 0x29));
+    fader.set_skin_track_border_color(Color::rgba8(0x3d, 0x3f, 0x47));
+    fader.set_value(0.5f);
+    REQUIRE(fader.has_skin_track_border_color());
+
+    RecordingCanvas c;
+    fader.paint(c);
+    // Exactly one stroked rect: the track outline (no thumb border set here).
+    REQUIRE(c.count(DrawCommand::Type::stroke_rounded_rect) == 1);
+}
+
+TEST_CASE("Skinned Fader with both track and thumb borders strokes twice",
+          "[view][widget][issue-3192]") {
+    Fader fader;
+    fader.set_bounds({0, 0, 96, 200});
+    fader.set_skin_track_color(Color::rgba8(0x1f, 0x21, 0x29));
+    fader.set_skin_track_border_color(Color::rgba8(0x3d, 0x3f, 0x47));
+    fader.set_skin_thumb_color(Color::rgba8(0xea, 0xea, 0xf0));
+    fader.set_skin_thumb_border_color(Color::rgba8(0x69, 0x69, 0x6f));
+    fader.set_value(0.5f);
+
+    RecordingCanvas c;
+    fader.paint(c);
+    // Track outline + thumb bevel.
+    REQUIRE(c.count(DrawCommand::Type::stroke_rounded_rect) == 2);
+}
+
+TEST_CASE("derive_fader_skin synthesises a lighter rim for a dark flat track",
+          "[view][widget][issue-3192]") {
+    // The captured empty track is dark; the design draws a faint lighter edge so
+    // it doesn't read as a flat slab. When the (flat) sampled pixels can't
+    // resolve a distinct edge, the sampler synthesises a rim by lightening the
+    // dark track colour — still derived from the captured track, no hardcode.
+    const int W = 30, H = 100;
+    std::vector<uint8_t> px(static_cast<size_t>(W) * H * 4, 0);
+    auto set = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+        uint8_t* p = px.data() + (static_cast<size_t>(y) * W + x) * 4;
+        p[0] = r; p[1] = g; p[2] = b; p[3] = 255;
+    };
+    for (int y = 10; y < 80; ++y)
+        for (int x = 0; x < W; ++x) {
+            if (y >= 40 && y < 48) set(x, y, 234, 234, 240);   // silver thumb
+            else if (y >= 55) set(x, y, 54, 119, 207);          // blue fill
+            else set(x, y, 31, 33, 41);                          // dark track
+        }
+    SkinImage img{px.data(), W, H};
+    auto skin = derive_fader_skin(img);
+    REQUIRE(skin.has_track);
+    REQUIRE(skin.has_track_border);
+    // The rim must be lighter than the dark track fill, but still dark-ish (a
+    // subtle edge, not a second fill).
+    REQUIRE(skin.track_border_color.r > skin.track_color.r);
+    REQUIRE(skin.track_border_color.r < 0.5f);
+}
+
+TEST_CASE("derive_fader_skin leaves a light/flat track borderless",
+          "[view][widget][issue-3192]") {
+    // A light track has no dark channel to outline → no synthesised rim.
+    const int W = 30, H = 100;
+    std::vector<uint8_t> px(static_cast<size_t>(W) * H * 4, 0);
+    auto set = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+        uint8_t* p = px.data() + (static_cast<size_t>(y) * W + x) * 4;
+        p[0] = r; p[1] = g; p[2] = b; p[3] = 255;
+    };
+    for (int y = 10; y < 80; ++y)
+        for (int x = 0; x < W; ++x) {
+            if (y >= 40 && y < 48) set(x, y, 250, 250, 252);   // bright thumb
+            else if (y >= 55) set(x, y, 54, 119, 207);          // blue fill
+            else set(x, y, 170, 173, 180);                       // LIGHT track
+        }
+    SkinImage img{px.data(), W, H};
+    auto skin = derive_fader_skin(img);
+    REQUIRE(skin.has_track);
+    REQUIRE_FALSE(skin.has_track_border);
+}
+
+TEST_CASE("Skinned Meter clips its gradient fill to the level",
+          "[view][widget][issue-3191]") {
+    Meter meter;
+    meter.set_bounds({0, 0, 40, 200});
+    meter.set_skin_background_color(Color::rgba8(0x0f, 0x12, 0x17));
+    meter.set_skin_gradient({
+        Color::rgba8(0x33, 0xa7, 0x4d),  // low  (green)
+        Color::rgba8(0xff, 0xab, 0x33),  // mid  (orange)
+        Color::rgba8(0xff, 0x6b, 0x66),  // high (red)
+    });
+    REQUIRE(meter.has_skin_gradient());
+
+    auto fill_rows = [&](float level) {
+        meter.set_level(level, level);
+        RecordingCanvas c;
+        meter.paint(c);
+        // Each gradient row is a fill_rect; the count grows with the level.
+        return c.count(DrawCommand::Type::fill_rect);
+    };
+
+    size_t low = fill_rows(0.1f);
+    size_t mid = fill_rows(0.5f);
+    size_t high = fill_rows(0.9f);
+
+    // Value-driven: more level → more painted rows. Not a static image.
+    REQUIRE(low < mid);
+    REQUIRE(mid < high);
+    // Roughly proportional to the meter height (200px), within ballpark.
+    REQUIRE(high >= 150);
+}
+
+TEST_CASE("Skinned Meter gradient samples low→high across stops",
+          "[view][widget][issue-3191]") {
+    Meter meter;
+    meter.set_skin_gradient({
+        Color::rgba8(0, 255, 0),    // low
+        Color::rgba8(255, 0, 0),    // high
+    });
+    // Bottom of the bar is the low (green) stop; top is the high (red) stop.
+    auto lo = meter.gradient_color_at(0.0f);
+    auto hi = meter.gradient_color_at(1.0f);
+    auto mid = meter.gradient_color_at(0.5f);
+    REQUIRE_THAT(lo.g, WithinAbs(1.0, 0.01));
+    REQUIRE_THAT(hi.r, WithinAbs(1.0, 0.01));
+    // Midpoint is an even blend.
+    REQUIRE_THAT(mid.r, WithinAbs(0.5, 0.02));
+    REQUIRE_THAT(mid.g, WithinAbs(0.5, 0.02));
+}
+
+TEST_CASE("derive_meter_skin samples a synthetic gradient bottom→top",
+          "[view][widget][issue-3191]") {
+    // Build a 20-wide x 100-tall RGBA image: transparent margins top/bottom,
+    // a dark "empty channel" near the top of the art, then a green→red fill
+    // from the bottom. Mirrors the captured meter PNG's structure.
+    const int W = 20, H = 100;
+    std::vector<uint8_t> px(static_cast<size_t>(W) * H * 4, 0);  // all transparent
+    auto set = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+        uint8_t* p = px.data() + (static_cast<size_t>(y) * W + x) * 4;
+        p[0] = r; p[1] = g; p[2] = b; p[3] = 255;
+    };
+    // Art region rows 10..80 (opaque). 10..30 dark channel, 30..80 gradient.
+    for (int y = 10; y < 80; ++y)
+        for (int x = 0; x < W; ++x) {
+            if (y < 30) set(x, y, 15, 18, 23);  // dark empty
+            else {
+                // bottom (y=79) green → top of fill (y=30) red
+                float t = static_cast<float>(y - 30) / (79 - 30);  // 0 at top fill, 1 at bottom
+                uint8_t r = static_cast<uint8_t>((1.0f - t) * 255);
+                uint8_t g = static_cast<uint8_t>(t * 255);
+                set(x, y, r, g, 30);
+            }
+        }
+
+    SkinImage img{px.data(), W, H};
+    auto skin = derive_meter_skin(img, 5);
+    REQUIRE(skin.valid());
+    REQUIRE(skin.gradient.size() == 5);
+    // Low stop (bottom) is green-dominant; high stop (top) is red-dominant.
+    REQUIRE(skin.gradient.front().g > skin.gradient.front().r);
+    REQUIRE(skin.gradient.back().r > skin.gradient.back().g);
+    // Background recovered as the dark channel.
+    REQUIRE(skin.has_background);
+    REQUIRE(skin.background.r < 0.2f);
+}
+
+TEST_CASE("derive_fader_skin recovers track / fill / thumb colours",
+          "[view][widget][issue-3191]") {
+    const int W = 30, H = 100;
+    std::vector<uint8_t> px(static_cast<size_t>(W) * H * 4, 0);
+    auto set = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+        uint8_t* p = px.data() + (static_cast<size_t>(y) * W + x) * 4;
+        p[0] = r; p[1] = g; p[2] = b; p[3] = 255;
+    };
+    // Art rows 10..80. Dark track everywhere, a bright thumb slab at 40..48,
+    // and a saturated blue fill in the lower half.
+    for (int y = 10; y < 80; ++y)
+        for (int x = 0; x < W; ++x) {
+            if (y >= 40 && y < 48) set(x, y, 234, 234, 240);   // silver thumb
+            else if (y >= 55) set(x, y, 54, 119, 207);          // blue fill
+            else set(x, y, 31, 33, 41);                          // dark track
+        }
+
+    SkinImage img{px.data(), W, H};
+    auto skin = derive_fader_skin(img);
+    REQUIRE(skin.has_track);
+    REQUIRE(skin.has_thumb);
+    REQUIRE(skin.has_fill);
+    // Track is dark.
+    REQUIRE(skin.track_color.r < 0.2f);
+    // Thumb is bright.
+    REQUIRE(skin.thumb_color.r > 0.8f);
+    // Fill is blue-dominant.
+    REQUIRE(skin.fill_color.b > skin.fill_color.r);
+    REQUIRE(skin.fill_color.b > skin.fill_color.g);
+}
+
+TEST_CASE("derive_*_skin recovers horizontal art widths (pulp #3191 width fix)",
+          "[view][widget][issue-3191]") {
+    // The captured art's visible element is a NARROW inset region, not the full
+    // node box. The sampler must recover those horizontal extents from the
+    // pixels so the widget renders narrow + centred. We build synthetic images
+    // whose art is a known inset width and assert the recovered px.
+
+    SECTION("meter bar width from a narrow centred bar") {
+        // 40-wide box; the coloured bar is x=[14..25] (12 px) — a 30% inset,
+        // mirroring the captured meter's ~26%-of-box bar. Faint label glyphs
+        // below the bar must NOT widen the recovered bar width.
+        const int W = 40, H = 100;
+        std::vector<uint8_t> px(static_cast<size_t>(W) * H * 4, 0);
+        auto set = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+            uint8_t* p = px.data() + (static_cast<size_t>(y) * W + x) * 4;
+            p[0] = r; p[1] = g; p[2] = b; p[3] = 255;
+        };
+        // Bar: art rows 10..80, x in [14..25]; green→red bottom→top.
+        for (int y = 10; y < 80; ++y)
+            for (int x = 14; x <= 25; ++x) {
+                float t = static_cast<float>(y - 10) / (79 - 10);
+                set(x, y, static_cast<uint8_t>((1.0f - t) * 255),
+                          static_cast<uint8_t>(t * 255), 30);
+            }
+        // A WIDE faint label glyph row well below the bar (rows 88..90, full
+        // width). Must not be picked up as the bar (bar vertical region wins).
+        for (int y = 88; y < 91; ++y)
+            for (int x = 2; x < W - 2; ++x) set(x, y, 100, 100, 100);
+
+        SkinImage img{px.data(), W, H};
+        auto skin = derive_meter_skin(img, 5);
+        REQUIRE(skin.valid());
+        REQUIRE(skin.has_bar_width);
+        // Bar spans x=[14..25] → 12 px (not the 40-px box, not the wide label).
+        REQUIRE(skin.bar_width_px == Catch::Approx(12.0f).margin(1.0f));
+    }
+
+    SECTION("fader track width (thin) vs thumb width (wide slab)") {
+        // 60-wide box. Thin track x=[28..31] (4 px) over the whole art; a wide
+        // silver thumb slab x=[18..41] (24 px) at rows 40..48; a thin blue fill
+        // (same 4 px) in the lower half. The sampler must report the THUMB
+        // width as the widget width and the TRACK width as the thin line.
+        const int W = 60, H = 100;
+        std::vector<uint8_t> px(static_cast<size_t>(W) * H * 4, 0);
+        auto set = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+            uint8_t* p = px.data() + (static_cast<size_t>(y) * W + x) * 4;
+            p[0] = r; p[1] = g; p[2] = b; p[3] = 255;
+        };
+        for (int y = 10; y < 80; ++y) {
+            if (y >= 40 && y < 48) {
+                for (int x = 18; x <= 41; ++x) set(x, y, 234, 234, 240);  // thumb
+            } else if (y >= 55) {
+                for (int x = 28; x <= 31; ++x) set(x, y, 54, 119, 207);    // fill
+            } else {
+                for (int x = 28; x <= 31; ++x) set(x, y, 31, 33, 41);      // track
+            }
+        }
+        SkinImage img{px.data(), W, H};
+        auto skin = derive_fader_skin(img);
+        REQUIRE(skin.has_thumb_width);
+        REQUIRE(skin.has_track_width);
+        // Thumb slab spans x=[18..41] → 24 px.
+        REQUIRE(skin.thumb_width_px == Catch::Approx(24.0f).margin(1.0f));
+        // Track is the thin 4-px column, NOT the 24-px thumb or 60-px box.
+        REQUIRE(skin.track_width_px == Catch::Approx(4.0f).margin(1.0f));
+        // Thumb slab centred at y≈44 within art rows [10,80) → ~0.51 up the
+        // bar (1 = top, 0 = bottom). pulp #3191 position fix.
+        REQUIRE(skin.has_thumb_position);
+        REQUIRE(skin.thumb_position == Catch::Approx(0.51f).margin(0.1f));
+    }
+
+    SECTION("meter fill level from a partially-filled bar") {
+        // 40-wide box; gradient bar fills the BOTTOM ~70% of the art (rows
+        // 31..80 of art [10,80)) with dark/empty above — so fill_level ≈ 0.7,
+        // not the linear dB seed. pulp #3191 position fix.
+        const int W = 40, H = 100;
+        std::vector<uint8_t> px(static_cast<size_t>(W) * H * 4, 0);
+        auto set = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+            uint8_t* p = px.data() + (static_cast<size_t>(y) * W + x) * 4;
+            p[0] = r; p[1] = g; p[2] = b; p[3] = 255;
+        };
+        // Empty dark channel: art rows 10..30, the bar's inset column.
+        for (int y = 10; y < 31; ++y)
+            for (int x = 14; x <= 25; ++x) set(x, y, 18, 20, 24);
+        // Coloured fill: rows 31..80 (the bottom ~70%), green→red bottom→top.
+        for (int y = 31; y < 80; ++y)
+            for (int x = 14; x <= 25; ++x) {
+                float t = static_cast<float>(y - 31) / (79 - 31);
+                set(x, y, static_cast<uint8_t>((1.0f - t) * 255),
+                          static_cast<uint8_t>(t * 255), 30);
+            }
+        SkinImage img{px.data(), W, H};
+        auto skin = derive_meter_skin(img, 5);
+        REQUIRE(skin.has_fill_level);
+        REQUIRE(skin.fill_level == Catch::Approx(0.70f).margin(0.12f));
+    }
+}
+
+TEST_CASE("derive_meter_skin spans the full colour range (warm/red top stop)",
+          "[view][widget][issue-3191]") {
+    // The gradient must span the bar's FULL coloured extent — its top stop is
+    // the warm/red the capture shows, NOT a yellow-green clipped to the fill
+    // level. Build a meter whose colours run red(top)→orange→yellow→green(bottom)
+    // over the coloured fill, with a dark channel above. Mirrors the captured
+    // Pulp meter: red-orange (254,105,55) at the top of the fill.
+    const int W = 36, H = 120;
+    std::vector<uint8_t> px(static_cast<size_t>(W) * H * 4, 0);
+    auto set = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+        uint8_t* p = px.data() + (static_cast<size_t>(y) * W + x) * 4;
+        p[0] = r; p[1] = g; p[2] = b; p[3] = 255;
+    };
+    // Housing art rows 10..100, coloured bar x=[12..23]. Dark empty channel
+    // rows 10..34 (a hair under 30% of the housing), then the colour ramp
+    // red(top, y=35) → green(bottom, y=99).
+    for (int y = 10; y < 100; ++y)
+        for (int x = 12; x <= 23; ++x) {
+            if (y < 35) { set(x, y, 15, 18, 23); continue; }  // dark channel
+            float t = static_cast<float>(y - 35) / (99 - 35);  // 0 top, 1 bottom
+            // top: red-orange (254,105,55); bottom: green (60,200,90)
+            uint8_t r = static_cast<uint8_t>(254 + t * (60 - 254));
+            uint8_t g = static_cast<uint8_t>(105 + t * (200 - 105));
+            uint8_t b = static_cast<uint8_t>(55 + t * (90 - 55));
+            set(x, y, r, g, b);
+        }
+    SkinImage img{px.data(), W, H};
+    auto skin = derive_meter_skin(img, 5);
+    REQUIRE(skin.valid());
+    REQUIRE(skin.gradient.size() == 5);
+    // TOP stop (last, high) is the warm/red — r clearly the strongest channel
+    // and meaningfully warm, NOT a yellow-green (which would have g ≈ r).
+    const auto& top = skin.gradient.back();
+    REQUIRE(top.r > top.g);
+    REQUIRE(top.r > top.b);
+    REQUIRE(top.r > 0.7f);          // red-dominant, ~254
+    REQUIRE(top.g < 0.75f);         // not yellow (g would be ≈ r for yellow)
+    // BOTTOM stop (first, low) is green-dominant.
+    REQUIRE(skin.gradient.front().g > skin.gradient.front().r);
+}
+
+TEST_CASE("Skinned Meter renders the warm top stop at the top of the fill",
+          "[view][widget][issue-3191]") {
+    // The gradient maps across the FILL region (not absolute meter height), so
+    // a partial fill still shows the warm/red TOP stop at the top of the fill —
+    // matching the capture. With the old absolute-height mapping a 50% fill only
+    // exposed the lower (green) half of the gradient. We sample the painted rows
+    // and assert the topmost filled row is the red stop.
+    Meter meter;
+    meter.set_bounds({0, 0, 40, 200});
+    meter.set_skin_gradient({
+        Color::rgba8(0, 200, 0),    // low  (green)
+        Color::rgba8(255, 0, 0),    // high (red)
+    });
+    meter.set_level(0.5f, 0.5f);  // half full
+    RecordingCanvas rc;
+    meter.paint(rc);
+    // Filled rows are fill_rect commands; the FIRST one painted is the topmost
+    // row of the fill (paint walks top→bottom of the fill region). fill_rect
+    // carries no colour — the active colour is the most recent set_fill_color
+    // command before it. Find the first fill_rect and the colour in effect.
+    const auto& cmds = rc.commands();
+    Color top_color{};
+    Color active{};
+    bool found = false;
+    for (const auto& c : cmds) {
+        if (c.type == DrawCommand::Type::set_fill_color) active = c.color;
+        else if (c.type == DrawCommand::Type::fill_rect) { top_color = active; found = true; break; }
+    }
+    REQUIRE(found);
+    // The topmost filled row must be the red TOP stop (r >> g), NOT the green
+    // bottom stop — proving the gradient maps across the fill region.
+    REQUIRE(top_color.r > 0.6f);
+    REQUIRE(top_color.r > top_color.g + 0.3f);
+}
+
+TEST_CASE("derive_*_skin recovers the control housing height (excludes value stack)",
+          "[view][widget][issue-3191]") {
+    // The captured PNG bakes the value-stack text below the control, so the
+    // node's declared height spans control+labels. The sampler must recover the
+    // real CONTROL housing height (the tallest opaque art run) so the importer
+    // doesn't stretch the widget to ~2× tall. Build a tall image whose control
+    // art occupies the top portion and a gapped label glyph run sits below.
+    const int W = 36, H = 200;
+    std::vector<uint8_t> px(static_cast<size_t>(W) * H * 4, 0);
+    auto set = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+        uint8_t* p = px.data() + (static_cast<size_t>(y) * W + x) * 4;
+        p[0] = r; p[1] = g; p[2] = b; p[3] = 255;
+    };
+    SECTION("meter housing height") {
+        // Control housing: rows 10..110 (height 100). Dark channel 10..40, then
+        // green→red fill 40..110, bar x=[12..23].
+        for (int y = 10; y < 110; ++y)
+            for (int x = 12; x <= 23; ++x) {
+                if (y < 40) set(x, y, 15, 18, 23);
+                else {
+                    float t = static_cast<float>(y - 40) / (109 - 40);
+                    set(x, y, static_cast<uint8_t>((1 - t) * 254 + t * 60),
+                              static_cast<uint8_t>(t * 200 + (1 - t) * 105), 55);
+                }
+            }
+        // Value-stack glyph runs WELL BELOW the housing (gapped), rows 130..140.
+        for (int y = 130; y < 141; ++y)
+            for (int x = 14; x < 22; ++x) set(x, y, 90, 90, 100);
+        SkinImage img{px.data(), W, H};
+        auto skin = derive_meter_skin(img, 5);
+        REQUIRE(skin.has_housing_height);
+        // Housing is the 100-px control run, NOT the 200-px box.
+        REQUIRE(skin.housing_height_px == Catch::Approx(100.0f).margin(3.0f));
+    }
+    SECTION("fader housing height") {
+        // Control housing: rows 10..110. Dark track everywhere, a thumb slab at
+        // 50..58, blue fill below 70.
+        for (int y = 10; y < 110; ++y)
+            for (int x = 12; x <= 23; ++x) {
+                if (y >= 50 && y < 58) set(x, y, 234, 234, 240);
+                else if (y >= 70) set(x, y, 90, 150, 230);
+                else set(x, y, 31, 33, 41);
+            }
+        for (int y = 130; y < 141; ++y)
+            for (int x = 14; x < 22; ++x) set(x, y, 90, 90, 100);
+        SkinImage img{px.data(), W, H};
+        auto skin = derive_fader_skin(img);
+        REQUIRE(skin.has_housing_height);
+        REQUIRE(skin.housing_height_px == Catch::Approx(100.0f).margin(3.0f));
+    }
+}
+
+TEST_CASE("derive_meter_skin recovers the coloured-bar/housing width ratio",
+          "[view][widget][issue-3191]") {
+    // The coloured fill is recessed inside a WIDER dark housing slot. The
+    // sampler reports housing width as bar_width_px and the colored-bar/housing
+    // ratio as bar_fill_ratio (<1 when recessed). Build a 24-wide dark housing
+    // with a 12-wide coloured bar inset inside it.
+    const int W = 40, H = 120;
+    std::vector<uint8_t> px(static_cast<size_t>(W) * H * 4, 0);
+    auto set = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+        uint8_t* p = px.data() + (static_cast<size_t>(y) * W + x) * 4;
+        p[0] = r; p[1] = g; p[2] = b; p[3] = 255;
+    };
+    // Housing rows 10..100, x=[8..31] (24 px) dark. Coloured bar x=[14..25]
+    // (12 px) over the bottom ~70% (rows 35..100), dark channel above.
+    for (int y = 10; y < 100; ++y) {
+        for (int x = 8; x <= 31; ++x) set(x, y, 18, 20, 24);  // dark housing
+        if (y >= 35)
+            for (int x = 14; x <= 25; ++x) {
+                float t = static_cast<float>(y - 35) / (99 - 35);
+                set(x, y, static_cast<uint8_t>((1 - t) * 254 + t * 60),
+                          static_cast<uint8_t>(t * 200 + (1 - t) * 105), 55);
+            }
+    }
+    SkinImage img{px.data(), W, H};
+    auto skin = derive_meter_skin(img, 5);
+    REQUIRE(skin.has_bar_width);
+    // Housing width is the full 24-px slot.
+    REQUIRE(skin.bar_width_px == Catch::Approx(24.0f).margin(2.0f));
+    REQUIRE(skin.has_bar_fill_ratio);
+    // Coloured bar (12) / housing (24) = 0.5.
+    REQUIRE(skin.bar_fill_ratio == Catch::Approx(0.5f).margin(0.12f));
+}
+
+TEST_CASE("derive_fader_skin fill colour is the dominant mid tone, not the most-saturated stop",
+          "[view][widget][issue-3191]") {
+    // The fill is a vertical gradient (lighter at the thumb, darker/most-
+    // saturated at the bottom). The derived fill colour must be the dominant
+    // MID tone, not the single deepest/most-saturated bottom pixel (which over-
+    // saturates vs the reference palette). Build a blue gradient fill: light
+    // (101,174,243) at top → deep (54,119,207) at bottom; the median should land
+    // near the mid blue, not the deepest stop.
+    const int W = 30, H = 120;
+    std::vector<uint8_t> px(static_cast<size_t>(W) * H * 4, 0);
+    auto set = [&](int x, int y, uint8_t r, uint8_t g, uint8_t b) {
+        uint8_t* p = px.data() + (static_cast<size_t>(y) * W + x) * 4;
+        p[0] = r; p[1] = g; p[2] = b; p[3] = 255;
+    };
+    // Dark track 10..40, then blue gradient fill 40..100.
+    for (int y = 10; y < 100; ++y)
+        for (int x = 12; x <= 17; ++x) {
+            if (y < 40) set(x, y, 31, 33, 41);
+            else {
+                float t = static_cast<float>(y - 40) / (99 - 40);  // 0 top, 1 bottom
+                set(x, y, static_cast<uint8_t>(101 + t * (54 - 101)),
+                          static_cast<uint8_t>(174 + t * (119 - 174)),
+                          static_cast<uint8_t>(243 + t * (207 - 243)));
+            }
+        }
+    SkinImage img{px.data(), W, H};
+    auto skin = derive_fader_skin(img);
+    REQUIRE(skin.has_fill);
+    // Blue-dominant.
+    REQUIRE(skin.fill_color.b > skin.fill_color.r);
+    // The derived blue is the dominant MID tone (~(78,147,225)), NOT the deepest
+    // bottom stop (54,119,207). Red channel sits above the deepest stop's 54/255.
+    REQUIRE(skin.fill_color.r > (54.0f / 255.0f) + 0.02f);
+    REQUIRE(skin.fill_color.r < (101.0f / 255.0f));  // below the lightest too
+}
+
+TEST_CASE("Skinned Fader honours derived thin track width (pulp #3191)",
+          "[view][widget][issue-3191]") {
+    // A skinned fader whose widget box was sized to the captured thumb width
+    // must draw its TRACK at the derived thin width (centred), not a fraction
+    // of the widget box. We render into a RecordingCanvas and assert the track
+    // rect spans ~the derived width, far narrower than the box.
+    Fader fader;
+    // Box is deliberately WIDE (60 px) so the old skinned heuristic
+    // (0.18*box → ~11 px, clamped) would visibly differ from the derived
+    // 5-px track. Honour-the-derived-width is the behaviour under test.
+    fader.set_bounds({0, 0, 60, 200});
+    fader.set_value(0.5f);
+    fader.set_skin_track_color(Color::rgba8(31, 33, 41));
+    fader.set_skin_thumb_color(Color::rgba8(234, 234, 240));
+    fader.set_skin_track_width(5.0f);       // derived thin track
+    REQUIRE(fader.has_skin());
+    REQUIRE(fader.has_skin_track_width());
+
+    RecordingCanvas rc;
+    fader.paint(rc);
+    // Rect geometry is in f[0..3] = x, y, w, h. The track is the FIRST
+    // full-height rounded rect (drawn before fill + thumb). Assert it is the
+    // derived thin width (~5 px) and centred — NOT a fraction of the 28-px box
+    // (the old skinned heuristic would have drawn 28*0.18 ≈ 5 here by accident,
+    // so make the box wide enough that 0.18*box would clearly differ).
+    auto rects = commands_of(rc, DrawCommand::Type::fill_rounded_rect);
+    bool found_thin_track = false;
+    for (const auto& r : rects) {
+        if (r.f[3] >= 180.0f) {  // full-height → the track
+            found_thin_track = true;
+            REQUIRE(r.f[2] == Catch::Approx(5.0f).margin(1.5f));            // width
+            REQUIRE(r.f[0] == Catch::Approx((60.0f - 5.0f) * 0.5f).margin(1.5f));  // centred x
+            break;
+        }
+    }
+    REQUIRE(found_thin_track);
+}
+
+TEST_CASE("Unskinned Fader/Meter keep their default look (back-compat)",
+          "[view][widget][issue-3191]") {
+    // Fader: no skin → circular thumb + 2 rounded rects (unchanged).
+    Fader fader;
+    fader.set_bounds({0, 0, 24, 200});
+    fader.set_value(0.6f);
+    REQUIRE_FALSE(fader.has_skin());
+    RecordingCanvas fc;
+    fader.paint(fc);
+    REQUIRE(fc.count(DrawCommand::Type::fill_circle) == 1);
+    REQUIRE(fc.count(DrawCommand::Type::fill_rounded_rect) == 2);
+
+    // Meter: no gradient → default threshold path (rounded-rect bg + rect fill).
+    Meter meter;
+    meter.set_bounds({0, 0, 40, 200});
+    meter.set_level(0.5f, 0.5f);
+    REQUIRE_FALSE(meter.has_skin_gradient());
+    RecordingCanvas mc;
+    meter.paint(mc);
+    REQUIRE(mc.count(DrawCommand::Type::fill_rounded_rect) == 1);  // bg
 }
 
 TEST_CASE("Fader horizontal orientation", "[view][widget]") {

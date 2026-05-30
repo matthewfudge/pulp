@@ -216,6 +216,89 @@ mind when touching this:
 - **This is a generalizable importer rule**, not a per-fixture patch: it reads
   the figma-plugin data and produces the contract for ANY recognized widget.
 
+### Skinned fader/meter WIDTH derivation (pulp #3191)
+
+Recognized faders/meters must render their track/fill/bar at the captured art's
+NARROW inset width, not the full node box. The sampler in
+`core/view/src/widget_skin_derive.cpp` recovers horizontal extents from the
+captured PNG pixels (`row_art_bounds` scans opaque pixels OUTWARD from the centre
+column `cx`, so disjoint label glyphs on the same row never widen the result):
+
+- **Meter:** `derive_meter_skin` reports `bar_width_px` = median opaque row width
+  inside the bar's OWN vertical region `[top, bottom)` (found via `find_art_region`
+  on `cx`). That excludes the label text below the bar.
+- **Fader:** `derive_fader_skin` reports `thumb_width_px` (widest opaque row = the
+  silver slab) and `track_width_px` (median of the NARROW rows ≤ ~40% of the
+  widest = the thin track/fill column).
+
+Gotchas learned wiring this:
+- The **widest row in the whole asset is usually the label text**, not the thumb.
+  `find_art_region`/`cx` scoping is what keeps the thumb measurement honest — do
+  not measure the widest row over the entire image.
+- `pulp_import_design.cpp` divides art px by `asset_scale = img.width /
+  node_box_width_px` (figma-plugin exports at 2×, but DERIVE it, don't hardcode
+  2). It stamps `shape_width` = thumb/bar width (→ widget width) and
+  `skin_track_width` (fader only). The column `min_width` keeps the box width so
+  the narrow widget centres.
+- Render path: meter codegen reads `shape_width` → widget width (already wired);
+  fader needs BOTH — `shape_width` → widget/thumb width AND `setFaderTrackWidth`
+  → `Fader::set_skin_track_width`, which makes `Fader::paint` draw the track at
+  exactly that thin centred width instead of `0.18 * box`.
+- **Verify by reference-diff, never by eyeball.** Measure visible-art width as a
+  % of the node box in BOTH the captured asset and the rendered PNG; target
+  within ~15%. For the smoke export the derived values were fader-track 5px
+  (5.2% box), fader-thumb 28px (29% box), meter-bar 18px (26% box), all matching
+  the reference within 3%.
+- Everything is derived from sampled pixels / node data — NO per-instance or
+  hardcoded pixel constants (repo rule: every visual importer fix must be a
+  generalizable rule reading the design data).
+
+### Native codegen fidelity gaps (pulp #3192)
+
+The render uses `generate_native_node` in `core/view/src/design_codegen.cpp`
+(createCol/createRow/createLabel/createKnob/setFlex…), NOT the `generate_node`
+DOM path. Several styles only existed on the DOM path; the native path needs its
+own emission. Fixes landed here, each grounded in the export data:
+
+- **Nested padding.** The figma-plugin export sends container padding as a nested
+  object `layout.padding = {top,right,bottom,left}`. `parse_ir_layout` in
+  `design_ir_json.cpp` only understood a uniform float / camelCase per-side keys,
+  so the nested form was dropped (→ 0, content hugged the edge). The parser now
+  accepts all three forms; the native container path already emitted per-side
+  `setFlex(id,'padding_*',…)`, so once parsed it renders.
+- **Text wrap.** A text node's `style.width` was emitted only as `min_width`, so a
+  long subtitle ran off the panel. Emit a hard `setFlex(id,'width',w)` +
+  `setMultiLine(id,true)` ONLY when the design box is taller than one line
+  (`height > font_size*1.6`) — that's the design's own signal that the string is a
+  wrapping paragraph. A one-line title (height ≈ one line) is deliberately NOT
+  bounded: forcing its hug-width as a wrap box makes it wrap when Pulp's font
+  metrics run a hair wider than Figma's.
+- **Knob value taper.** The native silver knob maps a 0..1 value LINEARLY to its
+  [-135°,+135°] sweep, so the imported value must already encode the param taper.
+  The knob path emitted the RAW `audio_default` (e.g. 880), which `set_value`
+  clamps to 1.0 (and a linear normalise put 880 Hz at ~0.04 — indicator pointing
+  the wrong way). Now: for a frequency-unit knob (`units` == hz/khz) use a LOG
+  normalise so 880 Hz in [20,20000] lands ~0.55 (indicator ~straight up, matching
+  the design); other units fall back to linear (value-min)/(max-min). The fader
+  already normalised; the knob was the outlier.
+- **font_weight/font_family** were ALREADY emitted on the native text path — no
+  fix needed; a regression test now pins them.
+- **Fader empty-track outline.** The captured empty track has a faint lighter
+  edge. `derive_fader_skin` first tries to RECOVER it (brightest low-sat pixel on
+  a dark track row vs the row-centre fill). **Gotcha:** the importer's in-tree
+  minimal PNG decoder (`decode_png_rgba` in `pulp_import_design.cpp`) FLATTENS the
+  sub-pixel anti-aliased rim — it reads the whole thin track column as uniform
+  fill, so the edge is unrecoverable from those pixels even though PIL sees it.
+  Fallback: SYNTHESISE the rim by lightening the sampled dark track colour
+  (`lum < 90` → `+30` per channel); a light/flat track stays borderless. Emitted
+  via `setFaderTrackBorder(id,'#rrggbb')` → `Fader::set_skin_track_border_color`,
+  which strokes the track rect in `Fader::paint`. Still derived from the captured
+  track colour — no hardcode.
+- **Knob bevel depth** (the silver knob reads more heavily 3D than the flatter
+  captured disc) is a `WidgetRenderStyle::silver` cosmetic gap, NOT data-driven —
+  left as a follow-up rather than guessing gradient constants that would affect
+  every imported knob.
+
 The Phase 5/7/9 benchmark harness lives at `pulp-design-import-bench` and is driven
 by `tools/scripts/design_import_benchmark.py`. Run it under no-launch env
 (`PULP_DISABLE_PLUGIN_EDITOR=1 PULP_HEADLESS=1 PULP_TEST_MODE=1
@@ -1508,7 +1591,18 @@ These three pieces, all checked in this branch, are the standard inner-loop for 
 
 **Per-node override — Figma name suffix `@sprite` / `@silver`.** A node named `Knob/Hero@sprite` forces sprite for that one knob regardless of the global flag. `Knob/Send@silver` forces silver. Lets a designer cherry-pick a hero knob to be pixel-exact while everything else uses the crisper vector path. Convention chosen to match Figma's own `Knob/State=hover` variant syntax and Mitosis / Penpot's `@target` code-hint convention.
 
-**Scope today (knob only)**: the codegen currently honours `@sprite` / `@silver` only on Knob nodes because sprite-strip rendering is only implemented for the Knob widget. The convention is intentionally GENERAL — naming `Fader/Hero@sprite` won't break anything but won't have a visible effect yet. Sprite-strip support for Fader / Meter / XYPad / Waveform / Spectrum is tracked as a follow-up enhancement; the `@sprite` convention will pick those widgets up automatically once each grows a sprite-strip path. **When a user asks for sprite on a fader, set expectation**: "the convention works for any widget but Fader sprite-strip support is a separate landing — for now Faders render native vector regardless of `@sprite`."
+**Scope today (knob `@sprite`/`@silver` only)**: the per-node `@sprite` / `@silver` name-suffix convention is honoured only on Knob nodes (sprite-strip rendering is knob-only). Naming `Fader/Hero@sprite` won't break anything but won't have a visible effect. XYPad / Waveform / Spectrum sprite-strip support is still a follow-up.
+
+### Fader + Meter hybrid skin — DERIVED, value-driven, default ON (pulp #3191)
+
+Recognised **fader** and **meter** widgets are skinned to match the captured Figma appearance by default, while staying native + bound + value-driven. This generalises the knob's skinning idea but takes a different route than the knob sprite-strip, because a fader/meter PNG bakes the control AT its captured value — skinning with the flat image verbatim would FREEZE the thumb / fill.
+
+- **How it works**: the import CLI's asset-resolution pass SAMPLES the captured PNG (via a minimal miniz-backed PNG→RGBA decoder in `pulp_import_design.cpp` — `AssetManager::decode_png` only stores raw bytes + IHDR dims, the real decode lives in Skia which isn't linked in the GPU-off importer build). `pulp::view::derive_fader_skin` / `derive_meter_skin` (`core/view/src/widget_skin_derive.cpp`) recover the fader's track/fill/thumb/border colours and the meter's gradient stops by locating the widget art (tallest opaque vertical run in the centre column) and classifying rows. The codegen emits `setFaderSkin(id, track, fill, thumb, border)` and `setMeterColors(id, bg, "#stop0,#stop1,...")`; the native `Fader`/`Meter` redraw those PROCEDURALLY so the thumb still moves with `setValue()` and the fill still tracks `setMeterLevel()`.
+- **No hardcoding**: every colour/stop is read from the exported pixels — there are no per-instance pixel offsets, Y-coords, or asset-name special-cases (per the repo "Figma-import fixes must generalize" rule).
+- **Opt-out**: `--fader-style=default` / `--meter-style=default` (aliases: `plain`) fall back to the plain native look; unskinned `createFader`/`createMeter` are unchanged (back-compat).
+- **Value normalisation**: the codegen normalises `audio_default` from `[audio_min, audio_max]` to 0..1 before `setValue`/`setMeterLevel` (a raw dB value like `-6` would clamp to 0 and mis-place the thumb / read empty).
+- **Gotcha — top-level `asset_ref`**: the figma-plugin lane stamps `asset_ref` as a TOP-LEVEL node member, not under `attributes`. The JSON parser now promotes it into `node.attributes["asset_ref"]` so asset resolution (and therefore both knob sprite + fader/meter skin) can find it. Before this, no widget in a figma-plugin export ever picked up its captured PNG.
+- **Honest limitations**: the derived track/fill is drawn at a fraction of the widget width (the captured fader track is a thin line; the meter fill spans the full bar where the capture is slightly inset), and the meter background heuristic can pick a lighter dark row than the true near-black channel. The gradient colours, thumb shape/colour/position, and value-driven level clipping are faithful.
 
 **Decision matrix**:
 
