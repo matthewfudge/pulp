@@ -277,6 +277,7 @@ endif()
 
 target_sources(pulp-view-core PRIVATE
     src/accessibility.cpp
+    src/import_validation_bridge.cpp
     ${PULP_TEXT_ACCESSIBILITY_SOURCE}
     src/threejs_resources_stub.cpp
     src/table_model.cpp
