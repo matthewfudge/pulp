@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pulp.dev/schemas/source-contract-v0.schema.json",
+  "title": "Pulp source-contract v0",
+  "description": "One serialized shape for the per-node source/route/value/event/state/style evidence about an imported design, shared by the C++ importer overlay (source_contract_overlay.node_route_rows) and the JS audit summary (sourceAuditSummary). The slice goal (pulp #3116) is that importer output and audit output can both be checked against this single definition in tests, so native route readiness stops depending on two parallel inference models that can disagree. This document is NOT a renderer or a new emission format: it describes the union of what the existing importer emits and the existing audit emits, with required-vs-optional grounded in the real consumers (tools/scripts/frontend_ir_routes.py route_rows/row_node_id/route_counts/primitive_counts and tools/scripts/frontend_ir_sources.py count_map/source_spans) and the in-tree fixtures (tools/scripts/test_frontend_ir_report.py) and the C++ codegen consumer (test/test_design_import_cpp_codegen.cpp).",
+  "schema": "pulp-source-contract-v0",
+  "type": "object",
+  "$defs": {
+    "node_route_row": {
+      "type": "object",
+      "description": "Per-node source-contract row as emitted by the C++ importer into source_contract_overlay.node_route_rows (or the legacy route_rows alias). Mirrors the fields read by frontend_ir_routes.py (route_name/semantic_role/row_node_id/route_counts/primitive_counts) and frontend_ir_sources.py (count_map/source_span), the test_frontend_ir_report.py fixtures, and the C++ consumer test. additionalProperties is true because the importer may carry primitive-specific extras (e.g. size, label, value, initial_value) and this slice must not constrain emission.",
+      "required": ["route_type"],
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable node id. When absent, consumers derive an id from stable_source_path or semantic_role+source_line (frontend_ir_routes.row_node_id)."
+        },
+        "stable_source_path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Source span identity, conventionally 'path:line:Element[index]'. Used as the source-span path and as a fallback node id."
+        },
+        "source_line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-based source line. Only attached to a source span when a positive integer (frontend_ir_sources.source_span / is_positive_int)."
+        },
+        "route_type": {
+          "type": "string",
+          "description": "Raw route label normalized by frontend_ir_routes.route_name into one of native_cpp / native_html / live_js / hybrid / recorded_paint / unsupported. Accepts the importer's wire aliases (e.g. native_layout -> native_html, native, cpp, recorded). Required: route readiness is meaningless without it."
+        },
+        "required_native_primitive": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Resolved native primitive (e.g. knob, fader, layout, button). Drives semantic_role and primitive_ counts. When absent, semantic_role falls back to source_component_family/name."
+        },
+        "source_component_family": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Source component family (e.g. section, input[type=range], Knob). Consumed by the C++ codegen test and by semantic_role fallback."
+        },
+        "source_component_name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Source component element/name (e.g. section, input)."
+        },
+        "confidence": {
+          "type": "number",
+          "description": "Route confidence in [0,1] in practice; only used when finite (frontend_ir_routes.routes_from_rows / is_finite_number), defaulting to 0.0 otherwise."
+        },
+        "fallback_reason": {
+          "type": "string",
+          "description": "Why a fallback (live_js/hybrid/unsupported) route was chosen. Counted into route_rows_with_fallback_reason and surfaced on fallback routes. Preserving this is how the live-JS fallback stays provable when the source contract is too dynamic."
+        },
+        "recorder_eligibility": {
+          "type": "string",
+          "description": "Recorder candidacy marker; the literal value 'candidate' increments route_rows_recorder_candidate."
+        },
+        "parameter_bindings": {
+          "type": "array",
+          "description": "Value/parameter bindings for this node (param_key/binding_contract_id/module/param). Non-empty increments with_parameter_bindings.",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "event_contracts": {
+          "type": "array",
+          "description": "Event contracts (e.g. {kind: set_param, param_key}). Non-empty increments with_event_contracts and is the importer-side counterpart of audit materiality.event_contracts.",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "gesture_contracts": {
+          "type": "array",
+          "description": "Gesture/boundary contracts (e.g. {boundaries: [begin, update, end]}). Non-empty increments with_gesture_contracts.",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "state_contracts": {
+          "type": "array",
+          "description": "Local-UI state contracts (e.g. {kind: set_state_from_event_value, state_key}). Length is summed into source_contract_state_contracts; non-empty increments with_state_contracts. Importer-side counterpart of audit materiality.set_state_events.",
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "style_token_references": {
+          "type": "array",
+          "description": "Style token references (e.g. ['colors.accent']). Non-empty increments with_style_token_references; entries become unresolved reference tokens in the report.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "materiality": {
+      "type": "object",
+      "description": "Counts summary block. Emitted by the JS audit (jsx-contract-audit.mjs materiality block) and carried inline on a route manifest as inputs.sourceAuditSummary.materiality. Consumed by frontend_ir_sources.count_map, which prefixes every non-negative-int key as materiality_<key>. Every key must be a non-negative integer (enforced by patternProperties); audit-side growth of new integer keys stays conformant, while the enumerated keys below are the contract surface this slice pins.",
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[A-Za-z0-9_]+$": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "properties": {
+        "parser_source_locations": { "type": "integer", "minimum": 0 },
+        "native_candidate_components": { "type": "integer", "minimum": 0 },
+        "standard_source_component_instances": { "type": "integer", "minimum": 0 },
+        "host_native_control_candidates": { "type": "integer", "minimum": 0 },
+        "expanded_native_candidate_instances": { "type": "integer", "minimum": 0 },
+        "expanded_choice_instances": { "type": "integer", "minimum": 0 },
+        "expanded_param_instances": { "type": "integer", "minimum": 0 },
+        "style_values_normalized": { "type": "integer", "minimum": 0 },
+        "css_lexer_matches": { "type": "integer", "minimum": 0 },
+        "dynamic_style_values": { "type": "integer", "minimum": 0 },
+        "conditional_style_values": { "type": "integer", "minimum": 0 },
+        "event_contracts": { "type": "integer", "minimum": 0 },
+        "set_param_events": { "type": "integer", "minimum": 0 },
+        "set_state_events": { "type": "integer", "minimum": 0 },
+        "map_literal_expansions": { "type": "integer", "minimum": 0 },
+        "svg_vector_nodes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "audit_summary": {
+      "type": "object",
+      "description": "Inline source-audit summary carried on a route manifest as inputs.sourceAuditSummary (schema 'pulp-source-audit-summary-v1'), a subset of the full JS audit (jsx-contract-audit.mjs). Consumed by frontend_ir_sources.count_map. Only the blocks this slice pins are constrained; additionalProperties true preserves the existing compat field unchanged.",
+      "additionalProperties": true,
+      "properties": {
+        "schema": {
+          "const": "pulp-source-audit-summary-v1"
+        },
+        "input": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "bytes": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "summary": {
+          "type": "object",
+          "description": "Source-structure counts. count_map promotes the enumerated non-negative-int keys verbatim (plus component_counts -> component_<name>, state_setters -> count, arrays -> array_constants).",
+          "additionalProperties": true
+        },
+        "materiality": {
+          "$ref": "#/$defs/materiality"
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["schema", "node_route_rows"],
+      "additionalProperties": true,
+      "properties": {
+        "schema": { "const": "pulp-source-contract-v0" },
+        "kind": { "const": "importer_overlay" },
+        "node_route_rows": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/node_route_row" }
+        }
+      },
+      "description": "Importer-emitted variant: the source_contract_overlay.node_route_rows array wrapped with the source-contract-v0 envelope."
+    },
+    {
+      "type": "object",
+      "required": ["schema", "audit_summary"],
+      "additionalProperties": true,
+      "properties": {
+        "schema": { "const": "pulp-source-contract-v0" },
+        "kind": { "const": "audit_summary" },
+        "audit_summary": { "$ref": "#/$defs/audit_summary" }
+      },
+      "description": "Audit-emitted variant: the inputs.sourceAuditSummary block wrapped with the source-contract-v0 envelope."
+    }
+  ]
+}

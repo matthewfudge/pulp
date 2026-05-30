@@ -1,0 +1,22 @@
+{
+  "_comment": "Shared source-contract expectations for the importer-overlay.json + audit-summary.json pair. The conformance test derives counts from BOTH the importer overlay (via the real frontend_ir_routes/frontend_ir_sources consumers) and the audit summary (via the same count_map consumer) and asserts both agree with these values. This is the slice's 'two parallel inference models can no longer disagree' proof for pulp #3116.",
+  "design_id": "Strip.tsx",
+  "nodes": [
+    { "id": "knob.gain", "source_path": "fixtures/Strip.tsx:10:Knob[0]", "source_line": 10, "semantic_role": "knob", "route_type": "native_cpp" },
+    { "id": "fader.threshold", "source_path": "fixtures/Strip.tsx:24:input[0]", "source_line": 24, "semantic_role": "fader", "route_type": "native_cpp" }
+  ],
+  "shared_counts": {
+    "node_count": 2,
+    "event_contracts": 1,
+    "state_contracts": 1
+  },
+  "importer_count_keys": {
+    "node_count": "route_rows_total",
+    "event_contracts": "with_event_contracts",
+    "state_contracts": "with_state_contracts"
+  },
+  "audit_materiality_keys": {
+    "event_contracts": "event_contracts",
+    "state_contracts": "set_state_events"
+  }
+}

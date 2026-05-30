@@ -1,0 +1,34 @@
+{
+  "schema": "pulp-source-contract-v0",
+  "kind": "audit_summary",
+  "_comment": "Audit-emitted variant of source-contract-v0. audit_summary mirrors the inputs.sourceAuditSummary block shape (schema pulp-source-audit-summary-v1) from tools/scripts/test_frontend_ir_report.py, whose materiality keys are emitted by tools/import-design/jsx-runtime/jsx-contract-audit.mjs. Describes the SAME 2-node design as importer-overlay.json: one set_param event contract (the Knob) and one set_state event (the range input). Agreement with the importer overlay is asserted by golden-expectations.json (pulp #3116).",
+  "audit_summary": {
+    "schema": "pulp-source-audit-summary-v1",
+    "input": {
+      "bytes": 4096
+    },
+    "summary": {
+      "parse_errors": 0,
+      "jsx_elements": 2,
+      "map_calls": 0,
+      "style_objects": 1,
+      "css_values": 5,
+      "component_counts": {
+        "Knob": 1,
+        "input": 1
+      },
+      "state_setters": {
+        "threshold": "setThreshold"
+      }
+    },
+    "materiality": {
+      "parser_source_locations": 2,
+      "native_candidate_components": 1,
+      "event_contracts": 1,
+      "set_param_events": 1,
+      "set_state_events": 1,
+      "conditional_style_values": 0,
+      "style_values_normalized": 5
+    }
+  }
+}
