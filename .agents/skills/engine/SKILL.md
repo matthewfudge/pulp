@@ -354,11 +354,11 @@ registration module forgets the contract.
 
 **iOS Three.js workaround**: Bundle the ESM source into a self-contained IIFE that registers exports on `globalThis.THREE`, then JSC `evaluate()` it. The bundler is at `tools/scripts/bundle_threejs_for_jsc.mjs`; the iOS NSBundle loader at `core/view/src/threejs_resources_apple.mm`; the .appex build-time wiring at `tools/cmake/PulpAuv3.cmake`. Pattern is general — any ESM library can be bundled this way for the JSC iOS lane.
 
-**Bundler implementation note (#3206, 2026-05-30)**: The bundler delegates to esbuild (pinned in `tools/scripts/package.json` at 0.25.10). The earlier regex-only pass could not resolve sibling `import { ... } from "./three.core.js"` statements that Three.js's webgpu entry depends on, which caused JSC parse errors at runtime ("expecting `(`"). esbuild handles ESM resolution + http: import stripping out of the box. The bundler auto-installs esbuild on first run via `npm install --prefix tools/scripts/` when `node_modules/esbuild` is missing — no manual setup needed.
+**Bundler implementation note**: The bundler delegates to esbuild (pinned in `tools/scripts/package.json` at 0.25.10). The earlier regex-only pass could not resolve sibling `import { ... } from "./three.core.js"` statements that Three.js's webgpu entry depends on, which caused JSC parse errors at runtime ("expecting `(`"). esbuild handles ESM resolution + http: import stripping out of the box. The bundler auto-installs esbuild on first run via `npm install --prefix tools/scripts/` when `node_modules/esbuild` is missing — no manual setup needed.
 
 See `planning/2026-05-29-ios-d3b-threejs-webgpu-program.md` for the full 6-slice bring-up and `.agents/skills/{ios,threejs-bridge}/SKILL.md` for the runtime contract.
 
-## Diagnostics for silent JS failures (#3206, 2026-05-30)
+## Diagnostics for silent JS failures
 
 Several silent-failure traps were caught during the iOS-D.3c Three.js bring-up. Each now has an explicit diagnostic surface in the engine layer.
 

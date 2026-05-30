@@ -767,7 +767,7 @@ endif()
 
 The variables are subdir-scoped so OTHER iOS examples in the same configure (synth, chainer, gpu-smoke) don't accidentally pick up the FetchContent. The `_pulp_add_auv3_ios()` helper reads both variables in-function and arms the bundler POST_BUILD step.
 
-### First-install discovery race (#3206, 2026-05-30)
+### First-install discovery race
 
 After a fresh `devicectl install` on an iPad (or first launch after deleting + reinstalling the HostApp), iOS may not have finished scanning the embedded `.appex` when the SwiftUI HostApp's `.onAppear` fires. `AVAudioUnitComponentManager.shared().components(matching:)` then returns 0 matches, the HostApp prints `PULP_DISCOVER: no matching Pulp AUv3 found`, and the user is stuck on that state until they manually kill + relaunch the app multiple times.
 
