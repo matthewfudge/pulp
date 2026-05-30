@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02890"></a>
+## [0.289.0] - 2026-05-30
+
+- feat(view+ios): iOS-D.3c bring-up wins — esbuild bundler, QuickJS unhandled-rejection tracker, self= global alias, AUv3 host discovery retry, IndirectFirstInstance opt-in ([#3219](https://github.com/danielraffel/pulp/pull/3219))
+- feat(import-design): visual-fidelity diff harness for design imports ([#3218](https://github.com/danielraffel/pulp/pull/3218))
+
 <a id="v02880"></a>
 ## [0.288.0] - 2026-05-30
 
@@ -3275,6 +3281,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.289.0]: https://github.com/danielraffel/pulp/releases/tag/v0.289.0
 [0.288.0]: https://github.com/danielraffel/pulp/releases/tag/v0.288.0
 [0.287.0]: https://github.com/danielraffel/pulp/releases/tag/v0.287.0
 [0.286.1]: https://github.com/danielraffel/pulp/releases/tag/v0.286.1
