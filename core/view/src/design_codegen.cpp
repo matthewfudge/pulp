@@ -613,10 +613,13 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
             }
         }
         else if (wtype == AudioWidgetType::fader) {
-            // shape_width/height from child rectangle, frame width for column
+            // shape_width/height from child rectangle, frame width for column.
+            // Default height to the node's own design height (not the bare
+            // kMin floor) so a tall fader stays tall — the kMin is only a
+            // floor for nodes that genuinely carry no height.
             float frame_w = node.style.width.value_or(kMinFaderWidth);
             float shape_w = frame_w;
-            float shape_h = kMinFaderHeight;
+            float shape_h = node.style.height.value_or(kMinFaderHeight);
             if (node.attributes.count("shape_width"))
                 shape_w = std::stof(node.attributes.at("shape_width"));
             if (node.attributes.count("shape_height"))
@@ -673,7 +676,8 @@ static void generate_native_node(std::ostringstream& ss, const IRNode& node,
         else if (wtype == AudioWidgetType::meter) {
             float frame_w = node.style.width.value_or(kMinMeterWidth);
             float shape_w = frame_w;
-            float shape_h = kMinMeterHeight;
+            // Honor the node's design height so a tall meter stays tall.
+            float shape_h = node.style.height.value_or(kMinMeterHeight);
             if (node.attributes.count("shape_width"))
                 shape_w = std::stof(node.attributes.at("shape_width"));
             if (node.attributes.count("shape_height"))
