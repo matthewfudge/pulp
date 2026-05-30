@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02850"></a>
+## [0.285.0] - 2026-05-30
+
+- fix(auv3): top-align editor design viewport so it reads like CLAP/VST3 in taller host panes ([#3200](https://github.com/danielraffel/pulp/pull/3200))
+- chore(figma-plugin): pin published Figma Community plugin ID ([#3192](https://github.com/danielraffel/pulp/pull/3192))
+
 <a id="v02842"></a>
 ## [0.284.2] - 2026-05-30
 
@@ -3241,6 +3247,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.285.0]: https://github.com/danielraffel/pulp/releases/tag/v0.285.0
 [0.284.2]: https://github.com/danielraffel/pulp/releases/tag/v0.284.2
 [0.284.1]: https://github.com/danielraffel/pulp/releases/tag/v0.284.1
 [0.284.0]: https://github.com/danielraffel/pulp/releases/tag/v0.284.0
