@@ -1,5 +1,5 @@
 {
-  "library_version": "0.2.0",
+  "library_version": "0.3.0",
   "library_file_key": "vxW6btjzQtc4t9ITLNjev0",
   "library_file_url": "https://www.figma.com/design/vxW6btjzQtc4t9ITLNjev0/Pulp-Library",
   "required_plugin_version": ">=0.1.0",
@@ -27,6 +27,30 @@
       "supported_property_definitions": ["label", "value", "min", "max", "units", "binding"],
       "supported_variant_axes": ["size", "state"],
       "since_library_version": "0.2.0"
+    },
+    "xy_pad": {
+      "component_set_key": "9dc09d4cbf65341f12c21ece408ad653886059b9",
+      "component_set_node_id": "24:171",
+      "name_prefix": "Pulp / XYPad",
+      "supported_property_definitions": ["label", "value", "min", "max", "units", "binding", "binding_y"],
+      "supported_variant_axes": ["size", "state"],
+      "since_library_version": "0.3.0"
+    },
+    "waveform": {
+      "component_set_key": "2c0797af5c939638ec6a89d893ba310a088ce46c",
+      "component_set_node_id": "24:702",
+      "name_prefix": "Pulp / Waveform",
+      "supported_property_definitions": ["label", "value", "min", "max", "units", "binding"],
+      "supported_variant_axes": ["size", "state"],
+      "since_library_version": "0.3.0"
+    },
+    "spectrum": {
+      "component_set_key": "f6730821fc7557e93f904d171a45339207abf9e3",
+      "component_set_node_id": "24:1209",
+      "name_prefix": "Pulp / Spectrum",
+      "supported_property_definitions": ["label", "value", "min", "max", "units", "binding"],
+      "supported_variant_axes": ["size", "state"],
+      "since_library_version": "0.3.0"
     }
   }
 }

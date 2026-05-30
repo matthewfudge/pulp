@@ -754,6 +754,10 @@ function extractAudioPropsFromComponentProperties(
   if (units !== undefined && units.length > 0) ex.audio_units = units;
   const binding = getRawString("binding");
   if (binding !== undefined && binding.length > 0) ex.audio_binding = binding;
+  // Phase 5: XYPad has a second binding for the Y axis. Only the XYPad
+  // library variant defines this property; other widgets fall through.
+  const binding_y = getRawString("binding_y");
+  if (binding_y !== undefined && binding_y.length > 0) ex.audio_binding_y = binding_y;
 }
 
 /// Detect audio widget kind from an instance's main-component name. Used
