@@ -372,6 +372,13 @@ static constexpr int64_t kInitialSizeSyncIntervalMs = 60;
         _viewHost->set_design_viewport(w, h);
         _viewHost->set_fixed_aspect_ratio(static_cast<float>(w) /
                                           static_cast<float>(h));
+        // Anchor the design to the TOP of the host pane. AU can't negotiate the
+        // pane aspect the way CLAP (gui_adjust_size) / VST3 (checkSizeConstraint)
+        // do, so a wide fixed design lands in a taller host pane (e.g. REAPER's
+        // FX-chain pane). Top-aligning makes it read like CLAP/VST3 — content at
+        // the top with the slack as a single bottom strip — instead of floating
+        // centered between two bands.
+        _viewHost->set_design_viewport_top_align(true);
     }
 
     _viewHost->attach_to_parent((__bridge void *)self.view);

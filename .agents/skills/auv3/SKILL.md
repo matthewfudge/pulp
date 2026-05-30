@@ -686,6 +686,21 @@ working on Dawn/Skia-backed editors in any out-of-process host, treat
 delivers and when, rather than assuming `viewDidLayout`/`preferredContentSize`
 will be honored on initial open.
 
+### REAPER (etc.) FX-chain letterbox — top-align the design viewport
+
+A second AU sizing asymmetry vs CLAP/VST3: when a host gives the AU a pane
+TALLER than the design aspect (e.g. REAPER's FX-chain pane — AU has no host
+resize-negotiation like CLAP's `gui_adjust_size` / VST3's `checkSizeConstraint`,
+so the host picks the pane aspect), the centered design floated between top+bottom
+bands while CLAP/VST3 (aspect-constrained → no slack) sat content-at-top. Fix:
+the AU controller calls `PluginViewHost::set_design_viewport_top_align(true)` →
+`compute_design_viewport_transform(..., top_align=true)` anchors the design to the
+TOP (slack becomes a single bottom strip), reading like CLAP/VST3. It is **only**
+the AU path + only visible when there is vertical slack (no-op when the pane is
+design-aspect), and the SAME transform feeds paint AND input mapping
+(`window_to_root_point`) so clicks stay aligned. True pixel-fill parity is not
+achievable (AU can't negotiate the pane aspect). Verified in REAPER 2026-05-30.
+
 ### The `PULP_AUV3_PLUGIN()` macro replaces hardcoded force_link
 
 Pre-Phase 3.5, `au_entry.mm` called `pulp_gain_force_link()` to force

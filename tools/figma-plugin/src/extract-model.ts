@@ -58,6 +58,10 @@ export interface ExtractedFigmaNode {
   audio_default?: number;
   audio_units?: string;
   audio_binding?: string;
+  // Phase 5 — XYPad carries a Y-axis binding alongside the primary
+  // `binding` (which holds the X-axis route). Lands in IRNode.attributes.binding_y.
+  // Populated only for `Pulp / XYPad` library instances.
+  audio_binding_y?: string;
 
   children: ExtractedFigmaNode[];
 }

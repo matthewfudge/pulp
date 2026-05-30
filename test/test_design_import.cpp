@@ -3476,3 +3476,117 @@ TEST_CASE("Codegen renders meter at derived narrow bar width, centred in column"
     REQUIRE(js.find("setFlex('Meter__Out_L0', 'width', 18)") != std::string::npos);
     REQUIRE(js.find("setFlex('Meter__Out_L0_col', 'min_width', 69)") != std::string::npos);
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Phase 5 part 2 — Pulp / XYPad + Pulp / Waveform + Pulp / Spectrum.
+//
+// Library v0.3.0 adds three component-sets in
+// https://www.figma.com/design/vxW6btjzQtc4t9ITLNjev0/Pulp-Library:
+//   Pulp / XYPad     component_set_key 9dc09d4cbf65341f12c21ece408ad653886059b9
+//   Pulp / Waveform  component_set_key 2c0797af5c939638ec6a89d893ba310a088ce46c
+//   Pulp / Spectrum  component_set_key f6730821fc7557e93f904d171a45339207abf9e3
+//
+// XYPad uniquely carries a second-axis binding via attributes.binding_y;
+// Waveform and Spectrum's `binding` carries an audio-source path
+// (bus.master_l / bus.fft.master_l) instead of a parameter route.
+
+TEST_CASE("parse_figma_plugin_json maps Phase 5 part 2 Pulp / XYPad envelope onto IR widget",
+          "[view][import][figma-plugin][phase-5]") {
+    const std::string envelope = R"JSON({
+        "format_version": "v1",
+        "parser_version": "0.1.0",
+        "compat_schema_version": "v1",
+        "root": {
+            "type": "frame",
+            "name": "FilterPad",
+            "audio_widget": "xy_pad",
+            "label": "Filter",
+            "min": 20,
+            "max": 20000,
+            "default": 880,
+            "attributes": {
+                "units": "Hz",
+                "binding": "filter.cutoff_hz",
+                "binding_y": "filter.resonance"
+            },
+            "style": { "width": 120, "height": 120 },
+            "children": []
+        }
+    })JSON";
+    auto ir = parse_figma_plugin_json(envelope);
+    REQUIRE(ir.source == DesignSource::figma_plugin);
+    REQUIRE(ir.root.audio_widget == AudioWidgetType::xy_pad);
+    REQUIRE(ir.root.audio_label == "Filter");
+    REQUIRE(ir.root.audio_min == Catch::Approx(20.0f));
+    REQUIRE(ir.root.audio_max == Catch::Approx(20000.0f));
+    REQUIRE(ir.root.audio_default == Catch::Approx(880.0f));
+    REQUIRE(ir.root.attributes.at("units") == "Hz");
+    REQUIRE(ir.root.attributes.at("binding") == "filter.cutoff_hz");
+    // XYPad-specific second-axis binding rides on attributes.binding_y.
+    REQUIRE(ir.root.attributes.at("binding_y") == "filter.resonance");
+}
+
+TEST_CASE("parse_figma_plugin_json maps Phase 5 part 2 Pulp / Waveform envelope onto IR widget",
+          "[view][import][figma-plugin][phase-5]") {
+    const std::string envelope = R"JSON({
+        "format_version": "v1",
+        "parser_version": "0.1.0",
+        "compat_schema_version": "v1",
+        "root": {
+            "type": "frame",
+            "name": "Master scope",
+            "audio_widget": "waveform",
+            "label": "Master",
+            "min": -1,
+            "max": 1,
+            "attributes": {
+                "binding": "bus.master_l"
+            },
+            "style": { "width": 200, "height": 64 },
+            "children": []
+        }
+    })JSON";
+    auto ir = parse_figma_plugin_json(envelope);
+    REQUIRE(ir.root.audio_widget == AudioWidgetType::waveform);
+    REQUIRE(ir.root.audio_label == "Master");
+    REQUIRE(ir.root.audio_min == Catch::Approx(-1.0f));
+    REQUIRE(ir.root.audio_max == Catch::Approx(1.0f));
+    REQUIRE(ir.root.attributes.at("binding") == "bus.master_l");
+    // Waveform envelopes default to empty units and an audio-source
+    // path in binding (rather than a param route). Codegen branches on
+    // audio_widget to interpret accordingly.
+    REQUIRE(ir.root.attributes.count("units") == 0);
+    REQUIRE(ir.root.attributes.count("binding_y") == 0);
+}
+
+TEST_CASE("parse_figma_plugin_json maps Phase 5 part 2 Pulp / Spectrum envelope onto IR widget",
+          "[view][import][figma-plugin][phase-5]") {
+    const std::string envelope = R"JSON({
+        "format_version": "v1",
+        "parser_version": "0.1.0",
+        "compat_schema_version": "v1",
+        "root": {
+            "type": "frame",
+            "name": "MasterFFT",
+            "audio_widget": "spectrum",
+            "label": "Spectrum",
+            "min": -60,
+            "max": 0,
+            "attributes": {
+                "units": "dB",
+                "binding": "bus.fft.master_l"
+            },
+            "style": { "width": 200, "height": 64 },
+            "children": []
+        }
+    })JSON";
+    auto ir = parse_figma_plugin_json(envelope);
+    REQUIRE(ir.root.audio_widget == AudioWidgetType::spectrum);
+    REQUIRE(ir.root.audio_label == "Spectrum");
+    REQUIRE(ir.root.audio_min == Catch::Approx(-60.0f));
+    REQUIRE(ir.root.audio_max == Catch::Approx(0.0f));
+    REQUIRE(ir.root.attributes.at("units") == "dB");
+    // FFT source binding — the `fft.` segment is the convention
+    // distinguishing this from a parameter route to consumers that care.
+    REQUIRE(ir.root.attributes.at("binding") == "bus.fft.master_l");
+}

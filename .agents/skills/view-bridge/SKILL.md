@@ -137,7 +137,7 @@ fires slightly later — after the host's first real layout, not at controller
 build — and `_pendingRoot`/`_viewHostPending` gate the one-shot creation. Don't
 move `notify_attached()` back inline; it reintroduces the first-paint clip.
 Rationale + the view-config/first-paint root cause are in
-`.agents/skills/auv3/SKILL.md → "Logic OOP first-paint clip"`.
+`.agents/skills/auv3/SKILL.md → "Logic OOP first-paint clip"`. The same controller also calls `set_design_viewport_top_align(true)` so the AU design anchors to the TOP of a taller host pane (REAPER FX-chain) like CLAP/VST3 instead of centering between bands — see the auv3 SKILL.
 
 ## AU v2 dual-Processor gotcha (fixed)
 

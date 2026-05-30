@@ -13,7 +13,11 @@ artifacts.
 pulp import-design --from <source> [options]
 ```
 
-**Sources:** `figma`, `stitch`, `v0`, `pencil`, `claude`, `designmd`, `jsx`
+**Sources:** `figma`, `figma-plugin`, `stitch`, `v0`, `pencil`, `claude`, `designmd`, `jsx`
+
+> `figma-plugin` is the **"Design for Pulp"** Figma plugin export (a semantic
+> audio-widget envelope; see the [Figma plugin guide](../guides/figma-plugin.md)).
+> It accepts a `.pulp.zip` directly. `figma` is the raw Figma REST/file import.
 
 | Flag | Description | Default |
 |------|-------------|---------|
@@ -299,6 +303,16 @@ Maps Stitch-specific properties: `colors`, `fonts`, `roundness` (none/small/medi
 ### Figma (`parse_figma_json`)
 
 Accepts IR-format JSON. In Claude Code flows, the Figma MCP (`get_design_context`) provides the design data, which is translated to IR format using the Figma-to-Pulp mapping rules.
+
+### Figma plugin (`parse_figma_plugin_json`)
+
+The **"Design for Pulp"** Figma plugin export envelope. Recognized Pulp library
+components (Knob / Fader / Meter) carry semantic `audio_widget` metadata +
+parameter bindings, so they materialize as native, bound widgets rather than
+generic frames; everything else imports as layout/visual. Accepts a `.pulp.zip`
+(assets bundled) directly — the importer unpacks it and resolves assets from the
+manifest — or a bare `.pulp.json`. See the
+[Figma plugin guide](../guides/figma-plugin.md) for the full workflow.
 
 ### Stitch (`parse_stitch_html`)
 

@@ -107,10 +107,17 @@ function toEnvelopeNode(n: ExtractedFigmaNode): unknown {
   if (n.audio_min !== undefined) out.min = n.audio_min;
   if (n.audio_max !== undefined) out.max = n.audio_max;
   if (n.audio_default !== undefined) out.default = n.audio_default;
-  if (n.audio_units !== undefined || n.audio_binding !== undefined) {
+  if (n.audio_units !== undefined ||
+      n.audio_binding !== undefined ||
+      n.audio_binding_y !== undefined) {
     const attrs: Record<string, string> = {};
     if (n.audio_units !== undefined) attrs.units = n.audio_units;
     if (n.audio_binding !== undefined) attrs.binding = n.audio_binding;
+    // Phase 5: XYPad carries a second-axis binding alongside the primary
+    // `binding`. Lands in IRNode.attributes.binding_y; codegen consumes
+    // when the audio_widget="xy_pad" branch is wired up to route two
+    // parameter targets (see planning/2026-05-30-figma-import-fidelity-coordination.md).
+    if (n.audio_binding_y !== undefined) attrs.binding_y = n.audio_binding_y;
     out.attributes = attrs;
   }
 

@@ -117,3 +117,41 @@ TEST_CASE("design viewport: rejects degenerate inputs",
     REQUIRE_FALSE(xform(-1, 860, 1320, 860).ok);
     REQUIRE_FALSE(xform(1320, 860, 1320, -1).ok);
 }
+
+// AUv3 REAPER letterbox parity: top_align anchors the design to the TOP of a
+// taller host pane (content + single bottom strip) instead of centering it
+// between two bands, matching CLAP/VST3. Horizontal centering + scale unchanged;
+// must equal centered behavior when there is no vertical slack.
+TEST_CASE("design viewport: top_align anchors to top in a taller pane",
+          "[view][design-viewport][issue-pulp-design-viewport]") {
+    // 1320-wide design in a much taller 1320x1200 pane → fits to width (1.0x),
+    // 340px of vertical slack.
+    float sx, sy, tx, ty;
+    // Centered (default): slack split → ty = 170.
+    REQUIRE(WindowHost::compute_design_viewport_transform(
+        1320, 1200, 1320, 860, sx, sy, tx, ty));
+    REQUIRE_THAT(ty, WithinAbs(170.0f, kEps));
+
+    // Top-aligned: all slack falls below → ty = 0; scale + tx identical.
+    float sx2, sy2, tx2, ty2;
+    REQUIRE(WindowHost::compute_design_viewport_transform(
+        1320, 1200, 1320, 860, sx2, sy2, tx2, ty2, /*top_align=*/true));
+    REQUIRE_THAT(ty2, WithinAbs(0.0f, kEps));
+    REQUIRE_THAT(sx2, WithinAbs(sx, kEps));
+    REQUIRE_THAT(sy2, WithinAbs(sy, kEps));
+    REQUIRE_THAT(tx2, WithinAbs(tx, kEps));
+}
+
+TEST_CASE("design viewport: top_align is a no-op when no vertical slack",
+          "[view][design-viewport][issue-pulp-design-viewport]") {
+    // Matching aspect → ty is 0 with or without top_align (no behavior change
+    // for CLAP/VST3/standalone, whose windows are aspect-constrained).
+    float sx, sy, tx, ty, sx2, sy2, tx2, ty2;
+    REQUIRE(WindowHost::compute_design_viewport_transform(
+        660, 430, 1320, 860, sx, sy, tx, ty));
+    REQUIRE(WindowHost::compute_design_viewport_transform(
+        660, 430, 1320, 860, sx2, sy2, tx2, ty2, /*top_align=*/true));
+    REQUIRE_THAT(ty, WithinAbs(0.0f, kEps));
+    REQUIRE_THAT(ty2, WithinAbs(0.0f, kEps));
+    REQUIRE_THAT(ty2, WithinAbs(ty, kEps));
+}
