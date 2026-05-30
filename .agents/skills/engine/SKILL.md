@@ -354,4 +354,34 @@ registration module forgets the contract.
 
 **iOS Three.js workaround**: Bundle the ESM source into a self-contained IIFE that registers exports on `globalThis.THREE`, then JSC `evaluate()` it. The bundler is at `tools/scripts/bundle_threejs_for_jsc.mjs`; the iOS NSBundle loader at `core/view/src/threejs_resources_apple.mm`; the .appex build-time wiring at `tools/cmake/PulpAuv3.cmake`. Pattern is general — any ESM library can be bundled this way for the JSC iOS lane.
 
+**Bundler implementation note**: The bundler delegates to esbuild (pinned in `tools/scripts/package.json` at 0.25.10). The earlier regex-only pass could not resolve sibling `import { ... } from "./three.core.js"` statements that Three.js's webgpu entry depends on, which caused JSC parse errors at runtime ("expecting `(`"). esbuild handles ESM resolution + http: import stripping out of the box. The bundler auto-installs esbuild on first run via `npm install --prefix tools/scripts/` when `node_modules/esbuild` is missing — no manual setup needed.
+
 See `planning/2026-05-29-ios-d3b-threejs-webgpu-program.md` for the full 6-slice bring-up and `.agents/skills/{ios,threejs-bridge}/SKILL.md` for the runtime contract.
+
+## Diagnostics for silent JS failures
+
+Several silent-failure traps were caught during the iOS-D.3c Three.js bring-up. Each now has an explicit diagnostic surface in the engine layer.
+
+### QuickJS unhandled-promise-rejection tracker (`core/view/src/js_quickjs_engine.cpp`)
+
+QuickJS does not call JS-side `addEventListener("unhandledrejection", ...)` handlers. Without a host hook, a rejected promise with no `.catch` is silently dropped. The worst case is the `new Promise(async (resolve, reject) => { ... })` anti-pattern: a sync throw inside the async executor rejects the *inner* async function's promise (not the outer), and the outer Promise sits in pending forever.
+
+`install_quickjs_rejection_tracker()` calls `JS_SetHostPromiseRejectionTracker` in `QuickJsEngine()`'s constructor and logs unhandled rejections + stack via `runtime::log_error("PULP_QJS_UNHANDLED_REJECTION: …")` / `PULP_QJS_UNHANDLED_REJECTION_STACK: …`. This single hook surfaced the real Three.js init error (TypeError on `self` not defined) in one shot after hours of fruitless other debugging — turn it on, grep for `PULP_QJS_UNHANDLED_REJECTION` in the log.
+
+### JSC ObjC-exception bridge (`core/view/src/js_jsc_engine.mm`)
+
+`[JSContext evaluateScript:]` can throw `NSException` for malformed scripts (bare `import` statements, syntax errors that the parser can't recover from). Without `@catch(NSException*)`, the exception unwinds through the Objective-C runtime and surfaces in C++ as the useless string "unknown exception". Now the engine catches `NSException` + falls back to `id`, formats the reason + name, and rethrows as `std::runtime_error` with the actual JSC error message. Grep for `PULP_JSC_EVAL_NSEXCEPTION` / `PULP_JSC_EVAL_OBJC` in logs to find scripts that JSC's parser rejected.
+
+### `self` as a window alias in the web-compat document shim (`core/view/js/web-compat-document.js`)
+
+Per browser spec, `self`, `window`, and `globalThis` all reference the same object in a page context. Three.js's `Animation` class (and many other libraries) keys its `requestAnimationFrame` lookup on `self`:
+
+```js
+this._context = typeof self !== "undefined" ? self : null;
+```
+
+If `self` is undefined, libraries set their context to `null` and crash with `TypeError` on the next rAF call. `globalThis.self = window;` is the spec-conforming fix and is now installed alongside the other window-global aliases (`localStorage`, `sessionStorage`). Holds for any standards-compliant library that follows the browser globals convention.
+
+### `eval_or_throw` logs the JS error before wrapping (`core/view/src/widget_bridge.cpp`)
+
+When `WidgetBridge` evaluates user JS via `eval_or_throw`, the catch chain re-throws as `std::runtime_error("failed to evaluate <name>: <err>")`. A cross-translation-unit `std::exception` typeinfo mismatch can cause the caller's `catch(const std::exception&)` to fall through to `catch(...)`, which then loses the original message. The fix: `runtime::log_error("PULP_EVAL_THROW: name={} js_len={} ..._error={}", ...)` is called *before* re-throwing in all three catch branches, so the JS error reaches the log regardless of whether the downstream catch matches. Grep `PULP_EVAL_THROW` to find the actual error text when "unknown exception" surfaces upstream.

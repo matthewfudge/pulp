@@ -766,3 +766,27 @@ endif()
 ```
 
 The variables are subdir-scoped so OTHER iOS examples in the same configure (synth, chainer, gpu-smoke) don't accidentally pick up the FetchContent. The `_pulp_add_auv3_ios()` helper reads both variables in-function and arms the bundler POST_BUILD step.
+
+### First-install discovery race
+
+After a fresh `devicectl install` on an iPad (or first launch after deleting + reinstalling the HostApp), iOS may not have finished scanning the embedded `.appex` when the SwiftUI HostApp's `.onAppear` fires. `AVAudioUnitComponentManager.shared().components(matching:)` then returns 0 matches, the HostApp prints `PULP_DISCOVER: no matching Pulp AUv3 found`, and the user is stuck on that state until they manually kill + relaunch the app multiple times.
+
+The HostApp template in `templates/ios-auv3/HostApp/ContentView.swift` now wires two recovery paths:
+
+1. **Notification observer**: subscribes to `AVAudioUnitComponentManagerRegistrationsChangedNotification` (Apple's documented signal that the AU component registry changed) and re-runs `discover()` when iOS finishes its scan.
+2. **Polling fallback**: 60 ticks at 1s each, guards the case where the notification doesn't fire on the first foreground after install. Each tick is a separate `Task { @MainActor in ... }` hop so Swift 6 strict-concurrency is happy.
+
+**Idempotency is mandatory.** Without it, the polling fallback re-calls `AVAudioUnit.instantiate(...)` every tick — each call creates a fresh `AudioUnit` instance, which tears down the AUv3's editor view and crashes `pulp::format::ViewBridge::~ViewBridge()` with `EXC_BAD_ACCESS` because the editor is mid-render when the AU is replaced. The fix is the `instantiationInFlight: Bool` field on `PulpAUv3Host`:
+
+```swift
+func discover() {
+    if audioUnit != nil { return }
+    if instantiationInFlight { return }
+    instantiationInFlight = true
+    // ... scan + instantiate ...
+}
+```
+
+Cleared in both the success path (inside the `Task { @MainActor in ... }` after `AVAudioUnit.instantiate` succeeds) AND the bail paths (no matching component found, instantiate callback returns `error != nil`). Forgetting either bail path leaks the in-flight flag and the discovery never retries.
+
+Grep `PULP_DISCOVER` + `PULP_INSTANTIATE` in the launch log to trace the discovery cycle; the new code reuses these existing log markers and adds no new noise.
