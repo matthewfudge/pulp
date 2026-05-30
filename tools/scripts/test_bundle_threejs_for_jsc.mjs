@@ -1,25 +1,34 @@
 #!/usr/bin/env node
-// test_bundle_threejs_for_jsc.mjs — iOS-D.3b Slice 3.
+// test_bundle_threejs_for_jsc.mjs — smoke test for the esbuild-backed
+// bundler at `tools/scripts/bundle_threejs_for_jsc.mjs`.
 //
-// Smoke test for `bundle_threejs_for_jsc.mjs`. Bundles a fixture ESM
-// source that mimics the upstream `three.webgpu.js` shape, then
-// asserts the emitted IIFE:
+// The previous regex-based bundler emitted predictable `Vector3: Vector3`
+// key/value pairs in the IIFE body, so this test grepped the output text.
+// The esbuild-backed bundler emits a Module-Record-style closure with
+// `__export(exports, { Vector3: () => Vector3 })`, so text patterns don't
+// hold across both implementations.
 //
-//   1. Wraps in `(function () { ... })();`
-//   2. Strips top-level `export { ... }` blocks
-//   3. Stripped inline `export class / const / function` keywords
-//   4. Registers all exported identifiers on `globalThis.THREE`
-//   5. Emits the `PULP_THREEJS:` log marker
+// What stays stable across implementations — and what this test pins —
+// is the BEHAVIOR contract: evaluate the emitted IIFE inside a fresh
+// VM context, then assert that `globalThis.THREE` exposes every export
+// the source declared. That's the contract iOS-D.3b's runtime depends
+// on; the rest is internal bundler shape.
 //
-// This protects the bundler from silent regressions: if upstream
-// Three.js's ESM shape changes (or if our regex naively breaks), this
-// test fires before the iOS smoke catches it post-bundle.
+// Cases:
+//   1. Top-level `export { ... }` block → all symbols on globalThis.THREE.
+//   2. Inline `export class / const / function` → all symbols on THREE.
+//   3. `export { A as B }` alias → THREE.B references A's value.
+//   4. ESM `import { ... } from "./sibling.js"` → bundler resolves the
+//      sibling module (this is the regression class the regex bundler
+//      could not handle and esbuild fixes).
+//   5. PULP_THREEJS log marker is emitted when `print()` is defined.
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import vm from "node:vm";
 
 const SELF = path.dirname(new URL(import.meta.url).pathname);
 const BUNDLER = path.join(SELF, "bundle_threejs_for_jsc.mjs");
@@ -31,8 +40,8 @@ function assert(cond, message) {
     }
 }
 
-function mkFixture(dir, source) {
-    const inputPath = path.join(dir, "fixture.js");
+function mkFixture(dir, source, name = "fixture.js") {
+    const inputPath = path.join(dir, name);
     fs.writeFileSync(inputPath, source, "utf8");
     return inputPath;
 }
@@ -53,7 +62,22 @@ function withTmpDir(fn) {
     }
 }
 
-// Case 1: top-level `export { ... }` block stripped, exports surfaced.
+// Evaluate the IIFE inside an isolated VM context and return its
+// `globalThis.THREE` namespace. Also captures any `print(...)` calls so
+// the PULP_THREEJS marker assertion can run.
+function evalIife(iife) {
+    const printedLines = [];
+    const ctx = {
+        globalThis: undefined,
+        print(msg) { printedLines.push(String(msg)); },
+    };
+    ctx.globalThis = ctx;
+    vm.createContext(ctx);
+    vm.runInContext(iife, ctx, { timeout: 5000 });
+    return { THREE: ctx.THREE, printedLines };
+}
+
+// Case 1: top-level `export { ... }` block, all exports on globalThis.THREE.
 withTmpDir((dir) => {
     const inputPath = mkFixture(
         dir,
@@ -66,17 +90,17 @@ withTmpDir((dir) => {
     );
     const outputPath = path.join(dir, "out.js");
     const iife = bundle(inputPath, outputPath);
-    assert(iife.includes("(function ()"), "Case 1: IIFE wrapper missing");
-    assert(!/^export\s*\{/m.test(iife), "Case 1: export block not stripped");
-    assert(iife.includes("Vector3: Vector3"), "Case 1: Vector3 not surfaced on globalThis.THREE");
-    assert(iife.includes("Mesh: Mesh"), "Case 1: Mesh not surfaced");
-    assert(iife.includes("noop: noop"), "Case 1: noop not surfaced");
     assert(iife.includes("globalScope.THREE = Object.assign"), "Case 1: THREE namespace assignment missing");
-    assert(iife.includes("PULP_THREEJS:"), "Case 1: log marker missing");
-    console.log("PASS: Case 1 — export { ... } block stripped, namespace registered");
+    const { THREE } = evalIife(iife);
+    assert(THREE, "Case 1: globalThis.THREE not defined after IIFE eval");
+    assert(typeof THREE.Vector3 === "function", "Case 1: Vector3 not surfaced as a class on globalThis.THREE");
+    assert(new THREE.Vector3().x === 0, "Case 1: Vector3 constructor lost");
+    assert(typeof THREE.Mesh === "function", "Case 1: Mesh not surfaced");
+    assert(typeof THREE.noop === "function" && THREE.noop() === 42, "Case 1: noop not surfaced/callable");
+    console.log("PASS: Case 1 — `export { ... }` block surfaced via globalThis.THREE");
 });
 
-// Case 2: inline `export class X` stripped (keyword removed but class kept).
+// Case 2: inline `export class / const / function` keywords.
 withTmpDir((dir) => {
     const inputPath = mkFixture(
         dir,
@@ -88,47 +112,79 @@ withTmpDir((dir) => {
     );
     const outputPath = path.join(dir, "out.js");
     const iife = bundle(inputPath, outputPath);
-    assert(!/^export\s+(class|const|function)/m.test(iife), "Case 2: inline export keyword not stripped");
-    assert(iife.includes("class Vector3"), "Case 2: class body lost");
-    assert(iife.includes("const PI_3"), "Case 2: const body lost");
-    assert(iife.includes("function compute"), "Case 2: function body lost");
-    assert(iife.includes("Vector3: Vector3"), "Case 2: Vector3 not in namespace");
-    assert(iife.includes("PI_3: PI_3"), "Case 2: PI_3 not in namespace");
-    assert(iife.includes("compute: compute"), "Case 2: compute not in namespace");
-    console.log("PASS: Case 2 — inline export class/const/function stripped");
+    const { THREE } = evalIife(iife);
+    assert(THREE, "Case 2: globalThis.THREE not defined");
+    assert(typeof THREE.Vector3 === "function" && new THREE.Vector3().x === 0,
+        "Case 2: Vector3 inline-export not surfaced");
+    assert(THREE.PI_3 === 3.141, "Case 2: PI_3 inline-export not surfaced");
+    assert(typeof THREE.compute === "function" && THREE.compute() === 1,
+        "Case 2: compute inline-export not surfaced");
+    console.log("PASS: Case 2 — inline export class/const/function surfaced");
 });
 
-// Case 3: `export { A as B }` alias surfaced under the alias.
+// Case 3: `export { A as B }` alias.
 withTmpDir((dir) => {
     const inputPath = mkFixture(
         dir,
         [
-            "class InternalVec { }",
+            "class InternalVec { constructor() { this.kind = 'internal'; } }",
             "export { InternalVec as Vector3 };",
         ].join("\n"),
     );
     const outputPath = path.join(dir, "out.js");
     const iife = bundle(inputPath, outputPath);
-    assert(iife.includes("Vector3: Vector3"), "Case 3: alias not surfaced as Vector3");
-    assert(iife.includes("var Vector3 = InternalVec") === false, "Case 3: spurious alias var (expected naive transform — accept whichever)");
-    console.log("PASS: Case 3 — `export { X as Y }` alias surfaced");
+    const { THREE } = evalIife(iife);
+    assert(typeof THREE.Vector3 === "function",
+        "Case 3: aliased export not surfaced as Vector3");
+    assert(new THREE.Vector3().kind === "internal",
+        "Case 3: aliased Vector3 does not point to InternalVec");
+    assert(typeof THREE.InternalVec === "undefined",
+        "Case 3: original name leaked onto THREE (expected only the alias)");
+    console.log("PASS: Case 3 — `export { X as Y }` alias surfaced under alias only");
 });
 
-// Case 4: no exports → bundler must FAIL LOUDLY (so an upstream
-// Three.js shape change can't silently produce an empty IIFE).
+// Case 4: sibling `import` resolution. This is the regression class the
+// regex bundler could not handle — `import { ... } from "./core.js"` was
+// left as a bare top-level import which JSC then failed to parse.
 withTmpDir((dir) => {
-    const inputPath = mkFixture(dir, "var nothing = 1;");
+    mkFixture(
+        dir,
+        "export class Vec3 { constructor() { this.tag = 'core'; } }",
+        "core.js",
+    );
+    const inputPath = mkFixture(
+        dir,
+        [
+            "import { Vec3 } from './core.js';",
+            "class Mesh { make() { return new Vec3(); } }",
+            "export { Vec3, Mesh };",
+        ].join("\n"),
+        "fixture.js",
+    );
     const outputPath = path.join(dir, "out.js");
-    let threw = false;
-    try {
-        execFileSync(process.execPath, [BUNDLER, "--input", inputPath, "--output", outputPath], {
-            stdio: "pipe",
-        });
-    } catch (err) {
-        threw = true;
-    }
-    assert(threw, "Case 4: bundler did not fail on empty-export source");
-    console.log("PASS: Case 4 — bundler fails loudly on empty-export input");
+    const iife = bundle(inputPath, outputPath);
+    assert(!/^\s*import\s+/m.test(iife),
+        "Case 4: bare `import` statement survived bundling — esbuild did not inline the sibling module");
+    const { THREE } = evalIife(iife);
+    assert(typeof THREE.Vec3 === "function", "Case 4: Vec3 (from sibling) not on THREE");
+    assert(typeof THREE.Mesh === "function", "Case 4: Mesh not on THREE");
+    assert(new THREE.Mesh().make().tag === "core",
+        "Case 4: Mesh.make() does not reach Vec3 from the sibling module");
+    console.log("PASS: Case 4 — sibling `import` resolution works (esbuild path)");
+});
+
+// Case 5: PULP_THREEJS log marker fires when print() is defined.
+withTmpDir((dir) => {
+    const inputPath = mkFixture(
+        dir,
+        ["export class Solo { }"].join("\n"),
+    );
+    const outputPath = path.join(dir, "out.js");
+    const iife = bundle(inputPath, outputPath);
+    const { printedLines } = evalIife(iife);
+    assert(printedLines.some((line) => line.startsWith("PULP_THREEJS:")),
+        "Case 5: bundler did not emit PULP_THREEJS marker via print()");
+    console.log("PASS: Case 5 — PULP_THREEJS log marker emitted");
 });
 
 console.log("\nAll bundle_threejs_for_jsc tests passed.");
