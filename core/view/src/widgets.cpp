@@ -695,7 +695,12 @@ void Fader::paint(canvas::Canvas& canvas) {
             const float skin_thumb_frac = has_skin_track_width_ ? 1.0f : 0.62f;
             const float skin_default_w = vert ? std::min(b.width, track_width) * skin_thumb_frac
                                               : std::max(10.0f, track_length * 0.10f);
-            const float skin_default_h = vert ? std::max(10.0f, track_length * 0.10f)
+            // A captured fader thumb is a flat slab — wider than tall (~2:1).
+            // Default the cross-axis extent to ~half the long-axis so the thumb
+            // reads as a slab, not the near-square/circle that
+            // track_length*0.10 produced on tall faders. (Vertical fader: thumb
+            // is wide & short, so its height ≈ half its width.)
+            const float skin_default_h = vert ? std::max(8.0f, skin_default_w * 0.5f)
                                               : std::min(b.height, track_width) * 0.62f;
             const float default_w = skinned ? skin_default_w : (vert ? std::min(b.width, track_width) : 8.0f);
             const float default_h = skinned ? skin_default_h : (vert ? 5.0f : std::min(b.height, track_width));
