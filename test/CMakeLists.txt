@@ -155,6 +155,17 @@ if(Python3_Interpreter_FOUND)
         SKIP_RETURN_CODE 77
         LABELS "import;fidelity;slow"
         TIMEOUT 120)
+
+    # Labeled comparison-montage helper (tools/import-design/montage.py).
+    # Builds titled reference-vs-render(s) montages (labels ON by default).
+    # PIL-based; exits 77 (skips) on a PIL-less interpreter.
+    add_test(NAME import-montage
+        COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_CURRENT_SOURCE_DIR}/test_import_montage.py)
+    set_tests_properties(import-montage PROPERTIES
+        SKIP_RETURN_CODE 77
+        LABELS "import;fidelity"
+        TIMEOUT 60)
 endif()
 
 # Setup-hook unit test — verifies hooks/scripts/check-pulp-cli.sh

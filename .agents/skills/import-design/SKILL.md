@@ -1090,6 +1090,16 @@ After generating Pulp code, ALWAYS validate by comparing with the source design:
 
 5. **Iterate if needed** — adjust the generated code and re-render until similarity is acceptable (>85%)
 
+**Always show comparisons as a LABELED montage** — `tools/import-design/montage.py` stacks N renders into one image with a titled bar above each panel (labels ON by default), so a reference-vs-render(s) comparison is self-documenting (you can tell which panel is which without an external caption — a bare montage gets misread):
+```bash
+python3 tools/import-design/montage.py --out compare.png \
+  "reference.png:1. Figma reference" \
+  "render.png:2. Pulp render (real export)" \
+  "rest.png:3. Pulp render (headless REST)"
+# --columns N for side-by-side; --no-labels to opt out; --config montage.json for defaults
+```
+Smoke-tested by `test/test_import_montage.py` (CTest `import-montage`, skips without PIL).
+
 ### Keyboard shortcut extraction (UX best-practice default)
 
 The library function `extract_keyboard_shortcuts(source, filename)` scans
