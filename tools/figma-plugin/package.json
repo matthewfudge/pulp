@@ -10,7 +10,8 @@
     "gen-types": "node scripts/gen-types.mjs",
     "typecheck:code": "tsc -p src/code.tsconfig.json",
     "typecheck:ui": "tsc -p src/ui.tsconfig.json",
-    "typecheck": "npm run typecheck:code && npm run typecheck:ui",
+    "typecheck:headless": "tsc -p src/headless.tsconfig.json",
+    "typecheck": "npm run typecheck:code && npm run typecheck:ui && npm run typecheck:headless",
     "test": "node scripts/test.mjs"
   },
   "devDependencies": {
