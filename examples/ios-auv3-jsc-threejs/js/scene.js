@@ -198,6 +198,88 @@
     var context = canvasEl.getContext("webgpu");
     var wrappedCanvas = new PulpCanvas(canvasEl);
 
+    // iOS-D.3c (#3217) DIAG A2: bypass Three.js entirely and try a raw
+    // WebGPU full-screen triangle. If a bright red triangle appears,
+    // our shim handles raw WebGPU correctly and Three.js is the issue.
+    // If still blank, the bug is deeper in the bridge/Dawn pipeline.
+    var __PULP_RAW_WEBGPU_TEST = true;
+    if (__PULP_RAW_WEBGPU_TEST) {
+        console.info("PULP_RAW_WEBGPU: entering raw test path");
+        function rawTriangleStart() {
+            console.info("PULP_RAW_WEBGPU: requesting adapter");
+            navigator.gpu.requestAdapter().then(function(adapter) {
+                console.info("PULP_RAW_WEBGPU: got adapter, requesting device");
+                return adapter.requestDevice();
+            }).then(function(device) {
+                console.info("PULP_RAW_WEBGPU: got device, configuring context");
+                context.configure({
+                    device: device,
+                    format: "bgra8unorm",
+                    alphaMode: "opaque"
+                });
+                var shaderCode =
+                    "@vertex fn vmain(@builtin(vertex_index) i : u32) -> @builtin(position) vec4f {" +
+                    "  var p = array(vec2f(-0.8, -0.8), vec2f(0.8, -0.8), vec2f(0.0, 0.8));" +
+                    "  return vec4f(p[i], 0.0, 1.0);" +
+                    "}" +
+                    "@fragment fn fmain() -> @location(0) vec4f {" +
+                    "  return vec4f(1.0, 0.0, 0.0, 1.0);" +
+                    "}";
+                console.info("PULP_RAW_WEBGPU: creating shader module");
+                var mod = device.createShaderModule({ code: shaderCode });
+                console.info("PULP_RAW_WEBGPU: creating render pipeline");
+                var pipeline = device.createRenderPipeline({
+                    layout: "auto",
+                    vertex: { module: mod, entryPoint: "vmain" },
+                    fragment: {
+                        module: mod,
+                        entryPoint: "fmain",
+                        targets: [{ format: "bgra8unorm" }]
+                    },
+                    primitive: { topology: "triangle-list" }
+                });
+                backendMetric.textContent = "RawWebGPU";
+                console.info("PULP_RAW_WEBGPU: starting tick");
+                var localFrame = 0;
+                function tickRaw() {
+                    try {
+                        var tex = context.getCurrentTexture();
+                        var view = tex.createView();
+                        var encoder = device.createCommandEncoder();
+                        var pass = encoder.beginRenderPass({
+                            colorAttachments: [{
+                                view: view,
+                                loadOp: "clear",
+                                storeOp: "store",
+                                clearValue: { r: 0.0, g: 0.0, b: 0.5, a: 1.0 }
+                            }]
+                        });
+                        pass.setPipeline(pipeline);
+                        pass.draw(3, 1, 0, 0);
+                        pass.end();
+                        device.queue.submit([encoder.finish()]);
+                        localFrame += 1;
+                        if (localFrame === 1 || localFrame % 60 === 0) {
+                            console.info("PULP_RAW_WEBGPU: tick " + localFrame);
+                            fpsMetric.textContent = "raw";
+                            frameMetric.textContent = String(localFrame);
+                            drawsMetric.textContent = "raw";
+                        }
+                    } catch (te) {
+                        console.error("PULP_RAW_WEBGPU: tick error: " + (te && te.message ? te.message : te));
+                        return;
+                    }
+                    requestAnimationFrame(tickRaw);
+                }
+                requestAnimationFrame(tickRaw);
+            }).catch(function(e) {
+                console.error("PULP_RAW_WEBGPU: failed: " + (e && e.message ? e.message : e));
+            });
+        }
+        rawTriangleStart();
+        return;
+    }
+
     var renderer;
     try {
         renderer = new THREE.WebGPURenderer({
