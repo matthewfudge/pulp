@@ -321,7 +321,7 @@
     }
 
     var scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x05080f);
+    scene.background = new THREE.Color(0xff0000);  // iOS-D.3c DIAG red — was 0x05080f
 
     var camera = new THREE.PerspectiveCamera(
         60, canvasWidth / canvasHeight, 0.1, 100);

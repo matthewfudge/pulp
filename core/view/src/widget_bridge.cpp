@@ -9404,6 +9404,21 @@ void WidgetBridge::register_api() {
                                 !source_it->second.configured || !source_it->second.texture) {
                                 return choc::value::createBool(false);
                             }
+                            // iOS-D.3c (#3217) DIAG — log sampler-texture pointer to
+                            // correlate with the cube's render-target pointer. They
+                            // MUST be the same for the composite to see what the
+                            // cube wrote.
+                            {
+                                static std::atomic<int> sampler_log{0};
+                                int s = sampler_log.fetch_add(1) + 1;
+                                if (s % 60 == 0) {
+                                    pulp::runtime::log_info(
+                                        "PULP_GPU_BRIDGE bg-sampler n={} srcTexId='{}' tex=0x{:x} fmt={}",
+                                        s, source_texture_id,
+                                        reinterpret_cast<uintptr_t>(source_it->second.texture.Get()),
+                                        source_it->second.format);
+                                }
+                            }
 
                             const bool use_default_view =
                                 view_format == source_it->second.format &&
@@ -9594,12 +9609,20 @@ void WidgetBridge::register_api() {
         }
         wgpu::ColorTargetState color_target{};
         color_target.format = texture_format_from_string(actual_target_format);
-        // iOS-D.3c (#3217): writeMask was unset → defaulted to None →
-        // pipeline executed but never wrote color. The immediate __gpuQueueDrawImpl
-        // path sets `writeMask = All` (line 8767); buffered path must too,
-        // otherwise the magenta-clear test paints but Three.js's actual
-        // shader output silently vanishes. (Codex root-cause for #3217.)
         color_target.writeMask = wgpu::ColorWriteMask::All;
+
+        // iOS-D.3c (#3217) FIX — when targeting the visible canvas
+        // swapchain, force a blend state that overrides the source
+        // alpha to 1.0 by writing only RGB (writeMask) and pre-clearing
+        // alpha=1 (done below at color_attachment). Three.js's
+        // WebGPURenderer composite shader emits alpha=0 for the canvas
+        // pass; without this fix the SrcOver/none blend leaves the
+        // canvas transparent and the CSS background shows through.
+        if (target_canvas_state != nullptr) {
+            color_target.writeMask = wgpu::ColorWriteMask::Red
+                                   | wgpu::ColorWriteMask::Green
+                                   | wgpu::ColorWriteMask::Blue;
+        }
 
         wgpu::FragmentState fragment_state{};
         fragment_state.module = fragment_module;
@@ -9685,6 +9708,25 @@ void WidgetBridge::register_api() {
                 static_cast<float>(clear_value.hasObjectMember("b") ? clear_value["b"].getWithDefault<double>(0.0) : 0.0),
                 static_cast<float>(clear_value.hasObjectMember("a") ? clear_value["a"].getWithDefault<double>(1.0) : 1.0)
             };
+        }
+        // iOS-D.3c (#3217) FIX — for canvas-targeted draws, force the
+        // load op to Clear with alpha=1. Without this, the JS-supplied
+        // loadOp=load preserves whatever destination alpha was there
+        // (zero on first paint), and the shader's alpha=0 output keeps
+        // it zero. Forcing Clear w/ alpha=1 + writeMask=RGB (above)
+        // ensures the canvas has opaque alpha for Skia to composite.
+        if (target_canvas_state != nullptr) {
+            color_attachment.loadOp = wgpu::LoadOp::Clear;
+            color_attachment.clearValue.a = 1.0f;
+        }
+        // iOS-D.3c (#3217) DIAG — force any texture-target draw to
+        // clear to bright green. If the canvas ends up green, the
+        // composite samples the HDR texture correctly. If it stays
+        // black, either the texture write doesn't persist or the
+        // composite samples a different texture entirely.
+        if (target_texture_state != nullptr && target_canvas_state == nullptr) {
+            color_attachment.loadOp = wgpu::LoadOp::Clear;
+            color_attachment.clearValue = { 0.0f, 1.0f, 0.0f, 1.0f };
         }
 
         // Create depth texture if depth/stencil is requested
