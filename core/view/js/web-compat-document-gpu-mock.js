@@ -124,25 +124,68 @@ function __textureExtent(sizeLike) {
 
 function __createMockGPUBuffer(init) {
     init = init || {};
+    // iOS-D.3c (#3217) — unique per-buffer ID + generation counter so
+    // diagnostics can correlate writeBuffer targets with bind-group
+    // resources at draw time. Incremented on each writeBuffer.
+    if (typeof globalThis.__pulpBufNextId === "undefined") {
+        globalThis.__pulpBufNextId = 1;
+    }
     var buffer = {
         _objectName: "GPUBuffer",
         label: init.label || "",
         size: init.size || 0,
         usage: init.usage || 0,
-        mapState: "unmapped",
+        _dbgId: globalThis.__pulpBufNextId++,
+        _dbgGen: 0,
+        mapState: init.mappedAtCreation ? "mapped" : "unmapped",
         _destroyed: false,
-        _bytes: new Uint8Array(init.size || 0)
+        _bytes: new Uint8Array(init.size || 0),
+        _mappedView: null,
+        _mappedOffset: 0
     };
     buffer.mapAsync = function() {
         buffer.mapState = "mapped";
         return Promise.resolve(undefined);
     };
+    // iOS-D.3c (#3217) — previous impl returned
+    // `buffer._bytes.buffer.slice(begin, end)`, which is an ArrayBuffer
+    // COPY: writes through it never reached _bytes and were lost on
+    // unmap. Three.js writes per-frame model matrices via
+    // mappedAtCreation/getMappedRange/unmap; with the buggy slice they
+    // arrived at the bridge as zeros/uninitialized memory, the vertex
+    // shader produced garbage clip-space positions, Metal silently
+    // culled the cube, and the HDR target stayed black. Fix: hand out
+    // a fresh Uint8Array view backed by an independent ArrayBuffer
+    // (so writes don't bleed into _bytes mid-frame), record the offset,
+    // and copy back on unmap.
     buffer.getMappedRange = function(offset, size) {
         var begin = offset || 0;
-        var end = size == null ? buffer.size : begin + size;
-        return buffer._bytes.buffer.slice(begin, end);
+        var actualSize = size == null ? Math.max(0, buffer.size - begin) : size;
+        var view = new Uint8Array(actualSize);
+        // Seed the view with current contents so partial writes don't
+        // wipe pre-existing bytes (mappedAtCreation buffers start zeroed
+        // so this is a no-op there; for re-maps it preserves untouched
+        // regions).
+        if (actualSize > 0 && begin + actualSize <= buffer._bytes.length) {
+            view.set(buffer._bytes.subarray(begin, begin + actualSize));
+        }
+        buffer._mappedView = view;
+        buffer._mappedOffset = begin;
+        return view.buffer;
     };
-    buffer.unmap = function() { buffer.mapState = "unmapped"; };
+    buffer.unmap = function() {
+        if (buffer._mappedView) {
+            buffer._bytes.set(buffer._mappedView, buffer._mappedOffset);
+            buffer._mappedView = null;
+            if (typeof globalThis !== "undefined") {
+                if (!globalThis.__pulpBufWriteStats) {
+                    globalThis.__pulpBufWriteStats = { writeBuffer: 0, getMappedRangeUnmap: 0, sizesSeen: {} };
+                }
+                globalThis.__pulpBufWriteStats.getMappedRangeUnmap += 1;
+            }
+        }
+        buffer.mapState = "unmapped";
+    };
     buffer.destroy = function() { buffer._destroyed = true; };
     return buffer;
 }
@@ -408,6 +451,32 @@ function __createMockGPUQueue(init) {
         var sliceOffset = dataOffset || 0;
         var sliceSize = size == null ? source.length - sliceOffset : size;
         buffer._bytes.set(source.slice(sliceOffset, sliceOffset + sliceSize), begin);
+        // iOS-D.3c (#3217) — track which buffer-write paths Three.js
+        // actually exercises so we can identify shim gaps.
+        if (buffer._dbgGen != null) buffer._dbgGen += 1;
+        if (typeof globalThis !== "undefined") {
+            if (!globalThis.__pulpBufWriteStats) {
+                globalThis.__pulpBufWriteStats = { writeBuffer: 0, getMappedRangeUnmap: 0, sizesSeen: {}, byId80: {}, sampleFirst80: null };
+            }
+            globalThis.__pulpBufWriteStats.writeBuffer += 1;
+            var sk = String(buffer.size);
+            globalThis.__pulpBufWriteStats.sizesSeen[sk] = (globalThis.__pulpBufWriteStats.sizesSeen[sk] || 0) + 1;
+            // For 80B buffers (the per-mesh path), track per-id write counts
+            // and capture the first 16 bytes the very first time.
+            if (buffer.size === 80) {
+                var idKey = String(buffer._dbgId);
+                globalThis.__pulpBufWriteStats.byId80[idKey] = (globalThis.__pulpBufWriteStats.byId80[idKey] || 0) + 1;
+                if (!globalThis.__pulpBufWriteStats.sampleFirst80) {
+                    var hex = "";
+                    for (var i = 0; i < 16 && i < buffer._bytes.length; ++i) {
+                        var b = buffer._bytes[i].toString(16);
+                        if (b.length < 2) b = "0" + b;
+                        hex += b + " ";
+                    }
+                    globalThis.__pulpBufWriteStats.sampleFirst80 = "id=" + idKey + " bytes=" + hex.trim();
+                }
+            }
+        }
     };
     queue.writeTexture = function(destination, data, dataLayout, size) {
         if (!destination || !destination.texture) return;

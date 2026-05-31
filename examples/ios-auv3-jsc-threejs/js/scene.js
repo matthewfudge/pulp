@@ -182,6 +182,11 @@
     var fpsMetric = metric("FPS");
     var frameMetric = metric("Frame");
     var backendMetric = metric("Backend");
+    // iOS-D.3c (#3217) — visible WebGPU-bridge diagnostic counters.
+    // Sent = JS encoder dispatched a native draw payload.
+    // Null = createBufferedDrawPayload returned null (skipped — see
+    //        __phase13BufferedSkips global for reasons).
+    var drawsMetric = metric("Draws (Sent / Null)");
 
     // ── Three.js scene ───────────────────────────────────────────────
     // Same minimum shape as the macOS lane: WebGPURenderer wraps the
@@ -268,6 +273,28 @@
             var ms = dt / Math.max(1, frameCount - lastSampleFrame);
             fpsMetric.textContent = fps.toFixed(1);
             frameMetric.textContent = String(frameCount);
+            // iOS-D.3c (#3217) — refresh on-screen bridge counters.
+            var s = (typeof globalThis !== "undefined") ? globalThis.__pulpWGPUStats : null;
+            if (s) {
+                var sent = s.payloadsSentSync + s.payloadsSentViaOnEnd;
+                drawsMetric.textContent = String(sent) + " / " + String(s.payloadsNullCount);
+                if (s.bridgeMissingCount > 0) {
+                    drawsMetric.textContent += " · bridge?" + s.bridgeMissingCount;
+                }
+            } else {
+                drawsMetric.textContent = "no stats";
+            }
+            // Surface buffer-write counters so we can see which path Three.js uses.
+            var bs = (typeof globalThis !== "undefined") ? globalThis.__pulpBufWriteStats : null;
+            if (bs) {
+                var ids80 = Object.keys(bs.byId80 || {}).slice(0, 10);
+                console.info("PULP_BUF_WRITE_STATS writeBuffer=" + bs.writeBuffer
+                    + " mappedRangeUnmap=" + bs.getMappedRangeUnmap
+                    + " sizes=" + JSON.stringify(bs.sizesSeen)
+                    + " 80B-ids=[" + ids80.join(",") + "] (out of "
+                    + Object.keys(bs.byId80 || {}).length + " total)"
+                    + " sampleFirst80=" + (bs.sampleFirst80 || "none"));
+            }
             console.info("PULP_THREE_RENDER: 60-frame avg "
                 + ms.toFixed(2) + " ms/frame ("
                 + fps.toFixed(1) + " FPS, total=" + frameCount + ")");

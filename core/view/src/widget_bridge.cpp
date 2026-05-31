@@ -9055,15 +9055,38 @@ void WidgetBridge::register_api() {
     });
 
     engine_.register_function("__gpuQueueDrawBufferedImpl", [this](choc::javascript::ArgumentList args) {
+        // iOS-D.3c (#3217) — rate-limited entry counter + log so iPad/Sim
+        // post-mortems can see how often this function is invoked and where
+        // it returns early. Every 60 invocations (~once per second at
+        // 60fps × 1 draw/frame).
+        static std::atomic<int> entered{0};
+        static std::atomic<int> early_null_args{0};
+        static std::atomic<int> early_no_skia{0};
+        static std::atomic<int> early_not_object{0};
+        static std::atomic<int> succeeded{0};
+        int n = entered.fetch_add(1) + 1;
+        if (n % 60 == 0) {
+            pulp::runtime::log_info(
+                "PULP_GPU_BRIDGE bufferedDrawImpl entered={} null_args={} no_skia={} not_object={} succeeded={}",
+                n,
+                early_null_args.load(),
+                early_no_skia.load(),
+                early_not_object.load(),
+                succeeded.load());
+        }
+
         if (args.numArgs < 1 || !args[0] || native_gpu_bridge_state_ == nullptr || gpu_surface_ == nullptr) {
+            early_null_args.fetch_add(1);
             return choc::value::createBool(false);
         }
 
 #ifndef PULP_HAS_SKIA
+        early_no_skia.fetch_add(1);
         return choc::value::createBool(false);
 #else
         auto& payload = *args[0];
         if (!payload.isObject()) {
+            early_not_object.fetch_add(1);
             return choc::value::createBool(false);
         }
 
@@ -9695,6 +9718,99 @@ void WidgetBridge::register_api() {
             }
         }
 
+        // iOS-D.3c (#3217) — one-shot draw-signature dump for the first
+        // 3 draws so we can see why no fragments are produced. After that
+        // the static flag suppresses output.
+        {
+            static std::atomic<int> sig_dumps{0};
+            int s = sig_dumps.fetch_add(1);
+            if (s < 3) {
+                std::string bg_slots;
+                for (size_t i = 0; i < bind_group_indices.size(); ++i) {
+                    bg_slots += std::to_string(bind_group_indices[i]);
+                    if (i + 1 < bind_group_indices.size()) bg_slots += ",";
+                }
+                std::string vb_present;
+                size_t vb_count = 0;
+                for (uint32_t slot = 0; slot < vertex_buffer_present.size(); ++slot) {
+                    if (vertex_buffer_present[slot]) {
+                        vb_present += std::to_string(slot) + ":Y ";
+                        ++vb_count;
+                    }
+                }
+                // Dump bind group binding contents (especially what textures
+                // each binding references) so we can correlate Draw#1's
+                // sampler binding with Draw#0's render target.
+                std::string bg_bindings;
+                if (payload.hasObjectMember("bindGroups") && payload["bindGroups"].isArray()) {
+                    auto bgs = payload["bindGroups"];
+                    for (uint32_t i = 0; i < bgs.size(); ++i) {
+                        auto bg = bgs[i];
+                        bg_bindings += " bg" + std::to_string(i) + "{";
+                        if (bg.hasObjectMember("entries") && bg["entries"].isArray()) {
+                            auto entries = bg["entries"];
+                            for (uint32_t e = 0; e < entries.size(); ++e) {
+                                auto en = entries[e];
+                                auto binding = en.hasObjectMember("binding") ? en["binding"].getWithDefault<int32_t>(-1) : -1;
+                                auto rt = en.hasObjectMember("resourceType") ? en["resourceType"].getWithDefault<std::string>("") : "";
+                                std::string ref = "";
+                                if (rt == "textureView") {
+                                    auto sti = en.hasObjectMember("sourceTextureId") ? en["sourceTextureId"].getWithDefault<std::string>("") : "";
+                                    auto sci = en.hasObjectMember("sourceCanvasId") ? en["sourceCanvasId"].getWithDefault<std::string>("") : "";
+                                    auto fmt = en.hasObjectMember("format") ? en["format"].getWithDefault<std::string>("") : "";
+                                    if (!sti.empty()) ref = "tex=" + sti;
+                                    else if (!sci.empty()) ref = "canvas=" + sci;
+                                    else ref = "inline";
+                                    if (!fmt.empty()) ref += "(" + fmt + ")";
+                                } else if (rt == "sampler") {
+                                    ref = "sampler";
+                                } else if (rt == "buffer") {
+                                    auto sz = en.hasObjectMember("size") ? en["size"].getWithDefault<int32_t>(0) : 0;
+                                    auto bt = en.hasObjectMember("bufferType") ? en["bufferType"].getWithDefault<std::string>("") : "";
+                                    auto did = en.hasObjectMember("dbgId") ? en["dbgId"].getWithDefault<int32_t>(0) : 0;
+                                    auto dgen = en.hasObjectMember("dbgGen") ? en["dbgGen"].getWithDefault<int32_t>(0) : 0;
+                                    ref = bt + "[" + std::to_string(sz) + "B,id=" + std::to_string(did) + ",gen=" + std::to_string(dgen) + "]";
+                                    // Dump first 16 bytes of the uniform to see if data
+                                    // is propagating from JS to native, or arriving as zeros.
+                                    if (en.hasObjectMember("data") && en["data"].isArray()) {
+                                        auto d = en["data"];
+                                        std::string hex = " bytes=[";
+                                        for (uint32_t bi = 0; bi < std::min<uint32_t>(16, d.size()); ++bi) {
+                                            int byte = d[bi].getWithDefault<int32_t>(0);
+                                            char buf[4];
+                                            std::snprintf(buf, sizeof(buf), "%02x", byte & 0xff);
+                                            hex += buf;
+                                            if (bi + 1 < std::min<uint32_t>(16, d.size())) hex += " ";
+                                        }
+                                        hex += "]";
+                                        ref += hex;
+                                    }
+                                } else {
+                                    ref = "?(" + rt + ")";
+                                }
+                                bg_bindings += " b" + std::to_string(binding) + "=" + ref;
+                            }
+                        }
+                        bg_bindings += " }";
+                    }
+                }
+                pulp::runtime::log_info(
+                    "PULP_GPU_DRAW_SIG #{} type={} canvas={} targetTex={} fmt={} loadOp={} clearA={} bgSlots=[{}] hasDepth={} W={}xH={}{}",
+                    s,
+                    draw_type,
+                    canvas_id,
+                    target_texture_id,
+                    format,
+                    load_op,
+                    color_attachment.clearValue.a,
+                    bg_slots,
+                    has_depth ? 1 : 0,
+                    target_canvas_state ? target_canvas_state->width : (target_texture_state ? target_texture_state->width : 0u),
+                    target_canvas_state ? target_canvas_state->height : (target_texture_state ? target_texture_state->height : 0u),
+                    bg_bindings);
+            }
+        }
+
         if (draw_type == "draw-indexed") {
             if (!payload.hasObjectMember("indexBuffer")) {
                 return choc::value::createBool(false);
@@ -9781,6 +9897,7 @@ void WidgetBridge::register_api() {
         if (target_canvas_state != nullptr) {
             request_repaint();
         }
+        succeeded.fetch_add(1);
         return choc::value::createBool(true);
 #endif
     });

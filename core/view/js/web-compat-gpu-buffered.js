@@ -10,6 +10,21 @@ function __installNativeGpuBufferedDrawAugmentation() {
     }
     if (__installNativeGpuBufferedDrawAugmentation._installed) return;
 
+    // iOS-D.3c (#3217) — surface bridge counters on-screen so iPad
+    // pixel-blank investigations can see immediately whether
+    // (a) the JS encoder is producing payloads,
+    // (b) the native bridge is being invoked, or
+    // (c) something earlier in the chain is silently skipping.
+    if (typeof globalThis !== "undefined" && !globalThis.__pulpWGPUStats) {
+        globalThis.__pulpWGPUStats = {
+            payloadsCreated: 0,
+            payloadsNullCount: 0,
+            payloadsSentSync: 0,
+            payloadsSentViaOnEnd: 0,
+            bridgeMissingCount: 0
+        };
+    }
+
     function cloneBufferBytes(binding) {
         if (!binding || !binding.buffer || !binding.buffer._bytes) return [];
         var source = binding.buffer._bytes;
@@ -91,6 +106,11 @@ function __installNativeGpuBufferedDrawAugmentation() {
                         hasDynamicOffset: !!(layoutEntry && layoutEntry.buffer && layoutEntry.buffer.hasDynamicOffset),
                         minBindingSize: layoutEntry && layoutEntry.buffer && layoutEntry.buffer.minBindingSize != null ? layoutEntry.buffer.minBindingSize : size,
                         size: size,
+                        // iOS-D.3c (#3217) — surface buffer id+gen for diagnostic
+                        // correlation with writeBuffer call sites.
+                        dbgId: resource.buffer._dbgId || 0,
+                        dbgGen: resource.buffer._dbgGen || 0,
+                        bufBytesAvailable: resource.buffer._bytes.length,
                         data: cloneBufferBytes({
                             buffer: resource.buffer,
                             offset: offset,
@@ -368,8 +388,26 @@ function __installNativeGpuBufferedDrawAugmentation() {
             return undefined;
         };
 
-        encoder.setBindGroup = function(index, bindGroup) {
+        encoder.setBindGroup = function(index, bindGroup, dynamicOffsets) {
             currentBindGroups[index == null ? 0 : index] = bindGroup || null;
+            // iOS-D.3c (#3217) DIAG — track if Three.js ever passes
+            // dynamicOffsets so we know whether dynamic-uniform-buffer
+            // support is needed in the bridge.
+            if (dynamicOffsets && typeof globalThis !== "undefined") {
+                if (!globalThis.__pulpDynOffsetStats) {
+                    globalThis.__pulpDynOffsetStats = { calls: 0, sample: null };
+                }
+                globalThis.__pulpDynOffsetStats.calls += 1;
+                if (!globalThis.__pulpDynOffsetStats.sample) {
+                    try {
+                        globalThis.__pulpDynOffsetStats.sample = JSON.stringify({
+                            index: index,
+                            len: dynamicOffsets.length || 0,
+                            first: dynamicOffsets[0] || 0
+                        });
+                    } catch (_) {}
+                }
+            }
             if (typeof originalSetBindGroup === "function") {
                 return originalSetBindGroup.apply(encoder, arguments);
             }
@@ -409,8 +447,12 @@ function __installNativeGpuBufferedDrawAugmentation() {
                 firstVertex: firstVertex,
                 firstInstance: firstInstance
             }, depthStencil);
+            var stats = (typeof globalThis !== "undefined") ? globalThis.__pulpWGPUStats : null;
+            if (bufferedPayload) { if (stats) stats.payloadsCreated += 1; }
+            else { if (stats) stats.payloadsNullCount += 1; }
             if (bufferedPayload && typeof init.onEnd === "function") {
                 emittedBufferedDraw = true;
+                if (stats) stats.payloadsSentViaOnEnd += 1;
                 init.onEnd({
                     type: "native-draw-current-texture-buffered",
                     payload: bufferedPayload
@@ -425,9 +467,11 @@ function __installNativeGpuBufferedDrawAugmentation() {
             // a synchronous dispatch when we have a payload but no onEnd sink.
             if (bufferedPayload && typeof __gpuQueueDrawBufferedImpl === "function") {
                 emittedBufferedDraw = true;
+                if (stats) stats.payloadsSentSync += 1;
                 __gpuQueueDrawBufferedImpl(bufferedPayload);
                 return;
             }
+            if (bufferedPayload && stats) stats.bridgeMissingCount += 1;
             if (typeof originalDraw === "function") {
                 return originalDraw.apply(encoder, arguments);
             }
@@ -443,8 +487,12 @@ function __installNativeGpuBufferedDrawAugmentation() {
                 baseVertex: baseVertex,
                 firstInstance: firstInstance
             }, depthStencil);
+            var stats = (typeof globalThis !== "undefined") ? globalThis.__pulpWGPUStats : null;
+            if (bufferedPayload) { if (stats) stats.payloadsCreated += 1; }
+            else { if (stats) stats.payloadsNullCount += 1; }
             if (bufferedPayload && typeof init.onEnd === "function") {
                 emittedBufferedDraw = true;
+                if (stats) stats.payloadsSentViaOnEnd += 1;
                 init.onEnd({
                     type: "native-draw-current-texture-buffered",
                     payload: bufferedPayload
@@ -454,9 +502,11 @@ function __installNativeGpuBufferedDrawAugmentation() {
             // Same fallback as encoder.draw above (#3217).
             if (bufferedPayload && typeof __gpuQueueDrawBufferedImpl === "function") {
                 emittedBufferedDraw = true;
+                if (stats) stats.payloadsSentSync += 1;
                 __gpuQueueDrawBufferedImpl(bufferedPayload);
                 return;
             }
+            if (bufferedPayload && stats) stats.bridgeMissingCount += 1;
             if (typeof originalDrawIndexed === "function") {
                 return originalDrawIndexed.apply(encoder, arguments);
             }

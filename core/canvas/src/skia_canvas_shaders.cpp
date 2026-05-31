@@ -51,7 +51,10 @@
 
 #endif  // PULP_HAS_SKIA
 
+#include <atomic>
+#include <string>
 #include <pulp/canvas/skia_canvas.hpp>
+#include <pulp/runtime/log.hpp>
 #ifdef PULP_HAS_SKIA
 #include "skia_canvas_internal.hpp"  // to_sk_color4f, webgpu-format helpers
 #include "runtime_effect_cache.hpp"  // RuntimeEffectCache (sibling header)
@@ -335,25 +338,41 @@ bool SkiaCanvas::draw_native_dawn_texture(void* texture_handle,
                                           float y,
                                           float w,
                                           float h) {
-    // iOS-D.3c (#3217): implement the WebGPU canvas → Skia blit. The
-    // bridge gives canvas widgets a `wgpu::Texture*` provider (see
-    // widget_bridge.cpp:1027-1029 and :3265/:3666); CanvasWidget::paint()
-    // routes through here. Until this function returned `true` the
-    // Three.js cube rendered to an invisible offscreen texture; the
-    // CAMetalLayer surface stayed blank. Codex's plan in issue #3217:
-    // wrap the Dawn texture as a graphite::BackendTexture, materialize
-    // as an SkImage, draw into the current canvas.
+    // iOS-D.3c (#3217): WebGPU canvas → Skia blit; counters added to
+    // pinpoint which step fails on Sim/iPad. Rate-limited to once per
+    // ~60 invocations to keep log noise low.
+    static std::atomic<int> entered{0};
+    static std::atomic<int> early_null_args{0};
+    static std::atomic<int> early_null_tex_obj{0};
+    static std::atomic<int> early_invalid_backend{0};
+    static std::atomic<int> early_null_image{0};
+    static std::atomic<int> succeeded{0};
+    int n = entered.fetch_add(1) + 1;
+    if (n % 60 == 0) {
+        pulp::runtime::log_info(
+            "PULP_GPU_BRIDGE draw_native_dawn_texture entered={} null_args={} null_tex={} invalid_backend={} null_image={} succeeded={}",
+            n,
+            early_null_args.load(),
+            early_null_tex_obj.load(),
+            early_invalid_backend.load(),
+            early_null_image.load(),
+            succeeded.load());
+    }
+
     if (!canvas_ || !recorder_ || !texture_handle || width == 0 || height == 0) {
+        early_null_args.fetch_add(1);
         return false;
     }
 
     auto* texture = static_cast<wgpu::Texture*>(texture_handle);
     if (!texture || !(*texture)) {
+        early_null_tex_obj.fetch_add(1);
         return false;
     }
 
     auto backend_tex = skgpu::graphite::BackendTextures::MakeDawn(texture->Get());
     if (!backend_tex.isValid()) {
+        early_invalid_backend.fetch_add(1);
         return false;
     }
 
@@ -367,12 +386,14 @@ bool SkiaCanvas::draw_native_dawn_texture(void* texture_handle,
                                        nullptr,
                                        "Pulp native GPU canvas");
     if (!image) {
+        early_null_image.fetch_add(1);
         return false;
     }
 
     canvas_->drawImageRect(image,
                            SkRect::MakeXYWH(x, y, w, h),
                            sampling_options_for_image_smoothing());
+    succeeded.fetch_add(1);
     return true;
 }
 
