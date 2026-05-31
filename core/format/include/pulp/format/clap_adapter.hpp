@@ -6,6 +6,7 @@
 
 #include <pulp/format/processor.hpp>
 #include <pulp/format/ara.hpp>
+#include <pulp/format/host_quirks.hpp>
 #include <pulp/format/detail/playhead_diff.hpp>
 #include <pulp/events/plugin_main_thread.hpp>
 #include <pulp/state/parameter_event_queue.hpp>
@@ -33,6 +34,11 @@ struct PulpClapPlugin {
     std::unique_ptr<Processor> processor;
     state::StateStore store;
     ProcessorFactory factory;
+
+    // Host accommodations, resolved once in clap_init() via the runtime
+    // policy. Adapters consult these instead of hardcoding workarounds
+    // (host-quirks plan, P3).
+    HostQuirks host_quirks{};
 
     // Stored at create_plugin() time so the adapter can publish
     // latency / tail change notifications (item 3.11) back to the

@@ -45,6 +45,13 @@ bool clap_init(const clap_plugin_t* plugin) {
     self->processor->set_state_store(&self->store);
     self->processor->define_parameters(self->store);
 
+    // Resolve host accommodations once (host-quirks plan, P3) via the
+    // runtime policy (PULP_HOST_QUIRKS env / set_host_quirk_policy API).
+    {
+        const auto host_info = detect_host_info();
+        self->host_quirks = resolved_quirks(host_info.type, host_info.version);
+    }
+
     // Item 6.4b — opt this plugin instance into the process-wide
     // MainThreadDispatcher backend. On macOS this installs (or refcount-
     // bumps) a Cocoa backend posting to `dispatch_get_main_queue`, so any

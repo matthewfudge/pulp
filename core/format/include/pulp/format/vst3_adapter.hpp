@@ -25,6 +25,7 @@
 
 #include <pulp/events/plugin_main_thread.hpp>
 #include <pulp/format/processor.hpp>
+#include <pulp/format/host_quirks.hpp>
 #include <pulp/format/detail/playhead_diff.hpp>
 #include <pulp/state/parameter_event_queue.hpp>
 
@@ -101,6 +102,11 @@ private:
     // parameter (the one we tag with kIsBypass in initialize()). 0 when
     // none — process() then never short-circuits.
     state::ParamID bypass_param_id_ = 0;
+
+    // Host accommodations, resolved once in initialize() via the runtime
+    // policy (env / API / compile default). Adapters consult these flags
+    // instead of hardcoding DAW workarounds (host-quirks plan, P3).
+    HostQuirks quirks_{};
 
     // Item 1.3 — previous-block transport snapshot used to derive the
     // `tempo_changed` / `time_sig_changed` / `transport_changed` flags

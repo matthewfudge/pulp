@@ -57,6 +57,7 @@
 #include <pulp/events/plugin_main_thread.hpp>
 #include <pulp/format/processor.hpp>
 #include <pulp/format/plugin_state_io.hpp>
+#include <pulp/format/host_quirks.hpp>
 #include <pulp/format/registry.hpp>
 #include <pulp/format/ara.hpp>
 #include <pulp/format/detail/playhead_diff.hpp>
@@ -136,6 +137,10 @@ struct AUBridge {
     // previous block) so the first render-block invocation reports no
     // changes.
     detail::PlayheadSnapshot playhead_prev;
+
+    // Host accommodations, resolved once at init via the runtime policy
+    // (host-quirks plan, P3).
+    HostQuirks host_quirks{};
 };
 
 static int32_t block_relative_sample_offset(AUEventSampleTime event_sample_time,
@@ -251,6 +256,16 @@ static int32_t block_relative_sample_offset(AUEventSampleTime event_sample_time,
     _bridge.processor->set_state_store(&_bridge.store);
     _bridge.processor->define_parameters(_bridge.store);
 
+    // Resolve host accommodations once (host-quirks plan, P3) via the
+    // runtime policy (PULP_HOST_QUIRKS env / set_host_quirk_policy API).
+    // Qualified: this @implementation method body is at file scope, not
+    // inside namespace pulp::format::au, so unqualified lookup misses it.
+    {
+        const auto host_info = pulp::format::detect_host_info();
+        _bridge.host_quirks =
+            pulp::format::resolved_quirks(host_info.type, host_info.version);
+    }
+
     // Item 3.1 — auto-detect a plugin-declared Bypass parameter so the
     // host's `shouldBypassEffect` AUValue and the plugin's
     // automatable parameter stay in lockstep. Match the same heuristic
@@ -333,8 +348,11 @@ static int32_t block_relative_sample_offset(AUEventSampleTime event_sample_time,
 
 - (NSTimeInterval)latency {
     if (!_bridge.processor) return 0.0;
-    int samples = _bridge.processor->latency_samples();
-    return samples > 0 ? static_cast<double>(samples) / _bridge.sample_rate : 0.0;
+    // clamp_latency_to_nonneg (host-quirks P3): route the existing clamp
+    // through the quirk so PULP_HOST_QUIRKS=off reports raw latency too.
+    int samples = pulp::format::reported_latency_samples(
+        _bridge.processor->latency_samples(), _bridge.host_quirks);
+    return _bridge.sample_rate > 0 ? static_cast<double>(samples) / _bridge.sample_rate : 0.0;
 }
 
 - (NSTimeInterval)tailTime {

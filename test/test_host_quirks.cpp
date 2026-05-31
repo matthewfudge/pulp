@@ -1392,3 +1392,38 @@ TEST_CASE("enumerate_quirk_fields enforced reflects the int channel-probe cap",
     REQUIRE(cap2 != nullptr);
     REQUIRE(cap2->enforced == false);  // default 64 → not enforced
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// P3: clamp_latency_to_nonneg enforcement — the accommodation helper that
+// the VST3 / CLAP / AU adapters consume. (2026-05-30 enforcement goal)
+// ─────────────────────────────────────────────────────────────────────
+
+TEST_CASE("reported_latency_samples clamps negatives only when the quirk is on",
+          "[format][host-quirks][p3][latency]") {
+    HostQuirks on;  // default-constructed: clamp_latency_to_nonneg == true
+    REQUIRE(on.clamp_latency_to_nonneg == true);
+    REQUIRE(pulp::format::reported_latency_samples(-5, on) == 0);
+    REQUIRE(pulp::format::reported_latency_samples(0, on) == 0);
+    REQUIRE(pulp::format::reported_latency_samples(128, on) == 128);
+
+    HostQuirks off = on;
+    off.clamp_latency_to_nonneg = false;
+    REQUIRE(pulp::format::reported_latency_samples(-5, off) == -5);  // raw through
+    REQUIRE(pulp::format::reported_latency_samples(128, off) == 128);
+}
+
+TEST_CASE("latency clamp follows the runtime policy via resolved_quirks",
+          "[format][host-quirks][p3][latency][runtime-policy]") {
+    QuirkPolicyGuard guard;
+    // Enforced under the 'all' policy (clamp_latency is Validated)...
+    pulp::format::set_host_quirk_policy(pulp::format::QuirkFilter{});
+    auto on = pulp::format::resolved_quirks(HostType::Reaper, HostVersion{7, 0});
+    REQUIRE(on.clamp_latency_to_nonneg == true);
+    REQUIRE(pulp::format::reported_latency_samples(-7, on) == 0);
+
+    // ...and disabled when the user opts out via PULP_HOST_QUIRKS=off.
+    pulp::format::set_host_quirk_policy(pulp::format::kQuirkFilterOff);
+    auto off = pulp::format::resolved_quirks(HostType::Reaper, HostVersion{7, 0});
+    REQUIRE(off.clamp_latency_to_nonneg == false);
+    REQUIRE(pulp::format::reported_latency_samples(-7, off) == -7);  // raw reported
+}

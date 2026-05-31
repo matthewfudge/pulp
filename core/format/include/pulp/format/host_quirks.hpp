@@ -467,4 +467,21 @@ std::vector<QuirkFieldStatus> enumerate_quirk_fields(const HostQuirks& q);
 /// overrides. Equivalent to `make_quirks_for` + the runtime policy.
 HostQuirks resolved_quirks(HostType type, HostVersion version);
 
+// ── Accommodation application helpers (P3) ────────────────────────────
+//
+// Small pure helpers that apply a single quirk to a value, so format
+// adapters share one tested implementation instead of open-coding the
+// accommodation at each call site. Each takes the resolved `HostQuirks`
+// the adapter cached at init.
+
+/// Apply `clamp_latency_to_nonneg` to a raw `Processor::latency_samples()`
+/// value before reporting it to the host. When the quirk is enforced, a
+/// negative latency is clamped to 0 (VST3/CLAP report unsigned, so a raw
+/// negative would wrap to a huge value); when it is filtered out, the raw
+/// value passes through unchanged. Pure + constexpr so it is unit-tested
+/// directly without instantiating an adapter.
+constexpr int reported_latency_samples(int raw, const HostQuirks& q) noexcept {
+    return (q.clamp_latency_to_nonneg && raw < 0) ? 0 : raw;
+}
+
 }  // namespace pulp::format

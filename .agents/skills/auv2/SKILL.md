@@ -292,3 +292,17 @@ plugin whose UI uses Three.js or raw WebGPU JS renders black — the JS
 shim silently falls back to mocks. See the `view-bridge` skill's
 "GpuSurface plumbing into WidgetBridge" section for the cross-platform
 contract.
+
+## Host-quirks consumption (P3a, 2026-05-30)
+
+This adapter consumes the host-quirks ledger at init: it caches
+`resolved_quirks(detect_host_info().type, version)` once (the runtime
+policy — `PULP_HOST_QUIRKS` env / `set_host_quirk_policy()` API / compile
+default — applies via `resolved_quirks()`), then gates DAW accommodations
+on those flags instead of hardcoding them.
+
+First wired flag: `clamp_latency_to_nonneg`. Latency reporting routes
+through the pure helper `pulp::format::reported_latency_samples(raw, quirks)`
+(in `host_quirks.hpp`): a negative `latency_samples()` clamps to 0 when the
+quirk is enforced, and passes through raw (wrapping the unsigned host field)
+when `PULP_HOST_QUIRKS=off`. See `docs/reference/host-quirks-policy.md`.

@@ -1817,6 +1817,17 @@ if(PULP_HAS_CLAP)
     target_link_libraries(pulp-test-clap-host-validation PRIVATE pulp::format clap Catch2::Catch2WithMain)
     target_compile_definitions(pulp-test-clap-host-validation PRIVATE PULP_CLAP_GUI=1)
     catch_discover_tests(pulp-test-clap-host-validation)
+
+    # host-quirks P3a — empirical proof the CLAP adapter respects
+    # clamp_latency_to_nonneg end-to-end (negative latency → 0 when the
+    # quirk is enforced, raw-wrapped when PULP_HOST_QUIRKS=off). Drives the
+    # adapter through its public header surface (init() caches the resolved
+    # quirks), so link-only — no clap_adapter.cpp re-compile, keeping the
+    # diff-cover TU attribution single (same rationale as the MIDI test).
+    add_executable(pulp-test-clap-latency-quirk test_clap_latency_quirk.cpp)
+    target_link_libraries(pulp-test-clap-latency-quirk PRIVATE pulp::format clap Catch2::Catch2WithMain)
+    target_compile_definitions(pulp-test-clap-latency-quirk PRIVATE PULP_CLAP_GUI=1)
+    catch_discover_tests(pulp-test-clap-latency-quirk)
 endif()
 
 if(PULP_HAS_VST3)
