@@ -8,6 +8,13 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v02990"></a>
+## [0.299.0] - 2026-05-31
+
+- fix(view+import-design): faithful sprite sizing, widget recognition, and layout fidelity for design imports ([#3259](https://github.com/danielraffel/pulp/pull/3259))
+- fix(import-design): address Codex P2 review comments (container-guard, url-decode, image-fills, montage, doc) ([#3257](https://github.com/danielraffel/pulp/pull/3257))
+- feat(import-design): REST port emits font_family_assets + sha256 content_hash ([#3256](https://github.com/danielraffel/pulp/pull/3256))
+
 <a id="v02980"></a>
 ## [0.298.0] - 2026-05-31
 
@@ -3343,6 +3350,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.299.0]: https://github.com/danielraffel/pulp/releases/tag/v0.299.0
 [0.298.0]: https://github.com/danielraffel/pulp/releases/tag/v0.298.0
 [0.297.0]: https://github.com/danielraffel/pulp/releases/tag/v0.297.0
 [0.296.0]: https://github.com/danielraffel/pulp/releases/tag/v0.296.0
