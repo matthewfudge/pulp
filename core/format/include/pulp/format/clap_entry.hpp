@@ -248,7 +248,12 @@ inline const clap_plugin_note_ports_t note_ports_ext = {
 inline uint32_t latency_get(const clap_plugin_t* plugin) {
     auto* self = static_cast<clap_adapter::PulpClapPlugin*>(plugin->plugin_data);
     if (!self->processor) return 0;
-    return static_cast<uint32_t>(self->processor->latency_samples());
+    // clamp_latency_to_nonneg (host-quirks P3): CLAP reports latency as
+    // unsigned; clamp a negative latency_samples() to 0 unless the quirk
+    // is filtered out (PULP_HOST_QUIRKS=off).
+    return static_cast<uint32_t>(
+        reported_latency_samples(self->processor->latency_samples(),
+                                 self->host_quirks));
 }
 
 inline const clap_plugin_latency_t latency_ext = { .get = latency_get };

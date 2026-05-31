@@ -122,6 +122,17 @@ call them from the audio thread.
 `resolve_quirk_policy()` returns the effective base filter together with
 its `QuirkPolicySource` (compile default / env / API) for diagnostics.
 
+### Adapter consumption (enforcement status)
+
+The format adapters cache `resolved_quirks(detect_host_info()...)` once at
+init and gate accommodations on the flags. As of P3a, the first wired flag
+is **`clamp_latency_to_nonneg`** — VST3 / CLAP / AU v2 / AU v3 route latency
+reporting through `reported_latency_samples()`, so a negative
+`latency_samples()` clamps to 0 by default and reports raw under
+`PULP_HOST_QUIRKS=off`. Remaining flags are wired incrementally, one PR per
+quirk, each with its own validation — a flag is only meaningfully
+`Validated` once an adapter consumes it under test.
+
 ### Inspecting the live policy: `pulp doctor`
 
 ```text

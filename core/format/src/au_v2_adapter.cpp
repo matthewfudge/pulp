@@ -75,6 +75,11 @@ PulpAUEffect::PulpAUEffect(AudioComponentInstance ci)
             processor_->set_state_store(&store_);
             processor_->define_parameters(store_);
 
+            // Resolve host accommodations once (host-quirks plan, P3) via
+            // the runtime policy (PULP_HOST_QUIRKS env / API).
+            const auto host_info = detect_host_info();
+            host_quirks_ = resolved_quirks(host_info.type, host_info.version);
+
             // Wire gesture callbacks for undo grouping support.
             store_.set_gesture_callbacks(
                 [this](state::ParamID id) {
@@ -546,8 +551,10 @@ Float64 PulpAUEffect::GetTailTime()
 Float64 PulpAUEffect::GetLatency()
 {
     if (!processor_) return 0.0;
-    int latency = processor_->latency_samples();
-    return latency > 0 ? static_cast<Float64>(latency) / GetSampleRate() : 0.0;
+    // clamp_latency_to_nonneg (host-quirks P3): route the existing clamp
+    // through the quirk so PULP_HOST_QUIRKS=off reports raw latency too.
+    int latency = reported_latency_samples(processor_->latency_samples(), host_quirks_);
+    return GetSampleRate() > 0 ? static_cast<Float64>(latency) / GetSampleRate() : 0.0;
 }
 
 } // namespace pulp::format::au

@@ -3,6 +3,7 @@
 #include <AudioUnitSDK/AUMIDIEffectBase.h>
 
 #include <pulp/format/processor.hpp>
+#include <pulp/format/host_quirks.hpp>
 #include <pulp/format/detail/playhead_diff.hpp>
 #include <pulp/midi/buffer.hpp>
 #include <pulp/midi/message.hpp>
@@ -137,6 +138,10 @@ protected:
 private:
     std::unique_ptr<Processor> processor_;
     state::StateStore store_;
+
+    // Host accommodations, resolved once in the constructor via the
+    // runtime policy (host-quirks plan, P3).
+    HostQuirks host_quirks_{};
     std::vector<const float*> input_ptrs_;
     std::vector<float*> output_ptrs_;
     // Pre-process snapshot of parameter values; used to diff plugin-side

@@ -61,6 +61,16 @@ tresult PLUGIN_API PulpVst3Processor::initialize(FUnknown* context) {
     processor_ = factory_();
     if (!processor_) return kInternalError;
 
+    // Resolve host accommodations once (host-quirks plan, P3). Cross-host
+    // cheap defenses (e.g. clamp_latency_to_nonneg) fire regardless of the
+    // detected DAW; host-specific quirks key off the detected host. The
+    // runtime policy (PULP_HOST_QUIRKS env / set_host_quirk_policy API)
+    // applies here via resolved_quirks().
+    {
+        const auto host_info = detect_host_info();
+        quirks_ = resolved_quirks(host_info.type, host_info.version);
+    }
+
     auto desc = processor_->descriptor();
     processor_->set_state_store(&store_);
     processor_->define_parameters(store_);
@@ -280,7 +290,12 @@ tresult PLUGIN_API PulpVst3Processor::setActive(TBool state) {
 
 uint32 PLUGIN_API PulpVst3Processor::getLatencySamples() {
     if (!processor_) return 0;
-    return static_cast<uint32>(processor_->latency_samples());
+    // clamp_latency_to_nonneg (host-quirks P3): VST3 reports latency as
+    // unsigned, so a negative latency_samples() would wrap to a huge value
+    // without the clamp. When the quirk is filtered out (PULP_HOST_QUIRKS=
+    // off) the raw value passes through.
+    return static_cast<uint32>(
+        reported_latency_samples(processor_->latency_samples(), quirks_));
 }
 
 uint32 PLUGIN_API PulpVst3Processor::getTailSamples() {
