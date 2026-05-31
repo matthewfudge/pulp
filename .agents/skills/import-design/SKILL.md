@@ -1078,8 +1078,21 @@ After generating Pulp code, ALWAYS validate by comparing with the source design:
 
 2. **Render the generated JS** headlessly:
    ```bash
-   pulp-screenshot --script generated.js --output render.png --width W --height H
+   pulp-screenshot --script generated.js --output render.png --width W --height H --backend skia
    ```
+
+   > ⚠️ **`pulp-screenshot` is the ONLY render that decodes image assets.** Use it
+   > to *see* what an import looks like. The importer's `--validate` render is a
+   > **layout-only** check — it does NOT decode `setImageSource`/`createImage`
+   > files; `ImageView::paint` draws the filename as a placeholder (e.g.
+   > "3_228.png"). Native widgets (knob/fader/meter, CPU-canvas vectors) render in
+   > both, so a Pulp-library design looks fine under `--validate`, but any
+   > image-`asset_ref` design (generic-vector frames like ELYSIUM → captured PNGs)
+   > shows filename placeholders there. **Seeing placeholders means you used
+   > `--validate`/a non-Skia backend — NOT that image rendering regressed.**
+   > `pulp-screenshot` needs a `PULP_ENABLE_GPU=ON` (Skia-linked) build. This is
+   > exactly the path that produced the accurate ELYSIUM sprite-strip /
+   > native-silver-knob comparison renders in #3138.
 
 3. **Compare** reference vs render:
    ```bash
