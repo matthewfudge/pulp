@@ -312,6 +312,58 @@ actually the dominant bottleneck for the measured fixture. Keep the legacy
 top-level `comparison` entry pointed at `baked-native`, and add per-lane
 results under `comparisons` for both baked lanes.
 
+### Interactive (turnable) sprite knobs — `--knob-style sprite`
+
+`--knob-style sprite` no longer DEMOTES a recognized knob to a static image.
+A captured-art knob now stays a native `Knob` that actually TURNS:
+
+- **Importer hoist** (`pulp_import_design.cpp`, in the `!use_silver_knobs`
+  block): the disposition is keyed on how many asset-backed image children
+  (captured layers) the knob has:
+  - **exactly one** (the ELYSIUM shape — a captured disc + a separate stroked
+    pointer the native notch replaces): HOIST the disc's `asset_ref` +
+    `renderBounds` onto the knob node and erase the child. The asset-resolution
+    pass then stamps `asset_path` + `art_core_*` on the knob (opaque-core
+    recovery is gated on `render_bounds`, which is why the bounds must be
+    hoisted too). The knob stays interactive.
+  - **more than one** (body + highlight + logo + …): DEMOTE to a plain
+    container (`audio_widget = none`) — the single-frame sprite skin can hold
+    only one layer and the leaf knob codegen would silently drop the rest, so
+    every layer renders as an image instead (faithful but not turnable; a
+    composited rotational strip is the Approach A follow-up). This preserves
+    the pre-interactive-sprite behavior and avoids silent layer loss.
+  - **zero**: leave the knob recognized; it falls through to the default knob.
+  Knobs whose art lives on the node itself (the kitchen-sink "knob" image-node
+  shape) already carried `asset_ref` and were never demoted — they just gained
+  the overlay below.
+- **Codegen** (`design_codegen.cpp` knob branch): emits
+  `setKnobSpriteStrip(id, body, 1, 'vertical')` and, when the core was
+  recovered, `setKnobSpriteCore(id, x, y, w, h)` (core rect in the frame's own
+  pixel space). Silver mode is unchanged and still wins (`@silver`/global).
+- **Engine** (`Knob::paint`, `widgets.cpp`): a single-frame strip is a static
+  disc, so the engine overlays the native rotating indicator notch (factored
+  into `draw_knob_indicator_notch`, shared with the silver path) and, when a
+  sprite-core is set, CORE-FITS the frame so the disc fills the knob box (the
+  soft shadow bleed extends beyond) instead of drawing at the PNG's natural
+  2× size (which oversized it and overlapped neighbours). Multi-frame strips
+  encode rotation in the frames themselves and get NO overlay.
+
+Gotchas:
+- The **REST export lane** (`figma_rest_export.py`) emits recognized knobs as
+  leaf `audio_widget` nodes WITHOUT capturing their internal vectors as a PNG
+  sprite (by design — see the REST-port capture rules). So a REST-exported
+  knob has `render_bounds` but no `asset_ref`: in sprite mode there is nothing
+  to skin, and it falls through to the default/standard knob. To get a
+  captured-art sprite knob you need the **figma-plugin "Export to Pulp"**
+  envelope (e.g. the ELYSIUM `.pulp.zip`), which captures the disc PNG.
+- Validate turning headlessly: render the imported knob at value 0.0 / 0.5 /
+  1.0 with `pulp-screenshot` and confirm the white notch sweeps
+  lower-left → up → lower-right. The engine unit tests
+  (`pulp-test-widgets [sprite]`) pin the notch presence + sweep + core-fit;
+  the CLI tests (`pulp-test-cli-import-design [sprite]`) pin the hoist
+  end-to-end with a synthetic envelope + synthetic PNG (no proprietary
+  export).
+
 ### `IRStyle::box_shadow` is parsed layers, not a string (pulp #41)
 
 `IRStyle::box_shadow` is a `std::vector<IRBoxShadow>`, **not** an
