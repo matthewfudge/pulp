@@ -1815,9 +1815,16 @@ rasterized shapes). Each cost a visible fidelity bug.
   catches it if a new invariant is mis-mapped.
 - **Checks shipped:** `check_image_sizing_fidelity` (image; bleed sprite emitted
   aspect vs source PNG → `skew` / `aspect-unverified`; ordinary images fill
-  their box, never flagged) and `check_gross_size_divergence` (container; a
+  their box, never flagged), `check_gross_size_divergence` (container; a
   fixed/fixed node emitted >3× its source box → `gross-size`; hug/fill/absolute/
-  display:none self-skip).
+  display:none self-skip), `check_widget_intrinsic_size` (widget; a recognized
+  audio widget emitted >1.5× its source intrinsic → `widget-size`, or
+  `widget-undersized` when the source is below the widget's native minimum and
+  codegen clamps up — keep its native-min table in sync with the `kMin*` floors
+  in design_codegen.cpp), and `check_text_vertical_centering` (text; a
+  single-line label in a tall slot left top-aligned → `text-vcenter`; the text
+  call-site stamps `_emitted_vertical_align` so the check sees codegen's
+  decision). All four fire 0 on a faithful import (regression guards).
 - **`pulp import-design --strict-fidelity`** prints findings as `fidelity: …`
   warnings and exits 4 when any are present. Tests: unit cases per check in
   `test/test_design_fidelity.cpp`; the codegen-routing case is in
