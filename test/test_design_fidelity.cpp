@@ -150,3 +150,105 @@ TEST_CASE("run_fidelity_checks dispatches by element kind",
     REQUIRE(s_box.size() == 1);
     CHECK(s_box[0].kind == "gross-size");
 }
+
+// ── Widget intrinsic-size invariant ─────────────────────────────────────────
+namespace {
+IRNode make_widget_node(AudioWidgetType t, float src_w, float src_h,
+                        bool via_shape_attr = false) {
+    IRNode n;
+    n.type = "frame";
+    n.name = "W";
+    n.audio_widget = t;
+    if (via_shape_attr) {
+        n.attributes["shape_width"]  = std::to_string((int)src_w);
+        n.attributes["shape_height"] = std::to_string((int)src_h);
+    } else {
+        n.style.width = src_w;
+        n.style.height = src_h;
+    }
+    return n;
+}
+}  // namespace
+
+TEST_CASE("widget-size: emitted matching source intrinsic passes",
+          "[view][import][fidelity][harness]") {
+    const auto n = make_widget_node(AudioWidgetType::knob, 62, 62);
+    CHECK_FALSE(check_widget_intrinsic_size(
+        {n, "K0", 62.0f, 62.0f, FidelityElement::widget}).has_value());
+}
+
+TEST_CASE("widget-size: >1.5x divergence is flagged",
+          "[view][import][fidelity][harness]") {
+    const auto n = make_widget_node(AudioWidgetType::knob, 62, 62);
+    const auto i = check_widget_intrinsic_size(
+        {n, "K0", 130.0f, 62.0f, FidelityElement::widget});  // ~2.1x on W
+    REQUIRE(i.has_value());
+    CHECK(i->kind == "widget-size");
+}
+
+TEST_CASE("widget-size: below-native-minimum clamp-up is informational",
+          "[view][import][fidelity][harness]") {
+    // 20x20 knob source clamped up to the 56x56 native minimum → not a hard fail.
+    const auto n = make_widget_node(AudioWidgetType::knob, 20, 20);
+    const auto i = check_widget_intrinsic_size(
+        {n, "K0", 56.0f, 56.0f, FidelityElement::widget});
+    REQUIRE(i.has_value());
+    CHECK(i->kind == "widget-undersized");
+}
+
+TEST_CASE("widget-size: reads the shape_* attribute as the source",
+          "[view][import][fidelity][harness]") {
+    const auto n = make_widget_node(AudioWidgetType::fader, 44, 120, /*shape*/true);
+    CHECK_FALSE(check_widget_intrinsic_size(
+        {n, "F0", 44.0f, 120.0f, FidelityElement::widget}).has_value());
+}
+
+TEST_CASE("widget-size: a non-widget node self-skips",
+          "[view][import][fidelity][harness]") {
+    IRNode n; n.type = "frame"; n.style.width = 100.0f; n.style.height = 100.0f;
+    CHECK_FALSE(check_widget_intrinsic_size(
+        {n, "X0", 400.0f, 100.0f, FidelityElement::widget}).has_value());
+}
+
+// ── Text vertical-centering invariant ───────────────────────────────────────
+namespace {
+IRNode make_text_node(float font, bool emitted_center) {
+    IRNode n;
+    n.type = "text";
+    n.name = "T";
+    n.text_content = "Search";
+    n.style.font_size = font;   // line_height defaults to font*1.2
+    n.attributes["_emitted_vertical_align"] = emitted_center ? "center" : "top";
+    return n;
+}
+}  // namespace
+
+TEST_CASE("text-vcenter: centered single-line in a tall slot passes",
+          "[view][import][fidelity][harness]") {
+    const auto n = make_text_node(14.0f, /*center*/true);  // line ~16.8; slot 26 has slack, single-line
+    CHECK_FALSE(check_text_vertical_centering(
+        {n, "T0", 0.0f, 26.0f, FidelityElement::text}).has_value());
+}
+
+TEST_CASE("text-vcenter: top-aligned single-line in a tall slot is flagged",
+          "[view][import][fidelity][harness]") {
+    const auto n = make_text_node(14.0f, /*center*/false);
+    const auto i = check_text_vertical_centering(
+        {n, "T0", 0.0f, 26.0f, FidelityElement::text});
+    REQUIRE(i.has_value());
+    CHECK(i->kind == "text-vcenter");
+}
+
+TEST_CASE("text-vcenter: a multi-line box self-skips",
+          "[view][import][fidelity][harness]") {
+    const auto n = make_text_node(14.0f, false);  // line ~16.8; 40 > 1.8*line → multi-line
+    CHECK_FALSE(check_text_vertical_centering(
+        {n, "T0", 0.0f, 40.0f, FidelityElement::text}).has_value());
+}
+
+TEST_CASE("text-vcenter: a box with no vertical slack self-skips",
+          "[view][import][fidelity][harness]") {
+    const auto n = make_text_node(14.0f, false);  // line ~16.8; 18 < 1.15*line → no slack
+    CHECK_FALSE(check_text_vertical_centering(
+        {n, "T0", 0.0f, 18.0f, FidelityElement::text}).has_value());
+}
