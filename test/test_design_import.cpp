@@ -4464,6 +4464,52 @@ TEST_CASE("codegen emits mix-blend-mode on native + web-compat paths",
     CHECK(wjs.find("mixBlendMode = 'multiply'") != std::string::npos);
 }
 
+TEST_CASE("codegen emits clip-path + mask (native + web-compat)",
+          "[view][import][codegen][mask]") {
+    // clip-path / mask lower to setClipPath / setMask* (native →
+    // View::set_clip_path / set_mask*) and style.clipPath / maskImage (web).
+    DesignIR ir;
+    ir.root.type = "frame";
+    ir.root.name = "Root";
+
+    IRNode masked;
+    masked.type = "frame";
+    masked.name = "Masked";
+    masked.style.width = 100.0f;
+    masked.style.height = 100.0f;
+    masked.style.background_color = "#00ff00";
+    masked.style.clip_path = "inset(10px)";
+    masked.style.mask_image = "linear-gradient(black, transparent)";
+    ir.root.children.push_back(masked);
+
+    CodeGenOptions nopts;
+    nopts.mode = CodeGenMode::bridge_native_js;
+    const auto njs = generate_pulp_js(ir, nopts);
+    INFO("native:\n" << njs);
+    CHECK(njs.find("setClipPath('Masked") != std::string::npos);
+    CHECK(njs.find("inset(10px)") != std::string::npos);
+    CHECK(njs.find("setMaskImage('Masked") != std::string::npos);
+
+    CodeGenOptions wopts;
+    wopts.mode = CodeGenMode::web_compat;
+    const auto wjs = generate_pulp_js(ir, wopts);
+    INFO("web:\n" << wjs);
+    CHECK(wjs.find("clipPath = 'inset(10px)'") != std::string::npos);
+    CHECK(wjs.find("maskImage") != std::string::npos);
+}
+
+TEST_CASE("parse + round-trip clip-path / mask", "[view][import][parse][mask]") {
+    const auto ir = parse_design_ir_json(
+        R"JSON({"version":1,"source":"figma","root":{"type":"frame","name":"R",
+            "style":{"clipPath":"circle(40%)","mask":"url(#m)",
+                     "maskImage":"linear-gradient(black,transparent)",
+                     "maskSize":"cover"}}})JSON");
+    REQUIRE(ir.root.style.clip_path == "circle(40%)");
+    REQUIRE(ir.root.style.mask == "url(#m)");
+    REQUIRE(ir.root.style.mask_image == "linear-gradient(black,transparent)");
+    REQUIRE(ir.root.style.mask_size == "cover");
+}
+
 TEST_CASE("web-compat codegen also runs the image-sizing fidelity check",
           "[view][import][codegen][fidelity][web-compat]") {
     // Codex #3267: fidelity checks previously ran only in the native-bridge
