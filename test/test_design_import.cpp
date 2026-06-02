@@ -4791,6 +4791,102 @@ TEST_CASE("single-run text keeps the plain textContent path (no regression)",
     CHECK(js.find("createTextNode(") == std::string::npos);  // no run splitting
 }
 
+TEST_CASE("serialize_design_ir round-trips constraints, grid, and text runs",
+          "[view][import][serialization]") {
+    // Regression: the new IRLayout/IRNode fields must survive a
+    // serialize -> re-parse pass (frozen .pulp IR / --emit ir-json).
+    DesignIR ir;
+    ir.root.type = "frame"; ir.root.name = "Root";
+    ir.root.layout.display = "grid";
+    ir.root.layout.grid_template_columns = "1fr 1fr";
+    ir.root.layout.grid_auto_flow = "row";
+
+    IRNode child; child.type = "text"; child.name = "T"; child.text_content = "Hi world";
+    child.layout.h_constraint = "center";
+    child.layout.v_constraint = "bottom";
+    child.layout.grid_column = "1 / 3";
+    IRTextRun run; run.start = 3; run.end = 8; run.font_weight = 700; run.color = "#abcdef";
+    child.text_runs.push_back(run);
+    ir.root.children.push_back(child);
+
+    const auto rt = parse_design_ir_json(serialize_design_ir(ir));
+    REQUIRE(rt.root.children.size() == 1);
+    const auto& c = rt.root.children[0];
+    CHECK(rt.root.layout.grid_template_columns == "1fr 1fr");
+    CHECK(rt.root.layout.grid_auto_flow == "row");
+    CHECK(c.layout.h_constraint == "center");
+    CHECK(c.layout.v_constraint == "bottom");
+    CHECK(c.layout.grid_column == "1 / 3");
+    REQUIRE(c.text_runs.size() == 1);
+    CHECK(c.text_runs[0].start == 3);
+    CHECK(c.text_runs[0].end == 8);
+    CHECK(c.text_runs[0].font_weight == 700);
+    CHECK(c.text_runs[0].color == "#abcdef");
+}
+
+TEST_CASE("synthesized primitive consumes a Pencil stroke_color attribute",
+          "[view][import][codegen][vector]") {
+    // Pencil records a shape's stroke as a stroke_color attribute, not in
+    // style.border_color — the synthesizer must still paint it.
+    DesignIR ir;
+    ir.root.type = "frame"; ir.root.name = "Root";
+    ir.root.style.width = 100.0f; ir.root.style.height = 100.0f;
+    IRNode rect; rect.type = "rect"; rect.name = "Stroked";
+    rect.style.width = 40.0f; rect.style.height = 40.0f;
+    rect.attributes["stroke_color"] = "#13579b";
+    rect.attributes["stroke_width"] = "2";
+    ir.root.children.push_back(rect);
+    CodeGenOptions opts;
+    const auto js = generate_pulp_js(ir, opts);
+    INFO(js);
+    CHECK(js.find("createSvgPath('Stroked") != std::string::npos);
+    CHECK(js.find("setSvgStroke('Stroked") != std::string::npos);
+    CHECK(js.find("'#13579b')") != std::string::npos);
+}
+
+TEST_CASE("grid container with no explicit columns gets a default column",
+          "[view][import][codegen][grid]") {
+    // display:grid with no track template would drop all children in the native
+    // grid engine (cols empty); emit a default single column instead.
+    DesignIR ir;
+    ir.root.type = "frame"; ir.root.name = "G";
+    ir.root.layout.display = "grid";  // no gridTemplateColumns
+    IRNode a; a.type = "frame"; a.name = "A"; a.style.width = 10.0f; a.style.height = 10.0f;
+    ir.root.children.push_back(a);
+    CodeGenOptions opts;
+    const auto js = generate_pulp_js(ir, opts);
+    INFO(js);
+    CHECK(js.find("createGrid(") != std::string::npos);
+    CHECK(js.find("'template_columns', '1fr')") != std::string::npos);
+}
+
+TEST_CASE("per-range run children carry the node's dominant style",
+          "[view][import][codegen][text]") {
+    // A run that overrides only weight must still render the base size/color —
+    // web-compat Labels don't inherit, so the base style is copied onto each run
+    // child (so it appears on both the base span AND the run child).
+    DesignIR ir;
+    ir.root.type = "frame"; ir.root.name = "Root";
+    IRNode t; t.type = "text"; t.name = "Mixed"; t.text_content = "ab cd";
+    t.style.font_size = 18.0f;
+    t.style.color = "#222222";
+    IRTextRun run; run.start = 3; run.end = 5; run.font_weight = 700;  // "cd" bold
+    t.text_runs.push_back(run);
+    ir.root.children.push_back(t);
+    CodeGenOptions opts;
+    opts.mode = CodeGenMode::web_compat;
+    const auto js = generate_pulp_js(ir, opts);
+    INFO(js);
+    auto count = [&](const std::string& needle) {
+        size_t n = 0, p = 0;
+        while ((p = js.find(needle, p)) != std::string::npos) { n++; p += needle.size(); }
+        return n;
+    };
+    CHECK(js.find(".style.fontWeight = '700'") != std::string::npos);
+    CHECK(count(".style.fontSize = '18px'") >= 2);   // base span + run child
+    CHECK(count(".style.color = '#222222'") >= 2);
+}
+
 TEST_CASE("codegen emits mix-blend-mode on native + web-compat paths",
           "[view][import][codegen][blend]") {
     // A node's normalized mix_blend_mode lowers to setMixBlendMode (native

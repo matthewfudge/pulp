@@ -479,6 +479,33 @@ per-range styling. Now:
   conversion (follow-up). Tests use ASCII. Tests: `[view][import][text]` +
   the figma exporter python tests.
 
+### Design-import IR round-trip + review-hardening gotchas
+
+Lessons from the di-1..di-5 closeout review — keep these invariants:
+
+- **Serialize every new IR field.** `serialize_design_ir` →
+  `write_ir_layout_json` / `write_ir_node_json` must emit any field
+  `parse_ir_layout` / `parse_ir_node` reads, or a frozen `.pulp` / `--emit
+  ir-json` round-trip silently drops it. Constraints (`constraints:{horizontal,
+  vertical}`), grid (`gridTemplate*`/`gridAutoFlow`/`gridColumn`/`gridRow`), and
+  text `runs` are all written now; mirror this for future IR additions and add a
+  `[serialization]` round-trip test.
+- **Pencil stroke lives in an attribute.** Shape stroke can arrive as
+  `attributes["stroke_color"]` (+ `stroke_width`/`stroke-width`), NOT
+  `style.border_color`. `synthesize_primitive_paths` consumes both, else a
+  stroked Pencil rect/ellipse synthesizes to an invisible `fill:none` path.
+- **Grid needs a column track.** The native grid engine drops all children when
+  its column list is empty, so a `display:grid` node with no
+  `gridTemplateColumns` gets a default `'1fr'` column at codegen (don't emit a
+  bare `createGrid` with no template).
+- **Web-compat run children don't inherit.** Pulp's web-compat `<span>` Labels
+  don't inherit typography from the parent, so `emit_web_text_runs` copies the
+  node's dominant style onto each run child before applying the run override.
+- **Known follow-ups (documented, not yet fixed):** text-run offsets are byte
+  indices but Figma supplies UTF-16 code units (non-ASCII slices are
+  approximate); a `STRETCH` constraint is a no-op when the node also has an
+  explicit cross-axis dimension.
+
 ### Interactive (turnable) sprite knobs — `--knob-style sprite`
 
 `--knob-style sprite` no longer DEMOTES a recognized knob to a static image.
