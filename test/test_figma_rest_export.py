@@ -73,5 +73,37 @@ class CodexP2FollowupTest(unittest.TestCase):
         self.assertNotIn("background_image", tree["children"][0]["style"])  # BBB unresolved → dropped
 
 
+class GradientFillTest(unittest.TestCase):
+    def _stops(self):
+        return [{"color": {"r": 1, "g": 1, "b": 1, "a": 1}, "position": 0.0},
+                {"color": {"r": 0, "g": 0, "b": 0, "a": 1}, "position": 1.0}]
+
+    def test_radial_gradient_fill_emits_radial_css(self):
+        s = frx.extract_style({"fills": [{"type": "GRADIENT_RADIAL",
+                                          "gradientStops": self._stops()}]})
+        self.assertTrue(s.get("background_gradient", "").startswith("radial-gradient("))
+        self.assertNotIn("background_color", s)  # no longer the flat fallback
+
+    def test_diamond_gradient_approximated_as_radial(self):
+        s = frx.extract_style({"fills": [{"type": "GRADIENT_DIAMOND",
+                                          "gradientStops": self._stops()}]})
+        self.assertTrue(s.get("background_gradient", "").startswith("radial-gradient("))
+
+    def test_angular_gradient_fill_emits_conic_css(self):
+        s = frx.extract_style({"fills": [{"type": "GRADIENT_ANGULAR",
+                                          "gradientStops": self._stops()}]})
+        self.assertTrue(s.get("background_gradient", "").startswith("conic-gradient("))
+
+    def test_gradient_with_no_stops_falls_back_to_flat(self):
+        s = frx.extract_style({"fills": [{"type": "GRADIENT_RADIAL", "gradientStops": []}]})
+        self.assertNotIn("background_gradient", s)
+        self.assertIn("background_color", s)  # flat fallback when no stops
+
+    def test_linear_gradient_unchanged(self):
+        s = frx.extract_style({"fills": [{"type": "GRADIENT_LINEAR",
+                                          "gradientStops": self._stops()}]})
+        self.assertTrue(s.get("background_gradient", "").startswith("linear-gradient("))
+
+
 if __name__ == "__main__":
     unittest.main()

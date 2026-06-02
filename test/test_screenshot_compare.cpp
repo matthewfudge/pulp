@@ -307,3 +307,44 @@ TEST_CASE("diff_bounds is invalid for identical or undecodable images",
     auto invalid = diff_bounds({}, png);
     REQUIRE_FALSE(invalid.valid);
 }
+
+TEST_CASE("radial and conic background gradients render non-flat",
+          "[view][gradient][render]") {
+    const uint32_t W = 64, H = 64;
+    const std::vector<Color> stops = { Color{1.0f, 1.0f, 1.0f, 1.0f},
+                                       Color{0.0f, 0.0f, 0.0f, 1.0f} };
+    const std::vector<float> pos = { 0.0f, 1.0f };
+
+    auto render_flat = [&] {
+        View root; root.set_bounds({0, 0, (float)W, (float)H});
+        root.set_background_color(Color{1.0f, 1.0f, 1.0f, 1.0f});  // == first stop
+        return render_to_png(root, W, H, 1.0f);
+    };
+    auto render_radial = [&] {
+        View root; root.set_bounds({0, 0, (float)W, (float)H});
+        root.set_background_gradient_radial(0.5f, 0.5f, 0.7071f, stops, pos);
+        return render_to_png(root, W, H, 1.0f);
+    };
+    auto render_conic = [&] {
+        View root; root.set_bounds({0, 0, (float)W, (float)H});
+        root.set_background_gradient_conic(0.5f, 0.5f, 0.0f, stops, pos);
+        return render_to_png(root, W, H, 1.0f);
+    };
+
+    const auto flat = render_flat();
+    const auto radial = render_radial();
+    const auto conic = render_conic();
+    REQUIRE_FALSE(flat.empty());
+    REQUIRE_FALSE(radial.empty());
+    REQUIRE_FALSE(conic.empty());
+
+    // A real radial/conic gradient must differ from a flat fill of its first
+    // stop color — proves the renderer paints the gradient rather than the old
+    // flat-color fallback.
+    const auto r = compare_screenshots(radial, flat);
+    const auto c = compare_screenshots(conic, flat);
+    REQUIRE(r.valid);
+    REQUIRE(c.valid);
+    CHECK(r.diff_pixels > 0);
+    CHECK(c.diff_pixels > 0);
+}
