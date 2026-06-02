@@ -8,6 +8,14 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v03190"></a>
+## [0.319.0] - 2026-06-02
+
+- feat(ship): one-off sign+notarize via `share`, `--path` primitives, release notarizes its artifact ([#3318](https://github.com/danielraffel/pulp/pull/3318))
+- docs(tart-ci): document shipping from a VM-only runner host (cloud→pool) ([#3333](https://github.com/danielraffel/pulp/pull/3333))
+- fix(import-design): UTF-16 code-unit offsets for emoji in text runs ([#3337](https://github.com/danielraffel/pulp/pull/3337))
+- fix(ci): unblock macOS lane (rustc gate) + isolate test git from inherited GIT_DIR ([#3335](https://github.com/danielraffel/pulp/pull/3335))
+
 <a id="v03180"></a>
 ## [0.318.0] - 2026-06-02
 
@@ -3485,6 +3493,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.319.0]: https://github.com/danielraffel/pulp/releases/tag/v0.319.0
 [0.318.0]: https://github.com/danielraffel/pulp/releases/tag/v0.318.0
 [0.317.4]: https://github.com/danielraffel/pulp/releases/tag/v0.317.4
 [0.317.3]: https://github.com/danielraffel/pulp/releases/tag/v0.317.3
