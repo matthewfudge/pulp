@@ -57,6 +57,30 @@ Skia/Dawn are pinned in `tools/deps/manifest.json` (release-asset URL + sha256 p
 - A persistent operator VM (e.g. `pulp-vm`) on a host consumes 1 of its 2 slots.
 - Capacity-aware cloud→local queue draining belongs in Shipyard's multi-Mac controller: its "local idle" signal must become "free VM slot" (`running_macos_vms < cap`, summed across hosts) so a freed slot drains a still-queued job instead of leaving it on cloud. (Track the cross-cutting work in `planning/`, not here.)
 
+## Shipping FROM a VM-only runner host
+A VM-only host (no host-side cmake/Xcode/Skia — builds only ever run *inside*
+the VMs) can serve the pool fine, but `shipyard pr` initiated **on** it needs
+care: the default `[targets.mac]` is `backend = "local"` (build on the host) and
+fails there ("cmake/git-lfs not found"). Don't reach for `backend = "ssh"` to a
+build box either — `auval` (AU validation) needs a real login/audio session to
+register the component, so it fails "didn't find the component" over a headless
+`ssh host cmd` (compile + the rest of ctest pass; only the auval tests fail).
+The lane where auval works is one *with* a session: the self-hosted pool's
+**auto-login VMs** (`auto_login = true` in the manifest — this is why) or a
+cloud macOS runner. So on a VM-only host set, in gitignored `.shipyard.local`:
+```toml
+[targets.mac]
+backend  = "cloud"
+workflow = "build"   # dispatch build.yml; resolve-provider routes mac local-first
+platform = "macos-arm64"
+```
+`shipyard pr` then dispatches `build.yml`; its `resolve-provider` sends the mac
+leg to the self-hosted pool's auto-login VM (auval green), with cloud overflow.
+Flip a lane mid-flight with `shipyard cloud retarget --target mac --provider <p>`.
+(SSH build hosts that you *do* want to drive headless need brew on the non-login
+PATH — `eval "$(brew shellenv)"` in `~/.zshenv`, not just `~/.zprofile` — or
+`ssh host cmd` won't find cmake.)
+
 ## Rollout: pilot → graduate
 1. **Additive pilot (safe):** run `tart-runner.sh --once` with a **non-required** label (`pulp-build-vm`). Trigger a real job without touching required routing: `gh workflow run build.yml -f macos_runner_selector_json='["self-hosted","pulp-build-vm"]'`. Confirm green.
 2. **Graduate:** add the runner to the required `pulp-build` pool (or stage replacing bare-metal), distributed across hosts. Never point a required check at an empty label; preflight that the label has online runners.
