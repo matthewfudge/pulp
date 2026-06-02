@@ -418,6 +418,35 @@ Facts / gotchas:
 - Native arm only; `compat.json features.grid-container` tracks it (parsed
   handled, codegen partial). Tests: `[view][import][grid]`.
 
+### Radial / conic background gradients
+
+Linear gradients were end-to-end; radial/conic used to round-trip the CSS string
+but the renderer flattened them to the first stop color. The canvas + Skia +
+CoreGraphics backends ALREADY implement radial/two-circle/conic — the gaps were
+only the CSS parser, the View paint dispatch, and the Figma exporter:
+
+- **Bridge parser** (`widget_bridge.cpp`, `setBackgroundGradient`): now parses
+  `radial-gradient([circle][at X% Y%], stops…)` and `conic-gradient([from
+  <angle>][at X% Y%], stops…)` in addition to linear (shared `parse_stops`
+  lambda). Center defaults to 50% 50%; conic `from` is offset by −90° because
+  CSS measures from the top while the canvas sweep starts at +x.
+- **View** (`view.hpp`/`view.cpp`): `set_background_gradient_radial`/`_conic`
+  store kind (`bg_gradient_type_` 2/3) + center/radius/angle; `View::paint`
+  dispatches to `canvas.set_fill_gradient_radial`/`_conic`. `radius_frac`
+  defaults to ~farthest-corner (0.7071 × max(w,h)); precise sizing keywords are
+  deferred (codegen partial).
+- **Figma export** (`figma_rest_export.py`): `GRADIENT_RADIAL`/`GRADIENT_DIAMOND`
+  → `radial-gradient(...)`, `GRADIENT_ANGULAR` → `conic-gradient(...)` (diamond
+  approximated by radial). Falls back to flat only when there are no stops.
+- **Design-import codegen is unchanged** — it already emits the gradient string
+  verbatim to `setBackgroundGradient`; radial/conic now render instead of
+  flattening.
+- Tests: `[view][widget-bridge][gradient]` (parser→kind), `[view][gradient]
+  [render]` (radial/conic differ from a flat fill — proves not the fallback),
+  `[view][import][codegen][gradient]`, and the figma exporter python tests.
+  `compat.json features.radial-angular-diamond-gradient`: parsed handled,
+  codegen partial.
+
 ### Interactive (turnable) sprite knobs — `--knob-style sprite`
 
 `--knob-style sprite` no longer DEMOTES a recognized knob to a static image.

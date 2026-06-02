@@ -51,6 +51,30 @@ def gradient_flat(p):
     stops = p.get("gradientStops", [])
     return rgba_to_css(stops[0]["color"]) if stops else "transparent"
 
+def _gradient_stops_css(p):
+    # "color pos%, color pos%, ..." using Figma's normalized stop positions.
+    out = []
+    for s in p.get("gradientStops", []):
+        css = rgba_to_css(s["color"])
+        if "position" in s:
+            css += f" {round(s['position'] * 100)}%"
+        out.append(css)
+    return ", ".join(out)
+
+def gradient_radial_css(p):
+    # Figma GRADIENT_RADIAL / GRADIENT_DIAMOND -> CSS radial-gradient. The native
+    # renderer paints a real radial (setBackgroundGradient -> SkGradientShader::
+    # MakeRadial); center defaults to 50% 50%. Diamond has no exact CSS form and
+    # is approximated by a radial.
+    return ("radial-gradient(circle at 50% 50%, " + _gradient_stops_css(p) + ")"
+            if p.get("gradientStops") else None)
+
+def gradient_conic_css(p):
+    # Figma GRADIENT_ANGULAR -> CSS conic-gradient (native SkGradientShader::
+    # MakeSweep). `from 0deg` keeps the sweep starting at the top.
+    return ("conic-gradient(from 0deg at 50% 50%, " + _gradient_stops_css(p) + ")"
+            if p.get("gradientStops") else None)
+
 def map_node_type(t):
     if t in ("FRAME", "GROUP", "SECTION", "COMPONENT", "COMPONENT_SET", "INSTANCE",
              "RECTANGLE", "ELLIPSE", "POLYGON", "STAR", "LINE", "SLICE"):
@@ -86,8 +110,14 @@ def extract_style(n):
                 if ih:
                     s["background_image"] = f"pending:{ih}"
                     IMAGE_FILL_REFS.add(ih)  # resolved → real path after the walk
-            elif t in ("GRADIENT_RADIAL", "GRADIENT_ANGULAR", "GRADIENT_DIAMOND"):
-                s["background_color"] = gradient_flat(f)  # flat fallback (matches extract.ts)
+            elif t in ("GRADIENT_RADIAL", "GRADIENT_DIAMOND"):
+                g = gradient_radial_css(f)
+                if g: s["background_gradient"] = g
+                else: s["background_color"] = gradient_flat(f)
+            elif t == "GRADIENT_ANGULAR":
+                g = gradient_conic_css(f)
+                if g: s["background_gradient"] = g
+                else: s["background_color"] = gradient_flat(f)
     strokes = n.get("strokes")
     if isinstance(strokes, list) and strokes:
         f = first_visible(strokes)

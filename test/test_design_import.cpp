@@ -4713,6 +4713,25 @@ TEST_CASE("codegen lowers a grid container to the native grid bridge",
     CHECK(js.find("justify_content") == std::string::npos);
 }
 
+TEST_CASE("codegen preserves radial/conic background gradients",
+          "[view][import][codegen][gradient]") {
+    // The IR carries the gradient as a raw CSS string; codegen emits it verbatim
+    // to setBackgroundGradient, where the bridge now paints radial/conic (not a
+    // flat fallback). Confirms radial/conic survive parse -> IR -> codegen.
+    for (const char* g : {"radial-gradient(circle at 50% 50%, #ffffff, #000000)",
+                          "conic-gradient(from 0deg at 50% 50%, #ff0000, #00ff00, #0000ff)"}) {
+        DesignIR ir;
+        ir.root.type = "frame"; ir.root.name = "Root";
+        ir.root.style.width = 100.0f; ir.root.style.height = 100.0f;
+        ir.root.style.background_gradient = g;
+        CodeGenOptions opts;
+        const auto js = generate_pulp_js(ir, opts);
+        INFO(js);
+        CHECK(js.find("setBackgroundGradient(") != std::string::npos);
+        CHECK(js.find(g) != std::string::npos);  // emitted verbatim
+    }
+}
+
 TEST_CASE("codegen emits mix-blend-mode on native + web-compat paths",
           "[view][import][codegen][blend]") {
     // A node's normalized mix_blend_mode lowers to setMixBlendMode (native

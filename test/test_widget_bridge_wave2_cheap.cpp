@@ -778,3 +778,26 @@ TEST_CASE("Event contract: registerPointer/registerWheel are idempotent (no lamb
     REQUIRE(engine.evaluate("wheel_fires").getWithDefault<int>(0) == 1);
 }
 
+
+TEST_CASE("setBackgroundGradient parses linear / radial / conic into the right kind",
+          "[view][widget-bridge][gradient]") {
+    // The CSS parser must route each gradient form to the matching View kind
+    // (1=linear, 2=radial, 3=conic) so the canvas paints a real radial/sweep
+    // instead of the old flat-color fallback. With or without a shape/position
+    // prefix.
+    auto kind = [](const std::string& css) {
+        ScriptEngine engine;
+        View root;
+        root.set_bounds({0, 0, 200, 200});
+        root.set_theme(Theme::dark());
+        StateStore store;
+        WidgetBridge bridge(engine, root, store);
+        bridge.load_script("setBackgroundGradient('', '" + css + "');");
+        return root.background_gradient_type();
+    };
+    CHECK(kind("linear-gradient(to right, #ff0000, #0000ff)") == 1);
+    CHECK(kind("radial-gradient(circle at 50% 50%, #ffffff, #000000)") == 2);
+    CHECK(kind("radial-gradient(#ffffff, #000000)") == 2);  // no prefix
+    CHECK(kind("conic-gradient(from 90deg at 50% 50%, #ff0000, #00ff00, #0000ff)") == 3);
+    CHECK(kind("conic-gradient(#ff0000, #00ff00)") == 3);   // no prefix
+}
