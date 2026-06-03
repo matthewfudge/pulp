@@ -277,6 +277,21 @@ Pin bumps must go through `shipyard pin bump --to vX.Y.Z`, not a hand edit.
 Shipyard v0.50.0+ is Rust-backed and macOS ships as an Apple-Silicon-only
 signed/notarized `.dmg`, so the version and asset metadata must move together.
 
+- **Pinned at v0.68.0+: a killed `shipyard pr`/`ship` worker no longer wedges
+  the PR.** Before v0.68.0, a worker that died (crash, `kill`, launching a
+  second `shipyard pr` for the same PR) left its job stuck `running` in the
+  durable queue, and every later same-PR ship was refused with
+  `SamePrShipRunning` — recoverable only by hand-editing `queue.json`. At this
+  pin the queue auto-reaps a dead-worker job (heartbeat stale >180s) at
+  ship-submit time and on each drain pass. So if a same-PR ship is refused as
+  "already running" and nothing is actually live, just **retry after ~180s**.
+  Still: never run two `shipyard pr` for the same PR concurrently.
+- **Installing/upgrading Shipyard on macOS uses the GitHub API**, which is
+  rate-limited at 60/hr unauthenticated. A "No binary found for
+  shipyard-macos-arm64" error from `install.sh` / `shipyard update` is almost
+  always that rate limit, not a missing asset — re-run with `GITHUB_TOKEN` set
+  (`./tools/install-shipyard.sh` runs in an authenticated context).
+
 - **Release SDKs are expected to include desktop WebView symbols**
   (pulp #695). `.github/workflows/release-cli.yml` now configures the
   release build with `-DPULP_BUILD_WEBVIEW=ON`, installs Linux's

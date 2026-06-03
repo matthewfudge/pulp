@@ -320,7 +320,18 @@
 #   to recover a saturated/timed-out macOS gate. Plus self-hosted empty-log
 #   diagnostics now point at the uploaded ctest-logs artifact (Shipyard #344).
 #   These three (#344/#345/#346) are why Pulp jumps to this pin.
-version = "v0.67.0"
+# v0.68.0 — durable-queue dead-worker recovery (Shipyard #351): a killed
+#   `shipyard ship`/`pr` worker left its job stuck `running` in the queue,
+#   which blocked every later same-PR ship with `SamePrShipRunning` —
+#   unrecoverable without hand-editing `queue.json` (the startup reaper only
+#   runs on daemon restart). v0.68.0 reaps a dead-worker job (heartbeat stale
+#   >180s) at ship-submit time and on each drain pass, race-safely (the reap
+#   re-checks staleness under the queue lock, so a live worker between
+#   heartbeats is never killed, and a revived job defers conflicting starts
+#   rather than double-running the PR). This is why Pulp moves to this pin —
+#   it removes a whole class of "wedged same-PR ship" stalls. Bundles #349
+#   (self-hosted empty-log diagnostics point at the ctest artifact).
+version = "v0.68.0"
 
 # Public release source. The bootstrap script downloads from
 # https://github.com/{repo}/releases/download/{version}/{asset}
