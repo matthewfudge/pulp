@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v03230"></a>
+## [0.323.0] - 2026-06-02
+
+- feat(native-components): Phase 2a — NativeCoreProcessor C-ABI↔Processor adapter ([#3364](https://github.com/danielraffel/pulp/pull/3364))
+- feat(native-components): Phase 1b — opt-in Rust staticlib lane + RT-safety hook ([#3362](https://github.com/danielraffel/pulp/pull/3362))
+
 <a id="v03220"></a>
 ## [0.322.0] - 2026-06-03
 
@@ -3512,6 +3518,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.323.0]: https://github.com/danielraffel/pulp/releases/tag/v0.323.0
 [0.322.0]: https://github.com/danielraffel/pulp/releases/tag/v0.322.0
 [0.321.0]: https://github.com/danielraffel/pulp/releases/tag/v0.321.0
 [0.320.0]: https://github.com/danielraffel/pulp/releases/tag/v0.320.0
