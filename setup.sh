@@ -784,7 +784,7 @@ if [ "$PLATFORM" = "Linux" ]; then
     # contributors hit configure failures if the X11/Wayland development
     # headers are missing, so surface that early with a targeted fix hint.
     MISSING_LINUX_DESKTOP_DEPS=()
-    for pkg in x11 xext xrandr xrender xfixes xi xinerama xkbcommon wayland-client egl gbm drm; do
+    for pkg in x11 xext xrandr xrender xfixes xi xinerama xkbcommon wayland-client egl gbm libdrm; do
         if ! pkg-config --exists "$pkg" 2>/dev/null; then
             MISSING_LINUX_DESKTOP_DEPS+=("$pkg")
         fi
