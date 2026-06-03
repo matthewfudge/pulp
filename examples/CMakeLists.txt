@@ -54,6 +54,12 @@ if(APPLE AND NOT PULP_IOS AND EXISTS "${CMAKE_SOURCE_DIR}/planning/artifacts/nat
     add_subdirectory(native-ui-phase-f-preview)
 endif()
 
+# RUIF-1 baseline: real ELYSIUM Figma-plugin fixture materialized through
+# the canonical baked C++ path before any Rust front-end work starts.
+if(APPLE AND NOT PULP_IOS AND EXISTS "${CMAKE_SOURCE_DIR}/planning/artifacts/rust-ui/ruif-1/cpp-baseline/generated/elysium_imported_ui.cpp")
+    add_subdirectory(elysium-rust-ui-baseline)
+endif()
+
 # GPU Validation Demo: Modulation Matrix with animated cables
 add_subdirectory(gpu-demo)
 
