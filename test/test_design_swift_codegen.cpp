@@ -689,6 +689,33 @@ TEST_CASE("generate_pulp_swift counts grid columns from repeat() and mixed track
     REQUIRE(count_items(grid_with("repeat(2, 1fr) 2fr")) == 3);
     REQUIRE(count_items(grid_with("repeat(2, 1fr 2fr)")) == 4);        // pattern has 2 tracks
     REQUIRE(count_items(grid_with("repeat(auto-fill, 120px)")) == 1);  // unknowable → pattern count
+    // Hostile/degenerate track lists must not blow up: a huge repeat count is
+    // clamped (bounds the emitted GridItem array), and deep nesting returns a
+    // finite count without recursing to a stack overflow.
+    REQUIRE(count_items(grid_with("repeat(100000, 1fr)")) <= 1024);
+    REQUIRE(count_items(grid_with(
+        "repeat(2, repeat(2, repeat(2, repeat(2, repeat(2, 1fr)))))")) >= 1);
+}
+
+TEST_CASE("generate_pulp_swift emits no inf/nan for non-finite dimensions",
+          "[view][import][swiftui]") {
+    // The transform parser casts std::stod to float; a huge value overflows to
+    // +inf, which has no valid Swift Float literal. format_float must clamp
+    // non-finite values to 0 rather than emit `.scaleEffect(inf)` (won't
+    // compile) — likewise for rotate/translate and any degenerate dimension.
+    DesignIR ir;
+    ir.source = DesignSource::figma;
+    ir.root = frame_node("r", "R", 50.0f, 50.0f, LayoutDirection::column);
+    ir.root.style.transform = "scale(1e40) rotate(1e40deg) translate(1e40px, 1e40px)";
+    ir.root.children.push_back(text_node("c", "x", 10.0f, "#fff"));
+    const auto view = generate_pulp_swift(ir, ir.asset_manifest).view_source;
+    INFO(view);
+    REQUIRE_FALSE(contains(view, "inf)"));   // e.g. .scaleEffect(inf) — not .infinity
+    REQUIRE_FALSE(contains(view, "inf,"));   // e.g. .offset(x: inf, …)
+    REQUIRE_FALSE(contains(view, "nan"));
+    REQUIRE_FALSE(contains(view, "1e40"));
+    REQUIRE(contains(view, ".scaleEffect(0)"));        // clamped, not inf
+    require_generated_swift_compiles(ir, "non-finite");  // and it compiles
 }
 
 TEST_CASE("generate_pulp_swift flags dropped grid item placement as a hard divergence",
