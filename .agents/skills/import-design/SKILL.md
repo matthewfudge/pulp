@@ -1479,6 +1479,31 @@ Import artifact flag vocabulary:
 
 Use `--dry-run` to preview without writing files.
 
+### Token export formats (`--format`)
+
+`--format` is the **token-format axis** (which token file to emit), distinct from
+the `--emit` **artifact-kind axis** (js / ir-json / cpp). Values:
+
+- `w3c` (default) — W3C DTCG `tokens.json`. The fidelity-first canonical form.
+- `css-variables` — CSS custom properties (`export_css_variables`, `core/view/src/design_tokens.cpp`).
+  Base tokens → `:root`; `.dark`-suffixed multi-mode tokens → `@media (prefers-color-scheme: dark)`.
+  Names map `.`→`-` (`color.bg` → `--color-bg`); colors→hex, dims→`px`, strings verbatim.
+  The sidecar default flips from `tokens.json` to **`theme.css`** when `--tokens` is unset.
+- `tailwind` / `json-tailwind` / `css-tailwind` — Tailwind v3 JSON / v4 `@theme` CSS. **Still
+  gated to `--from designmd`** (they re-parse DESIGN.md for section context). Generalizing these
+  to any source is Workstream A2 (`planning/2026-06-02-design-token-export-and-swiftui-path.md`),
+  not yet landed.
+
+An unknown `--format` value is a hard error (exit 2), never a silent W3C fallback.
+`css-variables` is an **external themeable artifact** — Pulp resolves `var(--x)`, but a runtime
+loader that applies a themed `@media` CSS file is a separate, later step; the exporter does not
+claim runtime consumption, and deliberately emits only `@media` (no `[data-theme]` selector).
+
+```bash
+pulp import-design --from figma --file design.json --format css-variables --tokens theme.css
+pulp export-tokens --format css-variables                 # built-in dark theme → theme.css
+```
+
 Detect-only directory inputs (`pulp import-design --detect-only --directory <dir>`) prefer
 `code.html`, then `index.html`, then the first sorted `.html` / `.htm` payload. Keep fixture
 tests on that deterministic order; raw `std::filesystem::directory_iterator` order differs
