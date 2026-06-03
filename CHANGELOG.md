@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v03270"></a>
+## [0.327.0] - 2026-06-03
+
+- feat(native-components): Phase 7 — signed node-pack dynamic loading ([#3374](https://github.com/danielraffel/pulp/pull/3374))
+
 <a id="v03260"></a>
 ## [0.326.0] - 2026-06-02
 
@@ -3534,6 +3539,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.327.0]: https://github.com/danielraffel/pulp/releases/tag/v0.327.0
 [0.326.0]: https://github.com/danielraffel/pulp/releases/tag/v0.326.0
 [0.325.0]: https://github.com/danielraffel/pulp/releases/tag/v0.325.0
 [0.324.0]: https://github.com/danielraffel/pulp/releases/tag/v0.324.0
