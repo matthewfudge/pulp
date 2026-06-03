@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v03220"></a>
+## [0.322.0] - 2026-06-03
+
+- feat(native-components): Phase 1a — canonical C ABI header + module + contract tests ([#3360](https://github.com/danielraffel/pulp/pull/3360))
+- docs(native-components): Phase 0 — policy, boundaries, platform matrix ([#3359](https://github.com/danielraffel/pulp/pull/3359))
+
 <a id="v03210"></a>
 ## [0.321.0] - 2026-06-02
 
@@ -3506,6 +3512,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.322.0]: https://github.com/danielraffel/pulp/releases/tag/v0.322.0
 [0.321.0]: https://github.com/danielraffel/pulp/releases/tag/v0.321.0
 [0.320.0]: https://github.com/danielraffel/pulp/releases/tag/v0.320.0
 [0.319.0]: https://github.com/danielraffel/pulp/releases/tag/v0.319.0
