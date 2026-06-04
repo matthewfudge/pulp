@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "provenance": {
+    "source": "fixtures/native-gap",
+    "exporter": "scene3d-test",
+    "exported_at": "2026-06-03T00:00:00Z",
+    "runtime_evidence": "native-preflight-fixture"
+  },
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "gltf.animation_deferred",
+      "message": "Animation data is parsed, but native render-time playback is not implemented in this slice.",
+      "path": "fixtures/native-gap"
+    }
+  ],
+  "unsupported_features": [
+    {
+      "feature": "TransformAnimation",
+      "reason": "Animation data is parsed, but native render-time playback is not implemented in this slice.",
+      "node_path": "/Scene/Animated"
+    }
+  ],
+  "runtime_hints": []
+}

@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "provenance": {
+    "source": "fixtures/live-runtime",
+    "exporter": "scene3d-test",
+    "exported_at": "2026-06-03T00:00:00Z",
+    "runtime_evidence": "native-preflight-fixture"
+  },
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "bake.unsupported_raw_shader_material",
+      "message": "THREE.RawShaderMaterial has no portable glTF representation; convert to a supported glTF material or keep this scene Live-only.",
+      "path": "fixtures/live-runtime"
+    },
+    {
+      "severity": "warning",
+      "code": "bake.unsupported_postprocessing",
+      "message": "Postprocessing and EffectComposer passes are screen-space runtime behavior and are not representable in glTF.",
+      "path": "fixtures/live-runtime"
+    },
+    {
+      "severity": "warning",
+      "code": "bake.unsupported_render_target",
+      "message": "Render targets are runtime framebuffer state and cannot be exported as static glTF asset data.",
+      "path": "fixtures/live-runtime"
+    },
+    {
+      "severity": "warning",
+      "code": "bake.unsupported_arbitrary_js_animation",
+      "message": "Arbitrary JavaScript animation cannot be baked unless it is reduced to glTF animation channels.",
+      "path": "fixtures/live-runtime"
+    },
+    {
+      "severity": "warning",
+      "code": "bake.unsupported_physics",
+      "message": "Physics simulation is runtime behavior and is outside the static glTF bake subset.",
+      "path": "fixtures/live-runtime"
+    },
+    {
+      "severity": "warning",
+      "code": "bake.unsupported_event_handler",
+      "message": "Pointer, keyboard, and custom event handlers do not bake into glTF; keep the scene Live-only or rebuild interaction natively.",
+      "path": "fixtures/live-runtime"
+    }
+  ],
+  "unsupported_features": [
+    {
+      "feature": "RawShaderMaterial",
+      "reason": "THREE.RawShaderMaterial has no portable glTF representation; convert to a supported glTF material or keep this scene Live-only.",
+      "node_path": "/Scene/Background"
+    },
+    {
+      "feature": "Postprocessing",
+      "reason": "Postprocessing and EffectComposer passes are screen-space runtime behavior and are not representable in glTF.",
+      "node_path": "/Scene/Composer"
+    },
+    {
+      "feature": "RenderTarget",
+      "reason": "Render targets are runtime framebuffer state and cannot be exported as static glTF asset data.",
+      "node_path": "/Scene/Reflector"
+    },
+    {
+      "feature": "ArbitraryJSAnimation",
+      "reason": "Arbitrary JavaScript animation cannot be baked unless it is reduced to glTF animation channels.",
+      "node_path": "/Scene/useFrame"
+    },
+    {
+      "feature": "Physics",
+      "reason": "Physics simulation is runtime behavior and is outside the static glTF bake subset.",
+      "node_path": "/Scene/RigidBodies"
+    },
+    {
+      "feature": "EventHandler",
+      "reason": "Pointer, keyboard, and custom event handlers do not bake into glTF; keep the scene Live-only or rebuild interaction natively.",
+      "node_path": "/Scene/InteractiveMesh/onClick"
+    }
+  ],
+  "runtime_hints": []
+}

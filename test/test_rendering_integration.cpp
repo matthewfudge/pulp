@@ -390,6 +390,12 @@ TEST_CASE("DRACO decoder returns empty for invalid data", "[render][draco]") {
     uint8_t garbage[] = {0, 1, 2, 3};
     auto result2 = render::decode_draco(garbage, 4);
     REQUIRE_FALSE(result2.success);
+
+    render::DracoAttributeIds attribute_ids;
+    attribute_ids.position = 7;
+    auto result3 = render::decode_draco(garbage, 4, attribute_ids);
+    REQUIRE_FALSE(result3.success);
+    (void)render::draco_decoder_available();
 }
 
 // ── KTX2 decoder ────────────────────────────────────────────────────────

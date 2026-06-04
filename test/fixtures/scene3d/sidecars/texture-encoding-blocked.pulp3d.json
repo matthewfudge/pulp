@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "provenance": {
+    "source": "fixtures/texture-encoding",
+    "exporter": "scene3d-test",
+    "exported_at": "2026-06-03T00:00:00Z",
+    "runtime_evidence": "native-preflight-fixture"
+  },
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "bake.texture_encoding_missing",
+      "message": "Texture export needs canvas toDataURL/toBlob support or pre-encoded image payloads.",
+      "path": "fixtures/texture-encoding"
+    }
+  ],
+  "unsupported_features": [
+    {
+      "feature": "TextureEncoding",
+      "reason": "Texture export needs canvas toDataURL/toBlob support or pre-encoded image payloads.",
+      "node_path": "/Scene/Textured"
+    }
+  ],
+  "runtime_hints": []
+}

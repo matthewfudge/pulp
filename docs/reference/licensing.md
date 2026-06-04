@@ -45,6 +45,7 @@ Pulp adopts Google's [DESIGN.md](https://github.com/google-labs-code/design.md) 
 | Name | License | Purpose | Link |
 |------|---------|---------|------|
 | **DESIGN.md format spec + `paws-and-paths` fixture** | Apache-2.0 | Design-system interchange format consumed by `pulp import-design --from designmd`; one upstream example file redistributed verbatim as a Pulp test fixture. Pinned at tag `0.1.1`. | [github.com/google-labs-code/design.md @ 0.1.1](https://github.com/google-labs-code/design.md/releases/tag/0.1.1) |
+| **Khronos Box Textured fixture** | LicenseRef-CC-BY-TM + LicenseRef-LegalMark-Cesium | Official glTF Sample Assets `BoxTextured.glb` redistributed as a Scene3D native loader/render test fixture at `test/fixtures/scene3d/BoxTextured/BoxTextured.glb`. | [github.com/KhronosGroup/glTF-Sample-Assets/Models/BoxTextured](https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/BoxTextured) |
 
 ### Embedded Fonts
 
@@ -115,11 +116,13 @@ Fetched only when the corresponding CMake option or platform gate is enabled.
 |------|---------|---------|------|
 | **DRACO** | Apache-2.0 | Optional glTF mesh decompression; fetched only when `PULP_ENABLE_DRACO=ON` | [github.com/google/draco](https://github.com/google/draco) |
 | **Emscripten** | MIT | C++ to WebAssembly compiler (for WAMv2/WebCLAP) | [emscripten.org](https://emscripten.org) |
+| **fastgltf** | MIT | Optional native no-JS glTF/GLB parser; fetched only when `PULP_ENABLE_SCENE3D=ON` | [github.com/spnda/fastgltf](https://github.com/spnda/fastgltf) |
 | **node-addon-api** | MIT | Node.js bindings via Node-API | [github.com/nodejs/node-addon-api](https://github.com/nodejs/node-addon-api) |
 | **pybind11** | BSD-3-Clause | Python bindings for HeadlessHost | [github.com/pybind/pybind11](https://github.com/pybind/pybind11) |
 | **react** | MIT | Peer dependency of `@pulp/react` (packages/pulp-react); npm-installed by plugin authors, never bundled into Pulp itself | [github.com/facebook/react](https://github.com/facebook/react) |
 | **react-reconciler** | MIT | Reconciler runtime wrapped by `@pulp/react` to drive `pulp::view::WidgetBridge`; npm-installed alongside the package | [github.com/facebook/react](https://github.com/facebook/react) |
 | **scheduler** | MIT | Cooperative-scheduling runtime pulled in transitively by `react-reconciler` for `@pulp/react`; npm-installed | [github.com/facebook/react](https://github.com/facebook/react) |
+| **simdjson** | Apache-2.0 | JSON parser used by fastgltf; fetched only when `PULP_ENABLE_SCENE3D=ON` | [github.com/simdjson/simdjson](https://github.com/simdjson/simdjson) |
 | **three.js** | MIT | Native WebGPU bridge demos and tests; fetched only when `PULP_BUILD_TESTS` and `PULP_ENABLE_GPU` are ON | [github.com/mrdoob/three.js](https://github.com/mrdoob/three.js) |
 
 ## Standards and Specifications

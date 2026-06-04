@@ -183,6 +183,26 @@
       ]
     },
     {
+      "name": "fastgltf",
+      "category": "scene",
+      "license": "MIT",
+      "version": "v0.9.0",
+      "source_kind": "fetchcontent",
+      "repository": "https://github.com/spnda/fastgltf.git",
+      "upstream": { "kind": "git-tag", "ref": "v0.9.0" },
+      "documented_in_dependencies_md": true,
+      "documented_in_notice_md": true,
+      "notes": "Optional native no-JS glTF/GLB parser, fetched only when PULP_ENABLE_SCENE3D=ON. Kept behind core/scene so fastgltf types do not leak into public Pulp APIs.",
+      "source_files": [
+        "tools/cmake/PulpDependencies.cmake",
+        "core/scene/CMakeLists.txt",
+        "core/scene/src/gltf_loader.cpp",
+        "DEPENDENCIES.md",
+        "NOTICE.md",
+        "docs/reference/licensing.md"
+      ]
+    },
+    {
       "name": "Highway",
       "category": "runtime",
       "license": "Apache-2.0",
@@ -234,6 +254,28 @@
         "external/fonts/README.md",
         "docs/reference/text-shaping.md",
         "ci/visual-harness.Dockerfile"
+      ]
+    },
+    {
+      "name": "Khronos Box Textured fixture",
+      "category": "test-fixture",
+      "license": "LicenseRef-CC-BY-TM + LicenseRef-LegalMark-Cesium",
+      "version": "b510eca2e2ef33f62f9ed57d6e7ce2d10ebb2bdebc4a8e59d347719ba81abdf4",
+      "source_kind": "url-snapshot",
+      "repository": "https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/BoxTextured",
+      "upstream": {
+        "kind": "url-snapshot",
+        "ref": "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Assets/main/Models/BoxTextured/glTF-Binary/BoxTextured.glb"
+      },
+      "documented_in_dependencies_md": true,
+      "documented_in_notice_md": true,
+      "notes": "Official Khronos glTF Sample Assets BoxTextured.glb redistributed only as a Scene3D native loader/render test fixture. The version field is the SHA-256 of the checked-in GLB.",
+      "source_files": [
+        "test/fixtures/scene3d/BoxTextured/BoxTextured.glb",
+        "test/fixtures/scene3d/BoxTextured/README.md",
+        "DEPENDENCIES.md",
+        "NOTICE.md",
+        "docs/reference/licensing.md"
       ]
     },
     {
@@ -582,6 +624,24 @@
         "core/canvas/include/pulp/canvas/bidi.hpp",
         "core/canvas/src/bidi.cpp",
         "core/canvas/src/text_run_planner.cpp"
+      ]
+    },
+    {
+      "name": "simdjson",
+      "category": "scene",
+      "license": "Apache-2.0",
+      "version": "v3.12.3",
+      "source_kind": "fetchcontent",
+      "repository": "https://github.com/simdjson/simdjson.git",
+      "upstream": { "kind": "git-tag", "ref": "v3.12.3" },
+      "documented_in_dependencies_md": true,
+      "documented_in_notice_md": true,
+      "notes": "Optional JSON parser used by fastgltf. Registered explicitly when PULP_ENABLE_SCENE3D=ON so fastgltf does not use an unaudited nested file(DOWNLOAD) path.",
+      "source_files": [
+        "tools/cmake/PulpDependencies.cmake",
+        "DEPENDENCIES.md",
+        "NOTICE.md",
+        "docs/reference/licensing.md"
       ]
     },
     {

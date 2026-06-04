@@ -8,6 +8,32 @@ add_executable(pulp-test-build-check test_build_check.cpp)
 target_link_libraries(pulp-test-build-check PRIVATE pulp::platform pulp::runtime)
 add_test(NAME build-check COMMAND pulp-test-build-check)
 
+if(Python3_Interpreter_FOUND)
+    if(PULP_ENABLE_SCENE3D)
+        set(PULP_SCENE3D_CMAKE_EXPECT on)
+    else()
+        set(PULP_SCENE3D_CMAKE_EXPECT off)
+    endif()
+    add_test(NAME scene3d-cmake-boundary
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene3d_cmake_boundary.py"
+            --build-dir "${CMAKE_BINARY_DIR}"
+            --expect "${PULP_SCENE3D_CMAKE_EXPECT}")
+    set_tests_properties(scene3d-cmake-boundary PROPERTIES
+        PASS_REGULAR_EXPRESSION
+            "scene3d_cmake_boundary_verified=${PULP_SCENE3D_CMAKE_EXPECT}")
+    add_test(NAME scene3d-cmake-boundary-negative-contract
+        COMMAND ${Python3_EXECUTABLE}
+            "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene3d_cmake_boundary_contract.py"
+            --boundary-verifier
+            "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene3d_cmake_boundary.py"
+            --build-dir "${CMAKE_BINARY_DIR}")
+    set_tests_properties(scene3d-cmake-boundary-negative-contract
+        PROPERTIES
+        PASS_REGULAR_EXPRESSION
+            "scene3d_cmake_boundary_contract_case=valid-current-${PULP_SCENE3D_CMAKE_EXPECT}.*scene3d_cmake_boundary_contract_case=expect-mismatch.*scene3d_cmake_boundary_contract_case=enabled-missing-build-path.*scene3d_cmake_boundary_contract_case=enabled-missing-link-file.*scene3d_cmake_boundary_contract_case=valid-disabled.*scene3d_cmake_boundary_contract_case=disabled-build-path-present.*scene3d_cmake_boundary_contract_case=disabled-link-file-present.*scene3d_cmake_boundary_contract_case=disabled-target-present.*scene3d_cmake_boundary_contract_verified=true")
+endif()
+
 # iOS AUv3 helper configure smoke (macOS host only; skipped when iOS SDK absent).
 # A fresh checkout pays the FetchContent bootstrap cost (~5–7 min on CI macs).
 # Local self-hosted runners can exceed that during cache churn, so leave
@@ -2065,6 +2091,798 @@ catch_discover_tests(pulp-test-nsis-installer)
 # Image decode / glTF texture pipeline tests
 pulp_add_test_suite(pulp-test-image-decode LIBRARIES pulp::view)
 
+if(PULP_ENABLE_SCENE3D)
+    add_executable(pulp-test-scene3d test_scene3d.cpp)
+    target_link_libraries(pulp-test-scene3d PRIVATE
+        pulp::scene Catch2::Catch2WithMain)
+    target_compile_definitions(pulp-test-scene3d PRIVATE
+        PULP_TEST_SCENE3D_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d")
+    catch_discover_tests(pulp-test-scene3d)
+
+    add_test(NAME scene3d-inspect-boxtextured-stats
+        COMMAND $<TARGET_FILE:pulp-scene3d-inspect>
+            "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/BoxTextured/BoxTextured.glb")
+    set_tests_properties(scene3d-inspect-boxtextured-stats PROPERTIES
+        PASS_REGULAR_EXPRESSION
+            "meshes=1.*vertices=24.*indices=36.*textures=1")
+
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME scene3d-scene-stats-surface-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene_stats_surface.py"
+                --header "${CMAKE_SOURCE_DIR}/core/scene/include/pulp/scene/scene_stats.hpp"
+                --source "${CMAKE_SOURCE_DIR}/core/scene/src/scene_stats.cpp")
+        set_tests_properties(scene3d-scene-stats-surface-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene_stats_surface_verified=true")
+
+        add_test(NAME scene3d-scene-stats-surface-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene_stats_surface_contract.py"
+                --surface-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene_stats_surface.py"
+                --header "${CMAKE_SOURCE_DIR}/core/scene/include/pulp/scene/scene_stats.hpp"
+                --source "${CMAKE_SOURCE_DIR}/core/scene/src/scene_stats.cpp")
+        set_tests_properties(scene3d-scene-stats-surface-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene_stats_surface_contract_case=valid-current-stats.*scene_stats_surface_contract_case=missing-field.*scene_stats_surface_contract_case=field-order-drift.*scene_stats_surface_contract_case=text-key-drift.*scene_stats_surface_contract_case=primitive-count-drift.*scene_stats_surface_contract_case=vertex-count-drift.*scene_stats_surface_contract_case=texture-byte-drift.*scene_stats_surface_contract_case=advanced-extension-drift.*scene_stats_surface_contract_case=error-diagnostic-drift.*scene_stats_surface_contract_verified=true")
+    endif()
+
+    add_test(NAME scene3d-inspect-boxtextured-render-packet
+        COMMAND $<TARGET_FILE:pulp-scene3d-inspect>
+            --render-packet
+            "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/BoxTextured/BoxTextured.glb")
+    set_tests_properties(scene3d-inspect-boxtextured-render-packet PROPERTIES
+        PASS_REGULAR_EXPRESSION
+            "render_packet transformed_nodes=2 primitives=1.*primitive node=1 mesh=0 primitive=0 material=0.*features=normals,texcoord0,indexed,base_color_texture")
+
+    if(Python3_Interpreter_FOUND AND TARGET pulp-scene3d-inspect-native)
+        add_test(NAME scene3d-inspect-native-draco-diagnostic
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/draco_inspect_smoke.py"
+                --inspect-tool $<TARGET_FILE:pulp-scene3d-inspect-native>)
+        set_tests_properties(scene3d-inspect-native-draco-diagnostic PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "draco_inspect_default_not_wired=true.*(native_draco_decoder_available=false.*gltf.draco_unavailable|native_draco_decoder_available=true.*gltf.draco_decode_failed).*draco_inspect_native_callback=true")
+        add_test(NAME scene3d-inspect-native-draco-diagnostic-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/draco_inspect_smoke_contract.py"
+                --smoke "${CMAKE_SOURCE_DIR}/tools/scene3d/draco_inspect_smoke.py")
+        set_tests_properties(scene3d-inspect-native-draco-diagnostic-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "draco_inspect_smoke_contract_case=valid-native-disabled.*draco_inspect_smoke_contract_case=valid-native-enabled.*draco_inspect_smoke_contract_case=default-exit-drift.*draco_inspect_smoke_contract_case=default-diagnostic-drift.*draco_inspect_smoke_contract_case=native-exit-drift.*draco_inspect_smoke_contract_case=native-missing-availability.*draco_inspect_smoke_contract_case=native-ambiguous-availability.*draco_inspect_smoke_contract_case=native-disabled-diagnostic-drift.*draco_inspect_smoke_contract_case=native-enabled-diagnostic-drift.*draco_inspect_smoke_contract_case=native-not-wired-leak.*draco_inspect_smoke_contract_verified=true")
+    endif()
+
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME scene3d-inspect-boxtextured-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene3d_inspect.py"
+                --inspect-tool $<TARGET_FILE:pulp-scene3d-inspect>
+                --fixture "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/BoxTextured/BoxTextured.glb")
+        set_tests_properties(scene3d-inspect-boxtextured-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene3d_inspect_verified=boxtextured")
+
+        add_test(NAME scene3d-inspect-verifier-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene3d_inspect_contract.py"
+                --inspect-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene3d_inspect.py")
+        set_tests_properties(scene3d-inspect-verifier-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene3d_inspect_contract_case=valid-fake-inspect.*scene3d_inspect_contract_case=missing-render-packet.*scene3d_inspect_contract_case=duplicate-primitive.*scene3d_inspect_contract_case=stats-drift.*scene3d_inspect_contract_case=primitive-feature-drift.*scene3d_inspect_contract_verified=true")
+
+        add_test(NAME scene3d-render-packet-material-key-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/render_packet_material_key_smoke.py"
+                --inspect-tool $<TARGET_FILE:pulp-scene3d-inspect>)
+        set_tests_properties(scene3d-render-packet-material-key-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene3d_render_packet_material_key_verified=true")
+        add_test(NAME scene3d-render-packet-material-key-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/render_packet_material_key_contract.py"
+                --material-key-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/render_packet_material_key_smoke.py")
+        set_tests_properties(scene3d-render-packet-material-key-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "render_packet_material_key_contract_case=valid-fake-inspect.*render_packet_material_key_contract_case=inspect-exit-drift.*render_packet_material_key_contract_case=stats-texture-count-drift.*render_packet_material_key_contract_case=stats-texture-bytes-drift.*render_packet_material_key_contract_case=stats-extra-key.*render_packet_material_key_contract_case=missing-render-packet.*render_packet_material_key_contract_case=packet-has-errors-drift.*render_packet_material_key_contract_case=missing-primitive.*render_packet_material_key_contract_case=duplicate-primitive.*render_packet_material_key_contract_case=feature-mask-drift.*render_packet_material_key_contract_case=feature-name-missing.*render_packet_material_key_contract_case=feature-name-order-drift.*render_packet_material_key_contract_case=material-index-drift.*render_packet_material_key_contract_case=world-transform-drift.*render_packet_material_key_contract_verified=true")
+
+        add_test(NAME scene3d-material-feature-surface-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_material_feature_surface.py"
+                --header "${CMAKE_SOURCE_DIR}/core/scene/include/pulp/scene/material_key.hpp"
+                --source "${CMAKE_SOURCE_DIR}/core/scene/src/material_key.cpp")
+        set_tests_properties(scene3d-material-feature-surface-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "material_feature_surface_verified=true")
+
+        add_test(NAME scene3d-material-feature-surface-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_material_feature_surface_contract.py"
+                --surface-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_material_feature_surface.py"
+                --header "${CMAKE_SOURCE_DIR}/core/scene/include/pulp/scene/material_key.hpp"
+                --source "${CMAKE_SOURCE_DIR}/core/scene/src/material_key.cpp")
+        set_tests_properties(scene3d-material-feature-surface-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "material_feature_surface_contract_case=valid-current-material-feature.*material_feature_surface_contract_case=bit-assignment-drift.*material_feature_surface_contract_case=missing-feature.*material_feature_surface_contract_case=feature-order-drift.*material_feature_surface_contract_case=feature-name-drift.*material_feature_surface_contract_case=missing-feature-name.*material_feature_surface_contract_case=duplicate-feature-name.*material_feature_surface_contract_verified=true")
+
+        add_test(NAME scene3d-render-packet-graph-error-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/render_packet_graph_error_smoke.py"
+                --inspect-tool $<TARGET_FILE:pulp-scene3d-inspect>)
+        set_tests_properties(scene3d-render-packet-graph-error-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene3d_render_packet_graph_error_verified=true")
+        add_test(NAME scene3d-render-packet-graph-error-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/render_packet_graph_error_contract.py"
+                --graph-error-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/render_packet_graph_error_smoke.py")
+        set_tests_properties(scene3d-render-packet-graph-error-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "render_packet_graph_error_contract_case=valid-fake-inspect.*render_packet_graph_error_contract_case=inspect-exit-drift.*render_packet_graph_error_contract_case=stats-diagnostics-drift.*render_packet_graph_error_contract_case=stats-error-diagnostics-drift.*render_packet_graph_error_contract_case=missing-render-packet.*render_packet_graph_error_contract_case=packet-primitive-count-drift.*render_packet_graph_error_contract_case=packet-diagnostic-count-drift.*render_packet_graph_error_contract_case=packet-has-errors-drift.*render_packet_graph_error_contract_case=missing-diagnostic.*render_packet_graph_error_contract_case=diagnostic-severity-drift.*render_packet_graph_error_contract_case=diagnostic-code-drift.*render_packet_graph_error_contract_case=primitive-leak-after-error.*render_packet_graph_error_contract_verified=true")
+
+        add_test(NAME scene3d-render-packet-surface-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_render_packet_surface.py"
+                --header "${CMAKE_SOURCE_DIR}/core/scene/include/pulp/scene/render_packet.hpp"
+                --source "${CMAKE_SOURCE_DIR}/core/scene/src/render_packet.cpp"
+                --inspect-source "${CMAKE_SOURCE_DIR}/core/scene/src/scene3d_inspect.cpp")
+        set_tests_properties(scene3d-render-packet-surface-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "render_packet_surface_verified=true")
+
+        add_test(NAME scene3d-render-packet-surface-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_render_packet_surface_contract.py"
+                --surface-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_render_packet_surface.py"
+                --header "${CMAKE_SOURCE_DIR}/core/scene/include/pulp/scene/render_packet.hpp"
+                --source "${CMAKE_SOURCE_DIR}/core/scene/src/render_packet.cpp"
+                --inspect-source "${CMAKE_SOURCE_DIR}/core/scene/src/scene3d_inspect.cpp")
+        set_tests_properties(scene3d-render-packet-surface-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "render_packet_surface_contract_case=valid-current-render-packet.*render_packet_surface_contract_case=missing-primitive-field.*render_packet_surface_contract_case=packet-field-order-drift.*render_packet_surface_contract_case=has-errors-delegation-drift.*render_packet_surface_contract_case=validation-flow-drift.*render_packet_surface_contract_case=empty-packet-diagnostic-drift.*render_packet_surface_contract_case=cli-feature-mask-key-drift.*render_packet_surface_contract_case=cli-feature-name-handoff-drift.*render_packet_surface_contract_verified=true")
+
+        add_test(NAME scene3d-render-packet-matrix-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/render_packet_matrix_smoke.py"
+                --inspect-tool $<TARGET_FILE:pulp-scene3d-inspect>)
+        set_tests_properties(scene3d-render-packet-matrix-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene3d_render_packet_matrix_verified=true")
+        add_test(NAME scene3d-render-packet-matrix-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/render_packet_matrix_contract.py"
+                --matrix-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/render_packet_matrix_smoke.py")
+        set_tests_properties(scene3d-render-packet-matrix-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "render_packet_matrix_contract_case=valid-fake-inspect.*render_packet_matrix_contract_case=inspect-exit-drift.*render_packet_matrix_contract_case=stats-count-drift.*render_packet_matrix_contract_case=stats-extra-key.*render_packet_matrix_contract_case=missing-render-packet.*render_packet_matrix_contract_case=packet-has-errors-drift.*render_packet_matrix_contract_case=missing-primitive.*render_packet_matrix_contract_case=duplicate-primitive.*render_packet_matrix_contract_case=world-transform-drift.*render_packet_matrix_contract_case=feature-mask-drift.*render_packet_matrix_contract_case=feature-name-drift.*render_packet_matrix_contract_case=material-fallback-drift.*render_packet_matrix_contract_verified=true")
+    endif()
+
+    add_test(NAME scene3d-sidecar-boxtextured-json
+        COMMAND $<TARGET_FILE:pulp-scene3d-sidecar>
+            --source "khronos-boxtextured"
+            --exported-at "2026-06-03T00:00:00Z"
+            --runtime-evidence "https://github.com/danielraffel/pulp/issues/3369#issuecomment-4610177927"
+            "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/BoxTextured/BoxTextured.glb")
+    set_tests_properties(scene3d-sidecar-boxtextured-json PROPERTIES
+        PASS_REGULAR_EXPRESSION
+            "\"schema_version\".*\"source\": \"khronos-boxtextured\".*\"exporter\": \"pulp-scene3d-sidecar\".*\"exported_at\": \"2026-06-03T00:00:00Z\".*\"runtime_evidence\": \"https://github.com/danielraffel/pulp/issues/3369#issuecomment-4610177927\".*\"diagnostics\": \\[\\].*\"unsupported_features\": \\[\\].*\"runtime_hints\": \\[\\]")
+
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME scene3d-sidecar-preflight-boxtextured-clean
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/sidecar_preflight_smoke.py"
+                --sidecar-tool $<TARGET_FILE:pulp-scene3d-sidecar>
+                --preflight-tool $<TARGET_FILE:pulp-scene3d-bake-preflight>
+                --runtime-evidence "https://github.com/danielraffel/pulp/issues/3369#issuecomment-4610177927"
+                "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/BoxTextured/BoxTextured.glb")
+        set_tests_properties(scene3d-sidecar-preflight-boxtextured-clean PROPERTIES
+            PASS_REGULAR_EXPRESSION "BoxTextured sidecar preflight clean")
+
+        add_test(NAME scene3d-sidecar-boxtextured-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene3d_sidecar.py"
+                --sidecar-tool $<TARGET_FILE:pulp-scene3d-sidecar>
+                --fixture "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/BoxTextured/BoxTextured.glb"
+                --source "khronos-boxtextured"
+                --exported-at "2026-06-03T00:00:00Z"
+                --runtime-evidence "https://github.com/danielraffel/pulp/issues/3369#issuecomment-4610177927")
+        set_tests_properties(scene3d-sidecar-boxtextured-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene3d_sidecar_verified=boxtextured")
+
+        add_test(NAME scene3d-sidecar-cli-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene3d_sidecar_cli_contract.py"
+                --sidecar-tool $<TARGET_FILE:pulp-scene3d-sidecar>
+                --fixture "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/BoxTextured/BoxTextured.glb")
+        set_tests_properties(scene3d-sidecar-cli-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene3d_sidecar_cli_contract_case=valid-explicit-provenance.*scene3d_sidecar_cli_contract_case=missing-exported-at.*scene3d_sidecar_cli_contract_case=empty-exported-at.*scene3d_sidecar_cli_contract_case=empty-exporter.*scene3d_sidecar_cli_contract_case=empty-source-defaults-to-path.*scene3d_sidecar_cli_contract_verified=true")
+
+        add_test(NAME scene3d-sidecar-verifier-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene3d_sidecar_contract.py"
+                --sidecar-verifier "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene3d_sidecar.py")
+        set_tests_properties(scene3d-sidecar-verifier-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene3d_sidecar_contract_case=valid-fake-sidecar.*scene3d_sidecar_contract_case=missing-runtime-hints.*scene3d_sidecar_contract_case=extra-root-key.*scene3d_sidecar_contract_case=provenance-exporter-drift.*scene3d_sidecar_contract_case=empty-provenance-source.*scene3d_sidecar_contract_case=empty-provenance-exported-at.*scene3d_sidecar_contract_case=empty-runtime-evidence.*scene3d_sidecar_contract_case=non-empty-diagnostics.*scene3d_sidecar_contract_case=malformed-json.*scene3d_sidecar_contract_verified=true")
+
+        add_test(NAME scene3d-sidecar-schema-constants-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_sidecar_schema_constants.py"
+                --canonical
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_artifact.py"
+                --preflight-matrix
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_preflight_matrix.py"
+                --boxtextured-sidecar
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene3d_sidecar.py")
+        set_tests_properties(scene3d-sidecar-schema-constants-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "sidecar_schema_constants_verified=true")
+
+        add_test(NAME scene3d-sidecar-schema-constants-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_sidecar_schema_constants_contract.py"
+                --schema-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_sidecar_schema_constants.py"
+                --canonical
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_artifact.py"
+                --preflight-matrix
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_preflight_matrix.py"
+                --boxtextured-sidecar
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene3d_sidecar.py")
+        set_tests_properties(scene3d-sidecar-schema-constants-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "sidecar_schema_constants_contract_case=valid-current-schema-constants.*sidecar_schema_constants_contract_case=canonical-root-key-drift.*sidecar_schema_constants_contract_case=canonical-missing-constant.*sidecar_schema_constants_contract_case=preflight-root-extra-key.*sidecar_schema_constants_contract_case=preflight-diagnostic-key-drift.*sidecar_schema_constants_contract_case=preflight-missing-constant.*sidecar_schema_constants_contract_case=boxtextured-provenance-key-drift.*sidecar_schema_constants_contract_case=boxtextured-missing-constant.*sidecar_schema_constants_contract_verified=true")
+
+        add_test(NAME scene3d-animation-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/animation_contract_smoke.py"
+                --inspect-tool $<TARGET_FILE:pulp-scene3d-inspect>
+                --sidecar-tool $<TARGET_FILE:pulp-scene3d-sidecar>
+                --preflight-tool $<TARGET_FILE:pulp-scene3d-bake-preflight>)
+        set_tests_properties(scene3d-animation-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene3d_animation_inspect_verified=true.*scene3d_animation_sidecar_verified=true.*scene3d_animation_preflight_verified=true.*scene3d_animation_contract_verified=true")
+
+        add_test(NAME scene3d-primitive-mode-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/primitive_mode_contract_smoke.py"
+                --inspect-tool $<TARGET_FILE:pulp-scene3d-inspect>
+                --sidecar-tool $<TARGET_FILE:pulp-scene3d-sidecar>
+                --preflight-tool $<TARGET_FILE:pulp-scene3d-bake-preflight>)
+        set_tests_properties(scene3d-primitive-mode-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene3d_primitive_mode_inspect_verified=true.*scene3d_primitive_mode_sidecar_verified=true.*scene3d_primitive_mode_preflight_verified=true.*scene3d_primitive_mode_contract_verified=true")
+
+        add_test(NAME scene3d-camera-light-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/camera_light_contract_smoke.py"
+                --inspect-tool $<TARGET_FILE:pulp-scene3d-inspect>
+                --sidecar-tool $<TARGET_FILE:pulp-scene3d-sidecar>
+                --preflight-tool $<TARGET_FILE:pulp-scene3d-bake-preflight>)
+        set_tests_properties(scene3d-camera-light-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene3d_camera_light_inspect_verified=true.*scene3d_camera_light_sidecar_verified=true.*scene3d_camera_light_preflight_verified=true.*scene3d_camera_light_contract_verified=true")
+
+        add_test(NAME scene3d-camera-light-gap-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/camera_light_gap_contract_smoke.py"
+                --inspect-tool $<TARGET_FILE:pulp-scene3d-inspect>
+                --sidecar-tool $<TARGET_FILE:pulp-scene3d-sidecar>
+                --preflight-tool $<TARGET_FILE:pulp-scene3d-bake-preflight>)
+        set_tests_properties(scene3d-camera-light-gap-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene3d_camera_light_gap_inspect_verified=true.*scene3d_camera_light_gap_sidecar_verified=true.*scene3d_camera_light_gap_preflight_verified=true.*scene3d_camera_light_gap_contract_verified=true")
+
+        add_test(NAME scene3d-light-node-transform-gap-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/light_node_transform_gap_contract_smoke.py"
+                --inspect-tool $<TARGET_FILE:pulp-scene3d-inspect>
+                --sidecar-tool $<TARGET_FILE:pulp-scene3d-sidecar>
+                --preflight-tool $<TARGET_FILE:pulp-scene3d-bake-preflight>)
+        set_tests_properties(scene3d-light-node-transform-gap-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene3d_light_node_transform_gap_inspect_verified=true.*scene3d_light_node_transform_gap_sidecar_verified=true.*scene3d_light_node_transform_gap_preflight_verified=true.*scene3d_light_node_transform_gap_contract_verified=true")
+
+        add_test(NAME scene3d-advanced-material-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/advanced_material_contract_smoke.py"
+                --inspect-tool $<TARGET_FILE:pulp-scene3d-inspect>
+                --sidecar-tool $<TARGET_FILE:pulp-scene3d-sidecar>
+                --preflight-tool $<TARGET_FILE:pulp-scene3d-bake-preflight>)
+        set_tests_properties(scene3d-advanced-material-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene3d_advanced_material_inspect_verified=true.*scene3d_advanced_material_sidecar_verified=true.*scene3d_advanced_material_preflight_verified=true.*scene3d_advanced_material_contract_verified=true")
+
+        add_test(NAME scene3d-material-texture-gap-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/material_texture_gap_contract_smoke.py"
+                --inspect-tool $<TARGET_FILE:pulp-scene3d-inspect>
+                --sidecar-tool $<TARGET_FILE:pulp-scene3d-sidecar>
+                --preflight-tool $<TARGET_FILE:pulp-scene3d-bake-preflight>)
+        set_tests_properties(scene3d-material-texture-gap-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene3d_material_texture_gap_inspect_verified=true.*scene3d_material_texture_gap_sidecar_verified=true.*scene3d_material_texture_gap_preflight_verified=true.*scene3d_material_texture_gap_contract_verified=true")
+
+        add_test(NAME scene3d-texture-payload-format-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/texture_payload_format_contract_smoke.py"
+                --inspect-tool $<TARGET_FILE:pulp-scene3d-inspect>
+                --sidecar-tool $<TARGET_FILE:pulp-scene3d-sidecar>
+                --preflight-tool $<TARGET_FILE:pulp-scene3d-bake-preflight>)
+        set_tests_properties(scene3d-texture-payload-format-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene3d_texture_payload_format_inspect_verified=true.*scene3d_texture_payload_format_sidecar_verified=true.*scene3d_texture_payload_format_preflight_verified=true.*scene3d_texture_payload_format_contract_verified=true")
+
+        add_test(NAME scene3d-unsupported-mesh-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/unsupported_mesh_contract_smoke.py"
+                --inspect-tool $<TARGET_FILE:pulp-scene3d-inspect>
+                --sidecar-tool $<TARGET_FILE:pulp-scene3d-sidecar>
+                --preflight-tool $<TARGET_FILE:pulp-scene3d-bake-preflight>)
+        set_tests_properties(scene3d-unsupported-mesh-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene3d_unsupported_mesh_inspect_verified=true.*scene3d_unsupported_mesh_sidecar_verified=true.*scene3d_unsupported_mesh_preflight_verified=true.*scene3d_unsupported_mesh_contract_verified=true")
+
+        add_test(NAME scene3d-bake-preflight-runtime-evidence-required
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/expect_command.py"
+                --expect-code 2
+                --expect-regex "export_blocked=true.*runtime_evidence_missing=true"
+                --
+                $<TARGET_FILE:pulp-scene3d-bake-preflight>
+                --require-runtime-evidence
+                "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/sidecars/missing-runtime-evidence.pulp3d.json")
+        set_tests_properties(scene3d-bake-preflight-runtime-evidence-required PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "bake_readiness=blocked.*runtime_evidence_missing=true")
+
+        add_test(NAME scene3d-bake-preflight-runtime-evidence-url-required
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/expect_command.py"
+                --expect-code 2
+                --expect-regex "export_blocked=true.*runtime_evidence_missing=false.*runtime_evidence_url_invalid=true"
+                --
+                $<TARGET_FILE:pulp-scene3d-bake-preflight>
+                --require-runtime-evidence-url
+                "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/sidecars/native-gap.pulp3d.json")
+        set_tests_properties(scene3d-bake-preflight-runtime-evidence-url-required PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "bake_readiness=blocked.*runtime_evidence_url_invalid=true")
+    endif()
+
+    add_test(NAME scene3d-bake-preflight-clean
+        COMMAND $<TARGET_FILE:pulp-scene3d-bake-preflight>
+            "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/sidecars/clean.pulp3d.json")
+    set_tests_properties(scene3d-bake-preflight-clean PROPERTIES
+        PASS_REGULAR_EXPRESSION
+            "bake_readiness=clean.*export_blocked=false.*native_runtime_has_gaps=false")
+
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME scene3d-bake-preflight-shader-material-blocked
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/expect_command.py"
+                --expect-code 2
+                --expect-regex "export_blocked=true.*export_blocker: ShaderMaterial"
+                --
+                $<TARGET_FILE:pulp-scene3d-bake-preflight>
+                "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/sidecars/shader-material-blocked.pulp3d.json")
+        set_tests_properties(scene3d-bake-preflight-shader-material-blocked PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "export_blocked=true.*export_blocker: ShaderMaterial")
+
+        add_test(NAME scene3d-bake-preflight-live-runtime-blocked
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/expect_command.py"
+                --expect-code 2
+                --expect-regex "export_blocked=true.*export_blocker: RawShaderMaterial.*export_blocker: Postprocessing.*export_blocker: RenderTarget.*export_blocker: ArbitraryJSAnimation.*export_blocker: Physics.*export_blocker: EventHandler"
+                --
+                $<TARGET_FILE:pulp-scene3d-bake-preflight>
+                "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/sidecars/live-runtime-blocked.pulp3d.json")
+        set_tests_properties(scene3d-bake-preflight-live-runtime-blocked PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "bake_readiness=blocked.*export_blockers=6")
+
+        add_test(NAME scene3d-bake-preflight-texture-encoding-blocked
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/expect_command.py"
+                --expect-code 2
+                --expect-regex "texture_encoding_blocked=true.*texture_encoding_blocker: TextureEncoding"
+                --
+                $<TARGET_FILE:pulp-scene3d-bake-preflight>
+                "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/sidecars/texture-encoding-blocked.pulp3d.json")
+        set_tests_properties(scene3d-bake-preflight-texture-encoding-blocked PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "texture_encoding_blocked=true.*texture_encoding_blocker: TextureEncoding")
+
+        add_test(NAME scene3d-bake-preflight-classification-surface-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_preflight_classification_surface.py"
+                --source "${CMAKE_SOURCE_DIR}/core/scene/src/bake_preflight.cpp")
+        set_tests_properties(scene3d-bake-preflight-classification-surface-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "bake_preflight_classification_surface_verified=true")
+
+        add_test(NAME scene3d-bake-preflight-classification-surface-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_preflight_classification_surface_contract.py"
+                --surface-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_preflight_classification_surface.py"
+                --source "${CMAKE_SOURCE_DIR}/core/scene/src/bake_preflight.cpp")
+        set_tests_properties(scene3d-bake-preflight-classification-surface-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "bake_preflight_classification_surface_contract_case=valid-current-classification.*bake_preflight_classification_surface_contract_case=missing-export-blocker.*bake_preflight_classification_surface_contract_case=extra-export-blocker.*bake_preflight_classification_surface_contract_case=texture-encoding-bucket-drift.*bake_preflight_classification_surface_contract_case=missing-native-gap.*bake_preflight_classification_surface_contract_case=extra-native-gap.*bake_preflight_classification_surface_contract_case=missing-native-prefix.*bake_preflight_classification_surface_contract_case=extra-export-prefix.*bake_preflight_classification_surface_contract_case=renamed-native-prefix.*bake_preflight_classification_surface_contract_verified=true")
+
+        add_test(NAME scene3d-bake-preflight-cli-surface-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_preflight_cli_surface.py"
+                --source "${CMAKE_SOURCE_DIR}/core/scene/src/scene3d_bake_preflight.cpp")
+        set_tests_properties(scene3d-bake-preflight-cli-surface-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "bake_preflight_cli_surface_verified=true")
+
+        add_test(NAME scene3d-bake-preflight-cli-surface-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_preflight_cli_surface_contract.py"
+                --surface-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_preflight_cli_surface.py"
+                --source "${CMAKE_SOURCE_DIR}/core/scene/src/scene3d_bake_preflight.cpp")
+        set_tests_properties(scene3d-bake-preflight-cli-surface-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "bake_preflight_cli_surface_contract_case=valid-current-cli.*bake_preflight_cli_surface_contract_case=usage-option-drift.*bake_preflight_cli_surface_contract_case=read-file-error-drift.*bake_preflight_cli_surface_contract_case=runtime-evidence-flag-drift.*bake_preflight_cli_surface_contract_case=sidecar-parser-drift.*bake_preflight_cli_surface_contract_case=readiness-key-drift.*bake_preflight_cli_surface_contract_case=missing-report-field.*bake_preflight_cli_surface_contract_case=extra-report-field.*bake_preflight_cli_surface_contract_case=feature-row-reason-drift.*bake_preflight_cli_surface_contract_case=blocked-exit-code-drift.*bake_preflight_cli_surface_contract_verified=true")
+
+        add_test(NAME scene3d-bake-preflight-fixture-cli-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_preflight_fixture_cli.py"
+                --preflight-tool $<TARGET_FILE:pulp-scene3d-bake-preflight>
+                --fixtures-dir "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/sidecars")
+        set_tests_properties(scene3d-bake-preflight-fixture-cli-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "bake_preflight_fixture_cli_case=clean.*bake_preflight_fixture_cli_case=shader-material-blocked.*bake_preflight_fixture_cli_case=live-runtime-blocked.*bake_preflight_fixture_cli_case=texture-encoding-blocked.*bake_preflight_fixture_cli_case=native-gap.*bake_preflight_fixture_cli_case=missing-runtime-evidence.*bake_preflight_fixture_cli_verified=true")
+
+        add_test(NAME scene3d-bake-preflight-fixture-cli-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_preflight_fixture_cli_contract.py"
+                --fixture-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_preflight_fixture_cli.py"
+                --fixtures-dir "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/sidecars")
+        set_tests_properties(scene3d-bake-preflight-fixture-cli-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "bake_preflight_fixture_cli_contract_case=valid-current-fixtures.*bake_preflight_fixture_cli_contract_case=clean-exit-drift.*bake_preflight_fixture_cli_contract_case=shader-row-drift.*bake_preflight_fixture_cli_contract_case=live-count-drift.*bake_preflight_fixture_cli_contract_case=texture-row-drift.*bake_preflight_fixture_cli_contract_case=native-gap-exit-drift.*bake_preflight_fixture_cli_contract_case=runtime-evidence-flag-drift.*bake_preflight_fixture_cli_contract_verified=true")
+
+        add_test(NAME scene3d-bake-unsupported-surface-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_unsupported_surface.py"
+                --header "${CMAKE_SOURCE_DIR}/core/scene/include/pulp/scene/sidecar.hpp"
+                --source "${CMAKE_SOURCE_DIR}/core/scene/src/sidecar.cpp")
+        set_tests_properties(scene3d-bake-unsupported-surface-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "bake_unsupported_surface_verified=true")
+
+        add_test(NAME scene3d-bake-unsupported-surface-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_unsupported_surface_contract.py"
+                --surface-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_unsupported_surface.py"
+                --header "${CMAKE_SOURCE_DIR}/core/scene/include/pulp/scene/sidecar.hpp"
+                --source "${CMAKE_SOURCE_DIR}/core/scene/src/sidecar.cpp")
+        set_tests_properties(scene3d-bake-unsupported-surface-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "bake_unsupported_surface_contract_case=valid-current-bake-unsupported.*bake_unsupported_surface_contract_case=missing-enum-value.*bake_unsupported_surface_contract_case=enum-order-drift.*bake_unsupported_surface_contract_case=descriptor-feature-drift.*bake_unsupported_surface_contract_case=descriptor-code-drift.*bake_unsupported_surface_contract_case=descriptor-reason-drift.*bake_unsupported_surface_contract_case=missing-descriptor-case.*bake_unsupported_surface_contract_case=unsupported-feature-reason-drift.*bake_unsupported_surface_contract_case=diagnostic-severity-drift.*bake_unsupported_surface_contract_case=diagnostic-code-drift.*bake_unsupported_surface_contract_verified=true")
+
+        add_test(NAME scene3d-bake-preflight-matrix-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_preflight_matrix.py"
+                --preflight-tool $<TARGET_FILE:pulp-scene3d-bake-preflight>
+                --fixture-dir "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/sidecars")
+        set_tests_properties(scene3d-bake-preflight-matrix-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "bake_preflight_matrix_verified=true")
+
+        add_test(NAME scene3d-bake-preflight-matrix-fixture-set
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_preflight_matrix_fixture_set.py"
+                --matrix-verifier "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_preflight_matrix.py"
+                --preflight-tool $<TARGET_FILE:pulp-scene3d-bake-preflight>
+                --fixture-dir "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/sidecars")
+        set_tests_properties(scene3d-bake-preflight-matrix-fixture-set PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "fixture_set_drift_rejected=unlisted.*fixture_set_drift_rejected=missing.*bake_preflight_matrix_fixture_set_verified=true")
+
+        add_test(NAME scene3d-bake-preflight-malformed-sidecars
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_preflight_malformed.py"
+                --preflight-tool $<TARGET_FILE:pulp-scene3d-bake-preflight>)
+        set_tests_properties(scene3d-bake-preflight-malformed-sidecars
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "malformed_sidecar_rejected=string-schema-version.*malformed_sidecar_rejected=unsupported-schema-version.*malformed_sidecar_rejected=numeric-provenance.*malformed_sidecar_rejected=empty-provenance-source.*malformed_sidecar_rejected=empty-provenance-exporter.*malformed_sidecar_rejected=empty-provenance-exported-at.*malformed_sidecar_rejected=invalid-diagnostic-severity.*malformed_sidecar_rejected=extra-diagnostic-key.*malformed_sidecar_rejected=missing-root-key.*malformed_sidecar_rejected=nonstring-unsupported-feature.*malformed_sidecar_rejected=nonstring-runtime-hint.*bake_preflight_malformed_verified=true")
+    endif()
+
+    add_test(NAME scene3d-bake-preflight-native-gap-warning
+        COMMAND $<TARGET_FILE:pulp-scene3d-bake-preflight>
+            "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/sidecars/native-gap.pulp3d.json")
+    set_tests_properties(scene3d-bake-preflight-native-gap-warning PROPERTIES
+        PASS_REGULAR_EXPRESSION
+            "bake_readiness=native_gaps.*export_blocked=false.*native_runtime_has_gaps=true.*native_runtime_gap: TransformAnimation")
+
+    if(Python3_Interpreter_FOUND)
+        add_test(NAME scene3d-boxtextured-fixture-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_boxtextured_fixture.py"
+                --repo-root "${CMAKE_SOURCE_DIR}")
+        set_tests_properties(scene3d-boxtextured-fixture-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "boxtextured_fixture_sha256=b510eca2e2ef33f62f9ed57d6e7ce2d10ebb2bdebc4a8e59d347719ba81abdf4.*boxtextured_fixture_verified=true")
+
+        add_test(NAME scene3d-boxtextured-fixture-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_boxtextured_fixture_contract.py"
+                --fixture-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_boxtextured_fixture.py"
+                --repo-root "${CMAKE_SOURCE_DIR}")
+        set_tests_properties(scene3d-boxtextured-fixture-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "boxtextured_fixture_contract_case=valid-current-fixture.*boxtextured_fixture_contract_case=fixture-hash-drift.*boxtextured_fixture_contract_case=readme-source-url-drift.*boxtextured_fixture_contract_case=dependencies-license-drift.*boxtextured_fixture_contract_case=notice-marker-drift.*boxtextured_fixture_contract_case=licensing-path-drift.*boxtextured_fixture_contract_case=manifest-version-drift.*boxtextured_fixture_contract_case=manifest-source-file-drift.*boxtextured_fixture_contract_case=manifest-entry-missing.*boxtextured_fixture_contract_verified=true")
+
+        add_test(NAME scene3d-validate-boxtextured-gltf
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/validate_gltf.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/BoxTextured/BoxTextured.glb")
+        set_tests_properties(scene3d-validate-boxtextured-gltf PROPERTIES
+            SKIP_RETURN_CODE 77
+            PASS_REGULAR_EXPRESSION "glTF-Validator errors=0")
+
+        add_test(NAME scene3d-gltf-validator-wrapper-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_gltf_validator_wrapper.py"
+                --validator-wrapper
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/validate_gltf.py")
+        set_tests_properties(scene3d-gltf-validator-wrapper-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "gltf_validator_wrapper_verified=true")
+
+        add_test(NAME scene3d-gltf-validator-wrapper-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_gltf_validator_wrapper_contract.py"
+                --wrapper-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_gltf_validator_wrapper.py"
+                --validator-wrapper
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/validate_gltf.py")
+        set_tests_properties(scene3d-gltf-validator-wrapper-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "gltf_validator_wrapper_contract_case=valid-current-wrapper.*gltf_validator_wrapper_contract_case=missing-validator-skip-code-drift.*gltf_validator_wrapper_contract_case=require-validator-exit-drift.*gltf_validator_wrapper_contract_case=cli-output-flag-drift.*gltf_validator_wrapper_contract_case=success-summary-label-drift.*gltf_validator_wrapper_contract_case=error-report-exit-drift.*gltf_validator_wrapper_contract_case=invalid-json-exit-drift.*gltf_validator_wrapper_contract_verified=true")
+
+        add_test(NAME scene3d-public-boundary
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_public_scene3d_boundary.py"
+                --repo-root "${CMAKE_SOURCE_DIR}")
+        set_tests_properties(scene3d-public-boundary PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "public_scene3d_boundary_verified=10 headers")
+
+        add_test(NAME scene3d-public-boundary-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_public_scene3d_boundary_contract.py"
+                --boundary-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_public_scene3d_boundary.py"
+                --repo-root "${CMAKE_SOURCE_DIR}")
+        set_tests_properties(scene3d-public-boundary-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "public_scene3d_boundary_contract_case=valid-current-boundary.*public_scene3d_boundary_contract_case=missing-public-header.*public_scene3d_boundary_contract_case=extra-public-header.*public_scene3d_boundary_contract_case=parser-include.*public_scene3d_boundary_contract_case=parser-namespace.*public_scene3d_boundary_contract_case=webgpu-include.*public_scene3d_boundary_contract_case=webgpu-type.*public_scene3d_boundary_contract_case=skia-include.*public_scene3d_boundary_contract_case=skia-type.*public_scene3d_boundary_contract_case=view-include.*public_scene3d_boundary_contract_case=view-namespace.*public_scene3d_boundary_contract_case=js-engine.*public_scene3d_boundary_contract_case=live-threejs.*public_scene3d_boundary_contract_verified=true")
+
+        add_test(NAME scene3d-scene-data-surface-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene_data_surface.py"
+                --header "${CMAKE_SOURCE_DIR}/core/scene/include/pulp/scene/scene_data.hpp")
+        set_tests_properties(scene3d-scene-data-surface-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene_data_surface_verified=true")
+
+        add_test(NAME scene3d-scene-data-surface-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene_data_surface_contract.py"
+                --surface-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene_data_surface.py"
+                --header "${CMAKE_SOURCE_DIR}/core/scene/include/pulp/scene/scene_data.hpp")
+        set_tests_properties(scene3d-scene-data-surface-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene_data_surface_contract_case=valid-current-scene-data.*scene_data_surface_contract_case=primitive-field-drift.*scene_data_surface_contract_case=scene-table-order-drift.*scene_data_surface_contract_case=validation-code-drift.*scene_data_surface_contract_case=empty-contract-drift.*scene_data_surface_contract_case=index-contract-drift.*scene_data_surface_contract_case=severity-name-drift.*scene_data_surface_contract_verified=true")
+
+        add_test(NAME scene3d-scene-graph-surface-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene_graph_surface.py"
+                --header "${CMAKE_SOURCE_DIR}/core/scene/include/pulp/scene/scene_graph.hpp"
+                --source "${CMAKE_SOURCE_DIR}/core/scene/src/scene_graph.cpp")
+        set_tests_properties(scene3d-scene-graph-surface-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene_graph_surface_verified=true")
+
+        add_test(NAME scene3d-scene-graph-surface-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene_graph_surface_contract.py"
+                --surface-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene_graph_surface.py"
+                --header "${CMAKE_SOURCE_DIR}/core/scene/include/pulp/scene/scene_graph.hpp"
+                --source "${CMAKE_SOURCE_DIR}/core/scene/src/scene_graph.cpp")
+        set_tests_properties(scene3d-scene-graph-surface-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "scene_graph_surface_contract_case=valid-current-scene-graph.*scene_graph_surface_contract_case=identity-initializer-drift.*scene_graph_surface_contract_case=renderable-field-drift.*scene_graph_surface_contract_case=public-function-drift.*scene_graph_surface_contract_case=cycle-diagnostic-drift.*scene_graph_surface_contract_case=world-multiply-order-drift.*scene_graph_surface_contract_case=child-traversal-drift.*scene_graph_surface_contract_case=root-fallback-drift.*scene_graph_surface_contract_case=matrix-copy-drift.*scene_graph_surface_contract_case=quaternion-normalization-drift.*scene_graph_surface_contract_case=transform-point-translation-drift.*scene_graph_surface_contract_verified=true")
+
+        add_test(NAME scene3d-gltf-loader-surface-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_gltf_loader_surface.py"
+                --header "${CMAKE_SOURCE_DIR}/core/scene/include/pulp/scene/gltf_loader.hpp"
+                --source "${CMAKE_SOURCE_DIR}/core/scene/src/gltf_loader.cpp")
+        set_tests_properties(scene3d-gltf-loader-surface-contract PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "gltf_loader_surface_verified=true")
+
+        add_test(NAME scene3d-gltf-loader-surface-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_gltf_loader_surface_contract.py"
+                --surface-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_gltf_loader_surface.py"
+                --header "${CMAKE_SOURCE_DIR}/core/scene/include/pulp/scene/gltf_loader.hpp"
+                --source "${CMAKE_SOURCE_DIR}/core/scene/src/gltf_loader.cpp")
+        set_tests_properties(scene3d-gltf-loader-surface-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "gltf_loader_surface_contract_case=valid-current-loader.*gltf_loader_surface_contract_case=header-parser-leak.*gltf_loader_surface_contract_case=callback-signature-drift.*gltf_loader_surface_contract_case=load-pipeline-drift.*gltf_loader_surface_contract_case=diagnostic-code-drift.*gltf_loader_surface_contract_case=draco-flow-drift.*gltf_loader_surface_contract_case=parser-extension-drift.*gltf_loader_surface_contract_verified=true")
+
+        add_test(NAME scene3d-native-source-boundary
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_native_source_boundary.py"
+                --repo-root "${CMAKE_SOURCE_DIR}")
+        set_tests_properties(scene3d-native-source-boundary PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "native_source_boundary_verified=13 sources")
+
+        add_test(NAME scene3d-native-source-boundary-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_native_source_boundary_contract.py"
+                --boundary-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_native_source_boundary.py"
+                --repo-root "${CMAKE_SOURCE_DIR}")
+        set_tests_properties(scene3d-native-source-boundary-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "native_source_boundary_contract_case=valid-current-source-boundary.*native_source_boundary_contract_case=unexpected-source.*native_source_boundary_contract_case=missing-source.*native_source_boundary_contract_case=view-include.*native_source_boundary_contract_case=widget-bridge.*native_source_boundary_contract_case=js-engine.*native_source_boundary_contract_case=live-loader.*native_source_boundary_contract_case=scene-parser-leak.*native_source_boundary_contract_case=scene-gpu-leak.*native_source_boundary_contract_case=renderer-parser-leak.*native_source_boundary_contract_case=loader-parser-allowed.*native_source_boundary_contract_case=loader-gpu-rejected.*native_source_boundary_contract_case=renderer-gpu-allowed.*native_source_boundary_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-golden-manifest
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/validate_renderer_golden_manifest.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/renderer3d-goldens.json"
+                --cpp-test "${CMAKE_CURRENT_SOURCE_DIR}/test_renderer3d.cpp")
+        set_tests_properties(scene3d-renderer-golden-manifest PROPERTIES
+            PASS_REGULAR_EXPRESSION "Renderer3D golden manifest entries=2")
+
+        add_test(NAME scene3d-renderer-golden-manifest-malformed
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_golden_manifest_malformed.py"
+                --validator
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/validate_renderer_golden_manifest.py"
+                --manifest
+                "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/renderer3d-goldens.json"
+                --cpp-test "${CMAKE_CURRENT_SOURCE_DIR}/test_renderer3d.cpp")
+        set_tests_properties(scene3d-renderer-golden-manifest-malformed
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_golden_manifest_malformed_rejected=missing-root-key.*renderer_golden_manifest_malformed_rejected=extra-root-key.*renderer_golden_manifest_malformed_rejected=invalid-status.*renderer_golden_manifest_malformed_rejected=duplicate-entry-id.*renderer_golden_manifest_malformed_rejected=missing-entry-key.*renderer_golden_manifest_malformed_rejected=extra-entry-key.*renderer_golden_manifest_malformed_rejected=cpp-constant-missing.*renderer_golden_manifest_malformed_rejected=cpp-constant-mismatch.*renderer_golden_manifest_malformed_rejected=interim-scope-drift.*renderer_golden_manifest_malformed_rejected=interim-backend-drift.*renderer_golden_manifest_malformed_rejected=missing-software-adapter-key.*renderer_golden_manifest_malformed_rejected=extra-software-adapter-key.*renderer_golden_manifest_malformed_rejected=interim-software-pixel-claim.*renderer_golden_manifest_malformed_rejected=hardcoded-scene-data-consumed.*renderer_golden_manifest_malformed_rejected=hardcoded-primitive-count.*renderer_golden_manifest_malformed_rejected=scene-data-not-consumed.*renderer_golden_manifest_malformed_rejected=scene-data-empty-pipeline-cache.*renderer_golden_manifest_malformed_rejected=scene-data-cache-entry-overflow.*renderer_golden_manifest_malformed_rejected=scene-data-cache-accounting-drift.*renderer_golden_manifest_malformed_rejected=scene-data-source-hardcoded.*renderer_golden_manifest_malformed_verified=true")
+
+        add_test(NAME scene3d-renderer-golden-software-adapter-required
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/expect_command.py"
+                --expect-code 1
+                --expect-regex "pixel-producing software adapter"
+                --
+                ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/validate_renderer_golden_manifest.py"
+                "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/renderer3d-goldens.json"
+                --cpp-test "${CMAKE_CURRENT_SOURCE_DIR}/test_renderer3d.cpp"
+                --require-pixel-software-adapter)
+        set_tests_properties(scene3d-renderer-golden-software-adapter-required
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "final Phase 7 goldens require a pixel-producing software adapter")
+
+        add_test(NAME scene3d-renderer-golden-final-adapter-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_golden_manifest_final_adapter.py"
+                --validator
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/validate_renderer_golden_manifest.py")
+        set_tests_properties(scene3d-renderer-golden-final-adapter-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_golden_manifest_final_adapter_case=valid-final-software-adapter.*renderer_golden_manifest_final_adapter_case=null-backend-rejected.*renderer_golden_manifest_final_adapter_case=missing-entry-rejected.*renderer_golden_manifest_final_adapter_case=scope-mismatch-rejected.*renderer_golden_manifest_final_adapter_case=final-status-without-pixel-adapter-rejected.*renderer_golden_manifest_final_adapter_verified=true")
+
+        add_test(NAME scene3d-verify-bake-artifact-clean
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_artifact.py"
+                --asset "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/BoxTextured/BoxTextured.glb"
+                --sidecar "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/sidecars/clean.pulp3d.json"
+                --preflight-tool $<TARGET_FILE:pulp-scene3d-bake-preflight>
+                --require-extensions
+                --require-runtime-evidence
+                --require-runtime-evidence-url)
+        set_tests_properties(scene3d-verify-bake-artifact-clean PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "asset_extension_supported=true.*sidecar_extension_supported=true.*sidecar_root_keys_valid=true.*sidecar_schema_supported=true.*sidecar_provenance_valid=true.*sidecar_provenance_keys_valid=true.*sidecar_provenance_values_valid=true.*sidecar_diagnostics_valid=true.*sidecar_unsupported_features_valid=true.*sidecar_runtime_hints_valid=true.*sidecar_source_present=true.*sidecar_exporter_present=true.*sidecar_exported_at_present=true.*runtime_evidence_present=true.*runtime_evidence_url_valid=true.*gltf_validator=(passed|skipped).*preflight_fields_valid=true.*preflight_row_counts_valid=true.*preflight_sidecar_counts_valid=true.*preflight_readiness_consistent=true.*preflight_exit_code_consistent=true.*unsupported_features_classified=true.*bake_readiness=clean.*bake_artifact_verified=true")
+
+        add_test(NAME scene3d-verify-bake-artifact-missing-runtime-evidence
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/expect_command.py"
+                --expect-code 2
+                --expect-regex "asset_extension_supported=true.*sidecar_extension_supported=true.*sidecar_root_keys_valid=true.*sidecar_schema_supported=true.*sidecar_provenance_valid=true.*sidecar_provenance_keys_valid=true.*sidecar_provenance_values_valid=true.*sidecar_diagnostics_valid=true.*sidecar_unsupported_features_valid=true.*sidecar_runtime_hints_valid=true.*sidecar_source_present=true.*sidecar_exporter_present=true.*sidecar_exported_at_present=true.*runtime_evidence_present=false.*preflight_fields_valid=true.*bake_readiness=blocked.*runtime_evidence_missing=true.*runtime_evidence_url_invalid=false.*bake_artifact_verified=false"
+                --
+                ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_artifact.py"
+                --asset "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/BoxTextured/BoxTextured.glb"
+                --sidecar "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/sidecars/missing-runtime-evidence.pulp3d.json"
+                --preflight-tool $<TARGET_FILE:pulp-scene3d-bake-preflight>
+                --require-extensions
+                --require-runtime-evidence)
+        set_tests_properties(scene3d-verify-bake-artifact-missing-runtime-evidence
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION "bake_artifact_verified=false")
+
+        add_test(NAME scene3d-verify-bake-artifact-extension-required
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/expect_command.py"
+                --expect-code 2
+                --expect-regex "asset_extension_supported=false.*error=asset must have .glb or .gltf extension"
+                --
+                ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_artifact.py"
+                --asset "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/BoxTextured/README.md"
+                --sidecar "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/sidecars/clean.pulp3d.json"
+                --preflight-tool $<TARGET_FILE:pulp-scene3d-bake-preflight>
+                --require-extensions)
+        set_tests_properties(scene3d-verify-bake-artifact-extension-required
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION "asset_extension_supported=false")
+
+        add_test(NAME scene3d-verify-bake-artifact-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_artifact_contract.py"
+                --artifact-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_bake_artifact.py"
+                --asset "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/BoxTextured/BoxTextured.glb"
+                --base-sidecar "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/sidecars/clean.pulp3d.json"
+                --preflight-tool $<TARGET_FILE:pulp-scene3d-bake-preflight>)
+        set_tests_properties(scene3d-verify-bake-artifact-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "bake_artifact_contract_rejected=sidecar-extension.*bake_artifact_contract_rejected=extra-root-key.*bake_artifact_contract_rejected=nonstring-runtime-evidence.*bake_artifact_contract_rejected=invalid-runtime-evidence-url.*bake_artifact_contract_rejected=empty-provenance-source.*bake_artifact_contract_rejected=empty-provenance-exporter.*bake_artifact_contract_rejected=empty-provenance-exported-at.*bake_artifact_contract_rejected=invalid-diagnostic-severity.*bake_artifact_contract_rejected=nonstring-runtime-hint.*bake_artifact_contract_rejected=unclassified-unsupported-feature.*bake_artifact_contract_rejected=preflight-row-count-drift.*bake_artifact_contract_rejected=preflight-sidecar-count-drift.*bake_artifact_contract_rejected=preflight-readiness-drift.*bake_artifact_contract_rejected=preflight-exit-code-drift.*bake_artifact_contract_verified=true")
+    endif()
+endif()
+
 # GPU surface tests
 if(PULP_ENABLE_GPU)
     set(PULP_GPU_TEST_DISCOVERY_ARGS)
@@ -2118,6 +2936,760 @@ if(PULP_ENABLE_GPU)
     add_executable(pulp-test-gpu-compute test_gpu_compute.cpp)
     target_link_libraries(pulp-test-gpu-compute PRIVATE pulp::render pulp::signal Catch2::Catch2WithMain)
     catch_discover_tests(pulp-test-gpu-compute ${PULP_GPU_TEST_DISCOVERY_ARGS})
+
+    if(PULP_ENABLE_SCENE3D)
+        add_executable(pulp-test-renderer3d test_renderer3d.cpp)
+        target_link_libraries(pulp-test-renderer3d PRIVATE
+            pulp::render pulp::scene Catch2::Catch2WithMain)
+        target_compile_definitions(pulp-test-renderer3d PRIVATE
+            PULP_TEST_SCENE3D_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d")
+        if(PULP_HAS_DRACO)
+            target_link_libraries(pulp-test-renderer3d PRIVATE draco::draco)
+            target_compile_definitions(pulp-test-renderer3d PRIVATE
+                PULP_TEST_HAS_DRACO=1)
+            target_include_directories(pulp-test-renderer3d PRIVATE
+                "${draco_SOURCE_DIR}/src"
+                "${draco_BINARY_DIR}"
+                "${CMAKE_BINARY_DIR}")
+        endif()
+        catch_discover_tests(pulp-test-renderer3d
+            ${PULP_GPU_TEST_DISCOVERY_ARGS})
+
+        if(PULP_HAS_SKIA AND TARGET pulp-renderer3d-probe)
+            add_test(NAME scene3d-renderer-probe-hardcoded
+                COMMAND $<TARGET_FILE:pulp-renderer3d-probe>
+                    --scene hardcoded
+                    --width 128
+                    --height 128
+                    --adapter-scope macos_default_metal)
+            set_tests_properties(scene3d-renderer-probe-hardcoded PROPERTIES
+                PASS_REGULAR_EXPRESSION
+                    "scene=hardcoded.*success=true.*readback_completed=true.*rgba_fingerprint=15925498132503966243.*final_software_golden_eligible=false")
+
+            add_test(NAME scene3d-renderer-probe-boxtextured
+                COMMAND $<TARGET_FILE:pulp-renderer3d-probe>
+                    --scene boxtextured
+                    --fixture "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/BoxTextured/BoxTextured.glb"
+                    --width 128
+                    --height 128
+                    --adapter-scope macos_default_metal)
+            set_tests_properties(scene3d-renderer-probe-boxtextured PROPERTIES
+                PASS_REGULAR_EXPRESSION
+                    "scene=boxtextured.*success=true.*scene_data_consumed=true.*readback_completed=true.*rgba_fingerprint=5845745157752120258.*final_software_golden_eligible=false")
+
+            if(Python3_Interpreter_FOUND)
+                add_test(NAME scene3d-renderer-probe-hardcoded-manifest
+                    COMMAND ${Python3_EXECUTABLE}
+                        "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe.py"
+                        --manifest "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/renderer3d-goldens.json"
+                        --entry-id hardcoded_textured_cube
+                        --
+                        $<TARGET_FILE:pulp-renderer3d-probe>
+                        --scene hardcoded
+                        --width 128
+                        --height 128
+                        --adapter-scope macos_default_metal)
+                set_tests_properties(scene3d-renderer-probe-hardcoded-manifest
+                    PROPERTIES
+                    PASS_REGULAR_EXPRESSION
+                        "renderer_probe_verified=hardcoded_textured_cube")
+
+                add_test(NAME scene3d-renderer-probe-boxtextured-manifest
+                    COMMAND ${Python3_EXECUTABLE}
+                        "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe.py"
+                        --manifest "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/renderer3d-goldens.json"
+                        --entry-id official_boxtextured_fixture
+                        --
+                        $<TARGET_FILE:pulp-renderer3d-probe>
+                        --scene boxtextured
+                        --fixture "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/BoxTextured/BoxTextured.glb"
+                        --width 128
+                        --height 128
+                        --adapter-scope macos_default_metal)
+        set_tests_properties(scene3d-renderer-probe-boxtextured-manifest
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_verified=official_boxtextured_fixture")
+
+        add_test(NAME scene3d-renderer-probe-material-floor-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_material_floor_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>
+                --fixture "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/BoxTextured/BoxTextured.glb")
+        set_tests_properties(scene3d-renderer-probe-material-floor-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_material_floor_verified=boxtextured")
+
+        add_test(NAME scene3d-renderer-probe-non-base-texture-route-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_non_base_texture_route_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>)
+        set_tests_properties(scene3d-renderer-probe-non-base-texture-route-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_non_base_texture_route_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-non-base-texture-route-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_non_base_texture_route_contract.py"
+                --route-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_non_base_texture_route_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-non-base-texture-route-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_non_base_texture_route_contract_case=valid-current-route.*renderer_probe_non_base_texture_route_contract_case=missing-transform-applied-field.*renderer_probe_non_base_texture_route_contract_case=metallic-roughness-route-drift.*renderer_probe_non_base_texture_route_contract_case=occlusion-strength-drift.*renderer_probe_non_base_texture_route_contract_case=transform-deferral-leak.*renderer_probe_non_base_texture_route_contract_case=texcoord1-deferral-leak.*renderer_probe_non_base_texture_route_contract_case=pixel-output-drift.*renderer_probe_non_base_texture_route_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-derived-normal-route-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_derived_normal_route_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>)
+        set_tests_properties(scene3d-renderer-probe-derived-normal-route-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_derived_normal_route_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-derived-normal-route-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_derived_normal_route_contract.py"
+                --route-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_derived_normal_route_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-derived-normal-route-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_derived_normal_route_contract_case=valid-derived-normal-route.*renderer_probe_derived_normal_route_contract_case=missing-derived-tangent-field.*renderer_probe_derived_normal_route_contract_case=normal-texture-route-drift.*renderer_probe_derived_normal_route_contract_case=normal-scale-route-drift.*renderer_probe_derived_normal_route_contract_case=normal-texture-deferral-leak.*renderer_probe_derived_normal_route_contract_case=normal-scale-deferral-leak.*renderer_probe_derived_normal_route_contract_case=pixel-output-drift.*renderer_probe_derived_normal_route_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-alpha-blend-sort-route-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_alpha_blend_sort_route_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>)
+        set_tests_properties(scene3d-renderer-probe-alpha-blend-sort-route-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_alpha_blend_sort_route_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-alpha-blend-sort-route-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_alpha_blend_sort_route_contract.py"
+                --route-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_alpha_blend_sort_route_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-alpha-blend-sort-route-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_alpha_blend_sort_route_contract_case=valid-alpha-blend-sort-route.*renderer_probe_alpha_blend_sort_route_contract_case=primitive-count-drift.*renderer_probe_alpha_blend_sort_route_contract_case=alpha-blend-route-drift.*renderer_probe_alpha_blend_sort_route_contract_case=alpha-depth-write-drift.*renderer_probe_alpha_blend_sort_route_contract_case=alpha-sort-drift.*renderer_probe_alpha_blend_sort_route_contract_case=alpha-mask-leak.*renderer_probe_alpha_blend_sort_route_contract_case=pixel-output-drift.*renderer_probe_alpha_blend_sort_route_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-alpha-mask-route-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_alpha_mask_route_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>)
+        set_tests_properties(scene3d-renderer-probe-alpha-mask-route-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_alpha_mask_route_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-alpha-mask-route-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_alpha_mask_route_contract.py"
+                --route-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_alpha_mask_route_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-alpha-mask-route-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_alpha_mask_route_contract_case=valid-alpha-mask-route.*renderer_probe_alpha_mask_route_contract_case=alpha-mask-route-drift.*renderer_probe_alpha_mask_route_contract_case=texture-decode-drift.*renderer_probe_alpha_mask_route_contract_case=base-color-srgb-drift.*renderer_probe_alpha_mask_route_contract_case=alpha-blend-leak.*renderer_probe_alpha_mask_route_contract_case=fallback-texture-leak.*renderer_probe_alpha_mask_route_contract_case=pixel-output-drift.*renderer_probe_alpha_mask_route_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-vertex-color-route-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_vertex_color_route_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>)
+        set_tests_properties(scene3d-renderer-probe-vertex-color-route-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_vertex_color_route_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-vertex-color-route-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_vertex_color_route_contract.py"
+                --route-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_vertex_color_route_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-vertex-color-route-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_vertex_color_route_contract_case=valid-vertex-color-route.*renderer_probe_vertex_color_route_contract_case=vertex-color-route-drift.*renderer_probe_vertex_color_route_contract_case=fallback-texture-route-drift.*renderer_probe_vertex_color_route_contract_case=texture-decode-leak.*renderer_probe_vertex_color_route_contract_case=alpha-mask-leak.*renderer_probe_vertex_color_route_contract_case=primitive-count-drift.*renderer_probe_vertex_color_route_contract_case=pixel-output-drift.*renderer_probe_vertex_color_route_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-double-sided-route-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_double_sided_route_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>)
+        set_tests_properties(scene3d-renderer-probe-double-sided-route-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_double_sided_route_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-double-sided-route-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_double_sided_route_contract.py"
+                --route-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_double_sided_route_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-double-sided-route-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_double_sided_route_contract_case=valid-double-sided-route.*renderer_probe_double_sided_route_contract_case=double-sided-route-drift.*renderer_probe_double_sided_route_contract_case=fallback-texture-route-drift.*renderer_probe_double_sided_route_contract_case=texture-decode-leak.*renderer_probe_double_sided_route_contract_case=alpha-blend-leak.*renderer_probe_double_sided_route_contract_case=primitive-count-drift.*renderer_probe_double_sided_route_contract_case=pixel-output-drift.*renderer_probe_double_sided_route_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-unlit-route-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_unlit_route_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>)
+        set_tests_properties(scene3d-renderer-probe-unlit-route-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_unlit_route_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-unlit-route-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_unlit_route_contract.py"
+                --route-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_unlit_route_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-unlit-route-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_unlit_route_contract_case=valid-unlit-route.*renderer_probe_unlit_route_contract_case=unlit-route-drift.*renderer_probe_unlit_route_contract_case=fallback-texture-route-drift.*renderer_probe_unlit_route_contract_case=texture-decode-leak.*renderer_probe_unlit_route_contract_case=double-sided-leak.*renderer_probe_unlit_route_contract_case=alpha-blend-leak.*renderer_probe_unlit_route_contract_case=primitive-count-drift.*renderer_probe_unlit_route_contract_case=pixel-output-drift.*renderer_probe_unlit_route_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-emissive-route-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_emissive_route_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>)
+        set_tests_properties(scene3d-renderer-probe-emissive-route-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_emissive_route_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-emissive-route-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_emissive_route_contract.py"
+                --route-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_emissive_route_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-emissive-route-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_emissive_route_contract_case=valid-emissive-route.*renderer_probe_emissive_route_contract_case=emissive-factor-route-drift.*renderer_probe_emissive_route_contract_case=emissive-strength-route-drift.*renderer_probe_emissive_route_contract_case=fallback-texture-route-drift.*renderer_probe_emissive_route_contract_case=texture-decode-leak.*renderer_probe_emissive_route_contract_case=emissive-texture-leak.*renderer_probe_emissive_route_contract_case=unlit-leak.*renderer_probe_emissive_route_contract_case=primitive-count-drift.*renderer_probe_emissive_route_contract_case=pixel-output-drift.*renderer_probe_emissive_route_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-sampler-route-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_sampler_route_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>)
+        set_tests_properties(scene3d-renderer-probe-sampler-route-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_sampler_route_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-sampler-route-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_sampler_route_contract.py"
+                --route-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_sampler_route_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-sampler-route-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_sampler_route_contract_case=valid-sampler-route.*renderer_probe_sampler_route_contract_case=sampler-route-drift.*renderer_probe_sampler_route_contract_case=sampler-clamp-s-drift.*renderer_probe_sampler_route_contract_case=sampler-clamp-t-drift.*renderer_probe_sampler_route_contract_case=sampler-linear-drift.*renderer_probe_sampler_route_contract_case=texture-decode-drift.*renderer_probe_sampler_route_contract_case=fallback-texture-leak.*renderer_probe_sampler_route_contract_case=primitive-count-drift.*renderer_probe_sampler_route_contract_case=pixel-output-drift.*renderer_probe_sampler_route_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-mipmap-sampler-route-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_mipmap_sampler_route_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>)
+        set_tests_properties(scene3d-renderer-probe-mipmap-sampler-route-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_mipmap_sampler_route_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-mipmap-sampler-route-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_mipmap_sampler_route_contract.py"
+                --route-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_mipmap_sampler_route_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-mipmap-sampler-route-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_mipmap_sampler_route_contract_case=valid-mipmap-sampler-route.*renderer_probe_mipmap_sampler_route_contract_case=mipmap-downgrade-drift.*renderer_probe_mipmap_sampler_route_contract_case=sampler-route-drift.*renderer_probe_mipmap_sampler_route_contract_case=sampler-linear-drift.*renderer_probe_mipmap_sampler_route_contract_case=texture-decode-drift.*renderer_probe_mipmap_sampler_route_contract_case=fallback-texture-leak.*renderer_probe_mipmap_sampler_route_contract_case=primitive-count-drift.*renderer_probe_mipmap_sampler_route_contract_case=pixel-output-drift.*renderer_probe_mipmap_sampler_route_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-base-color-transform-route-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_base_color_transform_route_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>)
+        set_tests_properties(scene3d-renderer-probe-base-color-transform-route-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_base_color_transform_route_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-base-color-transform-route-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_base_color_transform_route_contract.py"
+                --route-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_base_color_transform_route_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-base-color-transform-route-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_base_color_transform_route_contract_case=valid-base-color-transform-route.*renderer_probe_base_color_transform_route_contract_case=base-color-transform-drift.*renderer_probe_base_color_transform_route_contract_case=base-color-texcoord1-drift.*renderer_probe_base_color_transform_route_contract_case=texture-decode-drift.*renderer_probe_base_color_transform_route_contract_case=fallback-texture-leak.*renderer_probe_base_color_transform_route_contract_case=non-base-transform-leak.*renderer_probe_base_color_transform_route_contract_case=primitive-count-drift.*renderer_probe_base_color_transform_route_contract_case=pixel-output-drift.*renderer_probe_base_color_transform_route_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-resource-floor-route-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_resource_floor_route_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>)
+        set_tests_properties(scene3d-renderer-probe-resource-floor-route-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_resource_floor_route_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-resource-floor-route-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_resource_floor_route_contract.py"
+                --route-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_resource_floor_route_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-resource-floor-route-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_resource_floor_route_contract_case=valid-resource-floor-route.*renderer_probe_resource_floor_route_contract_case=depth-target-drift.*renderer_probe_resource_floor_route_contract_case=color-target-drift.*renderer_probe_resource_floor_route_contract_case=vertex-buffer-drift.*renderer_probe_resource_floor_route_contract_case=index-buffer-drift.*renderer_probe_resource_floor_route_contract_case=uniform-buffer-drift.*renderer_probe_resource_floor_route_contract_case=metallic-roughness-factor-drift.*renderer_probe_resource_floor_route_contract_case=texture-decode-leak.*renderer_probe_resource_floor_route_contract_case=primitive-count-drift.*renderer_probe_resource_floor_route_contract_case=pixel-output-drift.*renderer_probe_resource_floor_route_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-adapter-selection-route-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_adapter_selection_route_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>)
+        set_tests_properties(scene3d-renderer-probe-adapter-selection-route-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_adapter_selection_route_case=null-backend.*renderer_probe_adapter_selection_route_case=forced-fallback.*renderer_probe_adapter_selection_route_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-adapter-selection-route-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_adapter_selection_route_contract.py"
+                --route-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_adapter_selection_route_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-adapter-selection-route-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_adapter_selection_route_contract_case=valid-adapter-selection-route.*renderer_probe_adapter_selection_route_contract_case=null-backend-request-drift.*renderer_probe_adapter_selection_route_contract_case=null-backend-type-drift.*renderer_probe_adapter_selection_route_contract_case=null-backend-pixel-drift.*renderer_probe_adapter_selection_route_contract_case=fallback-request-drift.*renderer_probe_adapter_selection_route_contract_case=fallback-null-leak.*renderer_probe_adapter_selection_route_contract_case=fallback-command-leak.*renderer_probe_adapter_selection_route_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-directional-light-route-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_directional_light_route_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>)
+        set_tests_properties(scene3d-renderer-probe-directional-light-route-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_directional_light_route_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-directional-light-route-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_directional_light_route_contract.py"
+                --route-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_directional_light_route_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-directional-light-route-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_directional_light_route_contract_case=valid-directional-light-route.*renderer_probe_directional_light_route_contract_case=directional-light-drift.*renderer_probe_directional_light_route_contract_case=geometry-normal-drift.*renderer_probe_directional_light_route_contract_case=directional-transform-leak.*renderer_probe_directional_light_route_contract_case=point-light-leak.*renderer_probe_directional_light_route_contract_case=spot-light-leak.*renderer_probe_directional_light_route_contract_case=primitive-count-drift.*renderer_probe_directional_light_route_contract_case=pixel-output-drift.*renderer_probe_directional_light_route_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-point-light-route-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_point_light_route_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>)
+        set_tests_properties(scene3d-renderer-probe-point-light-route-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_point_light_route_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-point-light-route-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_point_light_route_contract.py"
+                --route-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_point_light_route_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-point-light-route-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_point_light_route_contract_case=valid-point-light-route.*renderer_probe_point_light_route_contract_case=point-light-drift.*renderer_probe_point_light_route_contract_case=point-range-drift.*renderer_probe_point_light_route_contract_case=point-deferred-leak.*renderer_probe_point_light_route_contract_case=range-deferred-leak.*renderer_probe_point_light_route_contract_case=directional-light-leak.*renderer_probe_point_light_route_contract_case=spot-light-leak.*renderer_probe_point_light_route_contract_case=primitive-count-drift.*renderer_probe_point_light_route_contract_case=pixel-output-drift.*renderer_probe_point_light_route_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-spot-light-route-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_spot_light_route_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>)
+        set_tests_properties(scene3d-renderer-probe-spot-light-route-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_spot_light_route_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-spot-light-route-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_spot_light_route_contract.py"
+                --route-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_spot_light_route_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-spot-light-route-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_spot_light_route_contract_case=valid-spot-light-route.*renderer_probe_spot_light_route_contract_case=spot-light-drift.*renderer_probe_spot_light_route_contract_case=spot-range-drift.*renderer_probe_spot_light_route_contract_case=spot-deferred-leak.*renderer_probe_spot_light_route_contract_case=spot-cone-deferred-leak.*renderer_probe_spot_light_route_contract_case=range-deferred-leak.*renderer_probe_spot_light_route_contract_case=point-light-leak.*renderer_probe_spot_light_route_contract_case=directional-light-leak.*renderer_probe_spot_light_route_contract_case=primitive-count-drift.*renderer_probe_spot_light_route_contract_case=pixel-output-drift.*renderer_probe_spot_light_route_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-transform-animation-route-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_transform_animation_route_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>)
+        set_tests_properties(scene3d-renderer-probe-transform-animation-route-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_transform_animation_route_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-transform-animation-route-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_transform_animation_route_contract.py"
+                --route-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_transform_animation_route_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-transform-animation-route-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_transform_animation_route_contract_case=valid-transform-animation-route.*renderer_probe_transform_animation_route_contract_case=transform-initial-pose-drift.*renderer_probe_transform_animation_route_contract_case=transform-deferred-drift.*renderer_probe_transform_animation_route_contract_case=camera-leak.*renderer_probe_transform_animation_route_contract_case=directional-light-leak.*renderer_probe_transform_animation_route_contract_case=skinning-deferred-leak.*renderer_probe_transform_animation_route_contract_case=primitive-count-drift.*renderer_probe_transform_animation_route_contract_case=pixel-output-drift.*renderer_probe_transform_animation_route_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-advanced-material-route-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_advanced_material_route_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>)
+        set_tests_properties(scene3d-renderer-probe-advanced-material-route-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_advanced_material_route_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-advanced-material-route-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_advanced_material_route_contract.py"
+                --route-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_advanced_material_route_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-advanced-material-route-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_advanced_material_route_contract_case=valid-advanced-material-route.*renderer_probe_advanced_material_route_contract_case=advanced-material-deferral-drift.*renderer_probe_advanced_material_route_contract_case=double-sided-route-drift.*renderer_probe_advanced_material_route_contract_case=texture-decode-leak.*renderer_probe_advanced_material_route_contract_case=unlit-leak.*renderer_probe_advanced_material_route_contract_case=camera-leak.*renderer_probe_advanced_material_route_contract_case=primitive-count-drift.*renderer_probe_advanced_material_route_contract_case=pixel-output-drift.*renderer_probe_advanced_material_route_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-unsupported-mesh-route-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_unsupported_mesh_route_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>)
+        set_tests_properties(scene3d-renderer-probe-unsupported-mesh-route-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_unsupported_mesh_route_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-unsupported-mesh-route-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_unsupported_mesh_route_contract.py"
+                --route-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_unsupported_mesh_route_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-unsupported-mesh-route-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_unsupported_mesh_route_contract_case=valid-unsupported-mesh-route.*renderer_probe_unsupported_mesh_route_contract_case=skinning-deferral-drift.*renderer_probe_unsupported_mesh_route_contract_case=morph-deferral-drift.*renderer_probe_unsupported_mesh_route_contract_case=gpu-instancing-deferral-drift.*renderer_probe_unsupported_mesh_route_contract_case=animation-leak.*renderer_probe_unsupported_mesh_route_contract_case=advanced-material-leak.*renderer_probe_unsupported_mesh_route_contract_case=primitive-count-drift.*renderer_probe_unsupported_mesh_route_contract_case=pixel-output-drift.*renderer_probe_unsupported_mesh_route_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-perspective-camera-route-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_perspective_camera_route_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>)
+        set_tests_properties(scene3d-renderer-probe-perspective-camera-route-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_perspective_camera_route_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-perspective-camera-route-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_perspective_camera_route_contract.py"
+                --route-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_perspective_camera_route_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-perspective-camera-route-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_perspective_camera_route_contract_case=valid-perspective-camera-route.*renderer_probe_perspective_camera_route_contract_case=perspective-camera-drift.*renderer_probe_perspective_camera_route_contract_case=camera-translation-drift.*renderer_probe_perspective_camera_route_contract_case=camera-aspect-drift.*renderer_probe_perspective_camera_route_contract_case=camera-depth-drift.*renderer_probe_perspective_camera_route_contract_case=orthographic-camera-leak.*renderer_probe_perspective_camera_route_contract_case=camera-deferred-leak.*renderer_probe_perspective_camera_route_contract_case=primitive-count-drift.*renderer_probe_perspective_camera_route_contract_case=pixel-output-drift.*renderer_probe_perspective_camera_route_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-orthographic-camera-route-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_orthographic_camera_route_smoke.py"
+                --probe-tool $<TARGET_FILE:pulp-renderer3d-probe>)
+        set_tests_properties(scene3d-renderer-probe-orthographic-camera-route-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_orthographic_camera_route_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-orthographic-camera-route-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_orthographic_camera_route_contract.py"
+                --route-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_orthographic_camera_route_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-orthographic-camera-route-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_orthographic_camera_route_contract_case=valid-orthographic-camera-route.*renderer_probe_orthographic_camera_route_contract_case=orthographic-camera-drift.*renderer_probe_orthographic_camera_route_contract_case=perspective-camera-leak.*renderer_probe_orthographic_camera_route_contract_case=camera-depth-drift.*renderer_probe_orthographic_camera_route_contract_case=camera-deferred-leak.*renderer_probe_orthographic_camera_route_contract_case=primitive-count-drift.*renderer_probe_orthographic_camera_route_contract_case=pixel-output-drift.*renderer_probe_orthographic_camera_route_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-material-floor-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_material_floor_contract.py"
+                --material-floor-smoke
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/renderer_probe_material_floor_smoke.py")
+        set_tests_properties(scene3d-renderer-probe-material-floor-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_material_floor_contract_case=valid-current-material-floor.*renderer_probe_material_floor_contract_case=missing-base-color-srgb-field.*renderer_probe_material_floor_contract_case=texture-upload-drift.*renderer_probe_material_floor_contract_case=scene-identity-drift.*renderer_probe_material_floor_contract_case=material-factor-drift.*renderer_probe_material_floor_contract_case=geometry-normal-drift.*renderer_probe_material_floor_contract_case=pixel-output-drift.*renderer_probe_material_floor_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-verifier-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_contract.py"
+                --probe-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe.py"
+                --manifest
+                "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/renderer3d-goldens.json")
+        set_tests_properties(scene3d-renderer-probe-verifier-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_contract_case=valid-fake-probe.*renderer_probe_contract_case=missing-resource-field.*renderer_probe_contract_case=scene-data-consumption-drift.*renderer_probe_contract_case=pixel-output-drift.*renderer_probe_contract_case=coverage-floor-drift.*renderer_probe_contract_case=manifest-missing-entry-field.*renderer_probe_contract_case=manifest-extra-entry-field.*renderer_probe_contract_case=manifest-software-adapter-drift.*renderer_probe_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-public-surface-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_public_surface.py"
+                --renderer-header
+                "${CMAKE_SOURCE_DIR}/core/render/include/pulp/render/renderer3d.hpp"
+                --probe-source
+                "${CMAKE_SOURCE_DIR}/core/render/src/renderer3d_probe.cpp"
+                --probe-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe.py")
+        set_tests_properties(scene3d-renderer-probe-public-surface-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_public_surface_verified=79 bools")
+
+        add_test(NAME scene3d-renderer-probe-public-surface-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_public_surface_contract.py"
+                --surface-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_public_surface.py"
+                --renderer-header
+                "${CMAKE_SOURCE_DIR}/core/render/include/pulp/render/renderer3d.hpp"
+                --probe-source
+                "${CMAKE_SOURCE_DIR}/core/render/src/renderer3d_probe.cpp"
+                --probe-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe.py")
+        set_tests_properties(scene3d-renderer-probe-public-surface-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_public_surface_contract_case=valid-current-surface.*renderer_probe_public_surface_contract_case=header-bool-removed.*renderer_probe_public_surface_contract_case=probe-print-removed.*renderer_probe_public_surface_contract_case=verifier-field-removed.*renderer_probe_public_surface_contract_case=probe-key-mismatch.*renderer_probe_public_surface_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-fake-surface-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_fake_surfaces.py"
+                --probe-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe.py"
+                --probe-contract
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_contract.py"
+                --final-eligibility-contract
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_final_eligibility.py")
+        set_tests_properties(scene3d-renderer-probe-fake-surface-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_fake_surface_verified=probe-contract-lines.*renderer_probe_fake_surface_verified=final-eligibility-true.*renderer_probe_fake_surface_verified=final-eligibility-false.*renderer_probe_fake_surfaces_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-fake-surface-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_fake_surfaces_contract.py"
+                --surface-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_fake_surfaces.py"
+                --probe-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe.py"
+                --probe-contract
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_contract.py"
+                --final-eligibility-contract
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_final_eligibility.py")
+        set_tests_properties(scene3d-renderer-probe-fake-surface-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_fake_surface_contract_case=valid-current-fake-surfaces.*renderer_probe_fake_surface_contract_case=probe-contract-missing-field.*renderer_probe_fake_surface_contract_case=final-eligibility-missing-resource-field.*renderer_probe_fake_surface_contract_case=final-eligibility-missing-final-field.*renderer_probe_fake_surface_contract_case=probe-field-added-without-fakes.*renderer_probe_fake_surface_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-manifest-schema-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_manifest_schema.py"
+                --probe-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe.py"
+                --manifest-validator
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/validate_renderer_golden_manifest.py")
+        set_tests_properties(scene3d-renderer-probe-manifest-schema-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_manifest_schema_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-manifest-schema-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_manifest_schema_contract.py"
+                --schema-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_manifest_schema.py"
+                --probe-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe.py"
+                --manifest-validator
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/validate_renderer_golden_manifest.py")
+        set_tests_properties(scene3d-renderer-probe-manifest-schema-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_manifest_schema_contract_case=valid-current-manifest-schema.*renderer_probe_manifest_schema_contract_case=probe-manifest-key-drift.*renderer_probe_manifest_schema_contract_case=probe-entry-extra-key.*renderer_probe_manifest_schema_contract_case=probe-missing-entry-constant.*renderer_probe_manifest_schema_contract_case=validator-software-key-drift.*renderer_probe_manifest_schema_contract_case=validator-missing-manifest-constant.*renderer_probe_manifest_schema_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-route-inventory-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_route_inventory.py"
+                --probe-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe.py"
+                --tools-dir
+                "${CMAKE_SOURCE_DIR}/tools/scene3d"
+                --ctest-file
+                "${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt")
+        set_tests_properties(scene3d-renderer-probe-route-inventory-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_route_inventory_verified=74 fields 42 route files 21 route pairs")
+
+        add_test(NAME scene3d-renderer-probe-route-inventory-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_route_inventory_contract.py"
+                --inventory-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_route_inventory.py"
+                --probe-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe.py"
+                --tools-dir
+                "${CMAKE_SOURCE_DIR}/tools/scene3d"
+                --ctest-file
+                "${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt")
+        set_tests_properties(scene3d-renderer-probe-route-inventory-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "renderer_probe_route_inventory_contract_case=valid-current-route-inventory.*renderer_probe_route_inventory_contract_case=missing-route-field-mention.*renderer_probe_route_inventory_contract_case=missing-route-ctest-registration.*renderer_probe_route_inventory_contract_case=missing-route-negative-contract.*renderer_probe_route_inventory_contract_case=missing-route-positive-smoke.*renderer_probe_route_inventory_contract_verified=true")
+
+        add_test(NAME scene3d-native-slice-handoff-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_native_slice_handoff.py"
+                --repo-root
+                "${CMAKE_SOURCE_DIR}"
+                --ctest-file
+                "${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt"
+                --doc-file
+                "${CMAKE_SOURCE_DIR}/docs/analysis/threejs-gltf-bake-native-slice.md"
+                --plan-file
+                "${CMAKE_SOURCE_DIR}/planning/threejs-webgpu-gltf-bake-plan.md")
+        set_tests_properties(scene3d-native-slice-handoff-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "native_slice_handoff_verified=20 artifacts 21 tests 15 doc tokens 1 ctest tokens 7 plan tokens 8 forbidden plan tokens 1 file tokens")
+
+        add_test(NAME scene3d-native-slice-handoff-negative-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_native_slice_handoff_contract.py"
+                --handoff-verifier
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_native_slice_handoff.py"
+                --repo-root
+                "${CMAKE_SOURCE_DIR}"
+                --ctest-file
+                "${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt"
+                --doc-file
+                "${CMAKE_SOURCE_DIR}/docs/analysis/threejs-gltf-bake-native-slice.md")
+        set_tests_properties(scene3d-native-slice-handoff-negative-contract
+            PROPERTIES
+            PASS_REGULAR_EXPRESSION
+                "native_slice_handoff_contract_case=valid-current-handoff.*native_slice_handoff_contract_case=missing-renderer-probe-artifact.*native_slice_handoff_contract_case=missing-boxtextured-ctest.*native_slice_handoff_contract_case=missing-runtime-issue-link.*native_slice_handoff_contract_case=missing-runtime-evidence-comment-link.*native_slice_handoff_contract_case=missing-runtime-evidence-ctest-link.*native_slice_handoff_contract_case=missing-clean-sidecar-runtime-evidence-link.*native_slice_handoff_contract_case=missing-plan-runtime-boundary.*native_slice_handoff_contract_case=stale-plan-live-gltf-spike.*native_slice_handoff_contract_case=stale-plan-live-exporter-implementation.*native_slice_handoff_contract_case=missing-url-gate-doc.*native_slice_handoff_contract_case=missing-final-gate-doc.*native_slice_handoff_contract_verified=true")
+
+        add_test(NAME scene3d-renderer-probe-final-eligibility-contract
+            COMMAND ${Python3_EXECUTABLE}
+                "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_final_eligibility.py"
+                --probe-verifier
+                        "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe.py")
+                set_tests_properties(scene3d-renderer-probe-final-eligibility-contract
+                    PROPERTIES
+                    PASS_REGULAR_EXPRESSION
+                        "renderer_probe_final_eligibility_verified=true.*renderer_probe_final_eligibility_rejected=false_probe.*renderer_probe_final_eligibility_contract_verified=true")
+
+                add_test(NAME scene3d-renderer-probe-final-eligibility-negative-contract
+                    COMMAND ${Python3_EXECUTABLE}
+                        "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_final_eligibility_contract.py"
+                        --probe-verifier
+                        "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe.py"
+                        --final-eligibility-contract
+                        "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_final_eligibility.py")
+                set_tests_properties(scene3d-renderer-probe-final-eligibility-negative-contract
+                    PROPERTIES
+                    PASS_REGULAR_EXPRESSION
+                        "renderer_probe_final_eligibility_contract_case=valid-final-software-entry.*renderer_probe_final_eligibility_contract_case=interim-status-rejects-final-true.*renderer_probe_final_eligibility_contract_case=non-pixel-software-rejects-final-true.*renderer_probe_final_eligibility_contract_case=missing-entry-id-rejects-final-true.*renderer_probe_final_eligibility_contract_case=final-entry-rejects-final-false.*renderer_probe_final_eligibility_contract_verified=true")
+
+                add_test(NAME scene3d-renderer-probe-null-backend-api
+                    COMMAND ${Python3_EXECUTABLE}
+                        "${CMAKE_SOURCE_DIR}/tools/scene3d/expect_command.py"
+                        --expect-code 2
+                        --expect-regex "adapter_backend_type=Null.*adapter_backend_preference=null.*null_backend_requested=true.*pixel_output_produced=false.*final_software_golden_eligible=false"
+                        --
+                        $<TARGET_FILE:pulp-renderer3d-probe>
+                        --scene hardcoded
+                        --width 32
+                        --height 32
+                        --adapter-scope dawn_null_api
+                        --adapter-backend null)
+                set_tests_properties(scene3d-renderer-probe-null-backend-api
+                    PROPERTIES
+                    PASS_REGULAR_EXPRESSION
+                        "adapter_backend_type=Null.*pixel_output_produced=false")
+
+                add_test(NAME scene3d-renderer-probe-final-software-gate
+                    COMMAND ${Python3_EXECUTABLE}
+                        "${CMAKE_SOURCE_DIR}/tools/scene3d/expect_command.py"
+                        --expect-code 3
+                        --expect-regex "final_software_golden_eligible=false"
+                        --
+                        $<TARGET_FILE:pulp-renderer3d-probe>
+                        --scene hardcoded
+                        --width 128
+                        --height 128
+                        --adapter-scope macos_default_metal
+                        --require-final-software-adapter)
+                set_tests_properties(scene3d-renderer-probe-final-software-gate
+                    PROPERTIES
+                    PASS_REGULAR_EXPRESSION
+                        "final_software_golden_eligible=false")
+
+                add_test(NAME scene3d-renderer-probe-cli-surface-contract
+                    COMMAND ${Python3_EXECUTABLE}
+                        "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_cli_surface.py"
+                        --probe-tool
+                        $<TARGET_FILE:pulp-renderer3d-probe>
+                        --fixture
+                        "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/BoxTextured/BoxTextured.glb")
+                set_tests_properties(scene3d-renderer-probe-cli-surface-contract
+                    PROPERTIES
+                    PASS_REGULAR_EXPRESSION
+                        "renderer_probe_cli_surface_case=help.*renderer_probe_cli_surface_case=invalid-scene.*renderer_probe_cli_surface_case=invalid-width.*renderer_probe_cli_surface_case=boxtextured-requires-fixture.*renderer_probe_cli_surface_case=null-backend.*renderer_probe_cli_surface_case=final-software-gate.*renderer_probe_cli_surface_case=hardcoded-output-png.*renderer_probe_cli_surface_case=boxtextured-handoff.*renderer_probe_cli_surface_verified=true")
+
+                add_test(NAME scene3d-renderer-probe-cli-surface-negative-contract
+                    COMMAND ${Python3_EXECUTABLE}
+                        "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_cli_surface_contract.py"
+                        --cli-verifier
+                        "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_renderer_probe_cli_surface.py")
+                set_tests_properties(scene3d-renderer-probe-cli-surface-negative-contract
+                    PROPERTIES
+                    PASS_REGULAR_EXPRESSION
+                        "renderer_probe_cli_surface_contract_case=valid-fake-probe.*renderer_probe_cli_surface_contract_case=help-option-drift.*renderer_probe_cli_surface_contract_case=invalid-scene-exit-drift.*renderer_probe_cli_surface_contract_case=invalid-width-usage-drift.*renderer_probe_cli_surface_contract_case=boxtextured-fixture-drift.*renderer_probe_cli_surface_contract_case=null-backend-pixel-drift.*renderer_probe_cli_surface_contract_case=final-gate-exit-drift.*renderer_probe_cli_surface_contract_case=final-gate-eligibility-drift.*renderer_probe_cli_surface_contract_case=boxtextured-consumption-drift.*renderer_probe_cli_surface_contract_case=output-png-missing-file-drift.*renderer_probe_cli_surface_contract_case=output-png-magic-drift.*renderer_probe_cli_surface_contract_verified=true")
+
+                add_test(NAME scene3d-native-renderer-link-boundary
+                    COMMAND ${Python3_EXECUTABLE}
+                        "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_native_renderer_boundary.py"
+                        --build-dir "${CMAKE_BINARY_DIR}")
+                set_tests_properties(scene3d-native-renderer-link-boundary
+                    PROPERTIES
+                    PASS_REGULAR_EXPRESSION
+                        "native_renderer_boundary_verified=7 link files")
+
+                add_test(NAME scene3d-native-renderer-link-boundary-negative-contract
+                    COMMAND ${Python3_EXECUTABLE}
+                        "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_native_renderer_boundary_contract.py"
+                        --boundary-verifier
+                        "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_native_renderer_boundary.py"
+                        --build-dir "${CMAKE_BINARY_DIR}")
+                set_tests_properties(scene3d-native-renderer-link-boundary-negative-contract
+                    PROPERTIES
+                    PASS_REGULAR_EXPRESSION
+                        "native_renderer_boundary_contract_case=valid-current-link-boundary.*native_renderer_boundary_contract_case=forbidden-view-link-token.*native_renderer_boundary_contract_case=forbidden-widget-link-token.*native_renderer_boundary_contract_case=missing-scene-parser-token.*native_renderer_boundary_contract_case=missing-render-webgpu-token.*native_renderer_boundary_contract_case=missing-required-link-file.*native_renderer_boundary_contract_verified=true")
+            endif()
+        endif()
+    endif()
 
     # GPU compute staging-buffer pool tests (zero-copy Slice 1).
     # Reaches into core/render/src/ for the internal pool header — the pool

@@ -239,6 +239,43 @@ if(PULP_ENABLE_DRACO)
     message(STATUS "Pulp: DRACO mesh decompression enabled")
 endif()
 
+# fastgltf (MIT) + simdjson (Apache-2.0) — opt-in native no-JS glTF/GLB loader
+if(PULP_ENABLE_SCENE3D)
+    unset(SIMDJSON_BUILD_STATIC CACHE)
+    unset(SIMDJSON_JUST_LIBRARY CACHE)
+    set(SIMDJSON_DEVELOPER_MODE OFF CACHE BOOL "" FORCE)
+    set(SIMDJSON_BUILD_STATIC_LIB OFF CACHE BOOL "" FORCE)
+    set(SIMDJSON_ENABLE_THREADS OFF CACHE BOOL "" FORCE)
+    set(SIMDJSON_SINGLEHEADER OFF CACHE BOOL "" FORCE)
+    pulp_register_fetchcontent_source(simdjson REF v3.12.3)
+    FetchContent_Declare(
+        simdjson
+        GIT_REPOSITORY https://github.com/simdjson/simdjson.git
+        GIT_TAG v3.12.3
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(simdjson)
+    set(PULP_HAS_SIMDJSON TRUE)
+
+    set(FASTGLTF_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+    set(FASTGLTF_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(FASTGLTF_ENABLE_DOCS OFF CACHE BOOL "" FORCE)
+    set(FASTGLTF_ENABLE_GLTF_RS OFF CACHE BOOL "" FORCE)
+    set(FASTGLTF_ENABLE_ASSIMP OFF CACHE BOOL "" FORCE)
+    set(FASTGLTF_ENABLE_CPP_MODULES OFF CACHE BOOL "" FORCE)
+    set(FASTGLTF_COMPILE_AS_CPP20 ON CACHE BOOL "" FORCE)
+    pulp_register_fetchcontent_source(fastgltf REF v0.9.0)
+    FetchContent_Declare(
+        fastgltf
+        GIT_REPOSITORY https://github.com/spnda/fastgltf.git
+        GIT_TAG v0.9.0
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(fastgltf)
+    set(PULP_HAS_FASTGLTF TRUE)
+    message(STATUS "Pulp: fastgltf native glTF loader enabled")
+endif()
+
 # VST3 SDK (MIT license) — cloned into external/vst3sdk/
 set(VST3_SDK_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/vst3sdk")
 if(EXISTS "${VST3_SDK_DIR}/pluginterfaces")

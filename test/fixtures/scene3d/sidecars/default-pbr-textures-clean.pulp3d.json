@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "provenance": {
+    "source": "fixtures/default-pbr-textures-clean",
+    "exporter": "scene3d-test",
+    "exported_at": "2026-06-03T00:00:00Z",
+    "runtime_evidence": "native-preflight-fixture"
+  },
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "scene3d.default_pbr_textures_clean",
+      "message": "Default TEXCOORD_0 metallic-roughness, normal, occlusion, and emissive texture slots are covered by the current native renderer floor.",
+      "path": "fixtures/default-pbr-textures-clean"
+    }
+  ],
+  "unsupported_features": [],
+  "runtime_hints": [
+    {
+      "key": "materialTextureFloor",
+      "value": "default-pbr-textures"
+    }
+  ]
+}

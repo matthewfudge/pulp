@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(Pulp
-    VERSION 0.334.0
+    VERSION 0.335.0
     DESCRIPTION "Cross-platform audio plugin and application framework"
     HOMEPAGE_URL "https://github.com/danielraffel/pulp"
     LANGUAGES CXX C
@@ -64,6 +64,7 @@ else()
 endif()
 option(PULP_BUILD_EXAMPLES "Build example projects" ON)
 option(PULP_ENABLE_GPU "Enable GPU rendering (Dawn/Skia)" ON)
+option(PULP_ENABLE_SCENE3D "Enable opt-in native no-JS 3D scene/glTF renderer spikes" OFF)
 # Opt-in lane for the native-component Rust contract proof: builds a Cargo
 # `staticlib` reference core (with an RT-checking global allocator) and links
 # the test/test_rust_dsp_ffi.cpp round-trip + RT-safety self-test. OFF by
@@ -188,6 +189,9 @@ add_subdirectory(core/midi)
 add_subdirectory(core/signal)
 add_subdirectory(core/format)
 add_subdirectory(core/canvas)
+if(PULP_ENABLE_SCENE3D)
+    add_subdirectory(core/scene)
+endif()
 # Render must come before view so pulp-view can link pulp-render via if(TARGET)
 if(PULP_ENABLE_GPU)
     add_subdirectory(core/render)
