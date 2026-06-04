@@ -8,6 +8,16 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v03360"></a>
+## [0.336.0] - 2026-06-04
+
+- fix(ci): clean up the QEMU VM when the JIT-config upload fails ([#3435](https://github.com/danielraffel/pulp/pull/3435))
+- chore(test): make Windows tests portable ([#3432](https://github.com/danielraffel/pulp/pull/3432))
+- ci(runners): accurate failure message on qemu early-exit vs no-SSH (#3433 review) ([#3434](https://github.com/danielraffel/pulp/pull/3434))
+- ci(runners): address #3430 supervisor review findings (ssh-guard, TOCTOU, integrity) ([#3433](https://github.com/danielraffel/pulp/pull/3433))
+- feat(ci): Linux + Windows ephemeral pool runners + opt-in self-hosted routing ([#3430](https://github.com/danielraffel/pulp/pull/3430))
+- docs: dedupe Build from source, fold MCP note into the canonical block ([#3431](https://github.com/danielraffel/pulp/pull/3431))
+
 <a id="v03350"></a>
 ## [0.335.0] - 2026-06-03
 
@@ -3595,6 +3605,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.336.0]: https://github.com/danielraffel/pulp/releases/tag/v0.336.0
 [0.335.0]: https://github.com/danielraffel/pulp/releases/tag/v0.335.0
 [0.334.0]: https://github.com/danielraffel/pulp/releases/tag/v0.334.0
 [0.333.0]: https://github.com/danielraffel/pulp/releases/tag/v0.333.0
