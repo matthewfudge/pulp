@@ -8,6 +8,18 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v03330"></a>
+## [0.333.0] - 2026-06-03
+
+- Harden native Three.js WebGPU runtime ([#3391](https://github.com/danielraffel/pulp/pull/3391))
+- docs: add Build from source section so source-tree MCP connects ([#3422](https://github.com/danielraffel/pulp/pull/3422))
+- docs(ci): correct the issue auto-close gotcha — the colon is not the cause ([#3421](https://github.com/danielraffel/pulp/pull/3421))
+- ci(macos-cap): VM-slot-aware reclaim watcher + tart-runner --loop capacity gate ([#3420](https://github.com/danielraffel/pulp/pull/3420))
+- feat(native-components): Phase 2c — PulpRustGain example (Rust DSP core packaged as a CLAP plugin) ([#3387](https://github.com/danielraffel/pulp/pull/3387))
+- chore(deps): bump Shipyard pin v0.67.0 -> v0.68.0 ([#3414](https://github.com/danielraffel/pulp/pull/3414))
+- ci(macos-gate): capacity-aware routing (#3299), reachable gpu-perf sentinel, recovery recipe ([#3413](https://github.com/danielraffel/pulp/pull/3413))
+- fix(view): resolve version-suffixed libnode as V8 provider ([#3409](https://github.com/danielraffel/pulp/pull/3409))
+
 <a id="v03321"></a>
 ## [0.332.1] - 2026-06-03
 
@@ -3573,6 +3585,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.333.0]: https://github.com/danielraffel/pulp/releases/tag/v0.333.0
 [0.332.1]: https://github.com/danielraffel/pulp/releases/tag/v0.332.1
 [0.332.0]: https://github.com/danielraffel/pulp/releases/tag/v0.332.0
 [0.331.0]: https://github.com/danielraffel/pulp/releases/tag/v0.331.0
