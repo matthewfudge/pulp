@@ -669,33 +669,68 @@ materializer passes `skip_border=true` for `image_view` nodes so the border is
 not redrawn. If you add a code path that materializes images, keep that guard.
 Test: `[image][fidelity]` in `pulp-test-design-import-native-materializer`.
 
-### KNOWN GAP — imported text vertical centering must fix BOTH render paths
+### Value-driven silhouette fill (illustration shapes — item 3)
+
+A captured illustration PNG (ELYSIUM's prism / cylinder / pentagon / cube) can
+be "filled" to a bound value via `ImageView::set_fill_value(0..1)` +
+`set_fill_color`. `ImageView::paint` overlays the color from the bottom up to
+`value` of the height, masked to the image's OWN alpha through the canvas
+`save_layer_with_mask` url() path — so the fill clips to the shape silhouette.
+
+The alpha-mask primitive: `SkiaCanvas::save_layer_with_mask` Phase 1 only
+shipped gradient masks; `url(<file>)` image masks were future work. They are now
+implemented (`skia_canvas_mask.cpp` `parse_url_image_mask` — decode the file to
+an `SkImage`, build a kDecal shader scaled to the mask box; kDstIn keeps painted
+content only where the image alpha is non-zero). Works on Skia raster AND
+Graphite/GPU.
+
+Binding which knob drives which shape is NOT in the figma source (no Figma
+binding), so the import does not auto-wire it. The `elysium-standalone` example
+demonstrates the capability by pairing each upper illustration with its column
+knob and driving `set_fill_value` from the knob each frame. Verify headlessly on
+the **Skia raster** backend, not a GPU window: `render_to_png(view, ...,
+ScreenshotBackend::skia)` exercises the url() mask without Dawn/Metal. Test:
+`[view][image][fill]` in `pulp-test-image-view-fill` (renders fill 0.5 / 1.0 via
+raster, asserts the overlay scales with value).
+
+### Imported text vertical centering — fix BOTH render paths together
 
 The figma-plugin IR drops `textAlignVertical`, so a single-line label in a slot
 taller than its text rides the TOP of its box (visible bug: ELYSIUM "SEARCH" sits
-high; the `1·2·3·4` tab digits look off). It is tempting to fix this in the native
-materializer alone (`apply_label_style` → `set_vertical_align(center)` when
-`height > font_size*1.15`), **but that breaks the live↔baked parity invariant**:
-`pulp-test-design-import-screenshot-parity` pins `build_native_view_tree` ==
-web-compat `generate_pulp_js`, and the web-compat LIVE render does NOT center
-these labels even though `design_codegen.cpp` emits `setVerticalAlign('center')`
-and the bridge has a `setVerticalAlign` handler that maps to `Label`. So a
-native-only centering change diverged the `control-strip` fixture to similarity
-0.95 (< 0.97). The correct fix centers BOTH paths together (find why the live
-web-compat Label stays top despite the emitted call) and refreshes the parity
-baseline — do not land a native-only version.
+high; the `1·2·3·4` tab digits look off). The rule: center when
+`height > font_size * 1.15`. **It must be applied to BOTH render paths or the
+parity gate fails** — `pulp-test-design-import-screenshot-parity` pins
+`build_native_view_tree` (baked/native) == web-compat `generate_pulp_js` (live).
 
-### KNOWN GAP — degenerate stroke-line images don't paint (EQ background grid)
+The two paths are SEPARATE codegens:
+- **Native** (`apply_label_style`, `design_import_native_common.cpp`):
+  `label.set_vertical_align(center)`.
+- **Web-compat** is the **HTML/DOM** emitter (the `.style.*` block in
+  `design_codegen.cpp` — `document.createElement('span')` + `.style.verticalAlign`),
+  NOT the `createLabel`/`setVerticalAlign` branch (that serves bridge-native-js).
+  It emits `span.style.verticalAlign = 'middle'`; the web-compat shim
+  (`web-compat-style-decl-typography.js`) maps `verticalAlign` →
+  `setVerticalAlign` → `Label::set_vertical_align`.
 
-The FILTER & EQ background grid is 8 hairline `Line` images whose IR box has ONE
-dimension at ~0 (an exact 0 or a sub-pixel epsilon like `2.7e-06`). They resolve
-to valid PNGs (no missing-asset diagnostic) but paint NOTHING: flooring the thin
-flex dim (1px → 6px) changes zero pixels, so an absolute-positioned 0-area image
-is dropped at paint BEFORE the flex-dim path the materializer can reach. The
-reference shows them faint-but-present (10%-grey verticals at ~100/1K). Not yet
-fixed — it needs the layout/paint stage to honor a 1px floor for absolute
-0-area image rects (or to re-draw these as native 1px lines from their stroke).
-Parked as lower-impact than the spurious purple box, which IS fixed (see above).
+Both converge on one `Label` mechanism ⇒ identical pixels ⇒ parity holds. A
+NATIVE-ONLY change diverged the `control-strip` fixture to 0.95 (< 0.97) because
+the web-compat span otherwise top-aligns. Tests: `[text]` in the native
+materializer suite + the parity suite (both fixtures green).
+
+### Hairline strokes (EQ grid) → demoted to 1px frames; parse the rgba() fill
+
+The FILTER & EQ background grid is 8 hairline `Line` nodes. By the time they
+reach `materialize_node` an upstream pass has already demoted them from
+stroke-only images to **1px frames** (one axis floored to 1, marked
+`__stroke_demoted=1`) whose `background_color` is the stroke color — typically
+`rgba(171, 171, 171, 0.1)`. They still painted nothing because
+`apply_visual_style` resolved `background_color` with `parse_hex_color`, which
+does NOT handle `rgb()/rgba()`, so the fill was dropped and the grid vanished.
+Fix: `apply_visual_style` now falls back to the shared `parse_css_color`
+(exported from `css_gradient.hpp`) for `rgb()/rgba()/transparent`. So the bug was
+NOT a 0-area-paint drop (that red herring cost time — flooring the flex dim did
+nothing because the node is already a 1px frame, not an image); it was an
+unparsed rgba fill. Test: `[color]` in the native materializer suite.
 
 ### `IRStyle::box_shadow` is parsed layers, not a string (pulp #41)
 
