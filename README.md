@@ -114,6 +114,7 @@ See [docs/agent-integrations.md](docs/agent-integrations.md) for details on each
 
 </details>
 
+<a id="build-from-source"></a>
 <details>
 <summary><strong>Build from source</strong> (contributors)</summary>
 
@@ -126,6 +127,14 @@ ctest --test-dir build --output-on-failure    # test
 ```
 
 **Prerequisites:** CMake 3.24+, C++20 compiler (Clang 15+, GCC 13+, MSVC 2022+), git-lfs.
+
+**Claude Code users:** this checkout ships a project-local `.mcp.json` that
+exposes a `pulp` MCP server (build/test/inspect tools) backed by the source
+build. The build above produces `build/tools/mcp/pulp-mcp`, which the server
+auto-detects — so enable the `pulp` MCP server *after* your first build.
+Before that there's no binary to run and `/mcp` reports `pulp: failed to
+connect`; no released-CLI or Claude-plugin install is needed for the
+source-tree server. Run `pulp doctor` to confirm.
 
 </details>
 
@@ -200,29 +209,6 @@ Two high-impact ways to contribute that don't require digging into the framework
 
 - **[#3040 — Run PulpHostBench in your DAW](https://github.com/danielraffel/pulp/issues/3040)** — ~30 min per DAW. Install a small plugin, follow a numbered script, attach the resulting log. Graduates DAW-quirk rows from `Speculative` → `Validated`. Priority hosts: Logic, Reaper (CLAP), Live, Bitwig.
 - **[#3042 — AAX support: Avid SDK access](https://github.com/danielraffel/pulp/issues/3042)** — Pulp's AAX/ProTools lane is blocked on Avid Developer Program approval. If you have access (or are willing to apply), comment so we can coordinate adapter validation.
-
-### Build from source
-
-Contributing to Pulp itself — or building a plugin against the source tree
-rather than the released CLI — starts with building the repo:
-
-```bash
-git clone https://github.com/danielraffel/pulp && cd pulp
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j$(sysctl -n hw.ncpu)
-```
-
-Build Release unless you're actively debugging — a Debug GPU/UI build is
-dramatically slower. The CLI lands at `build/pulp`.
-
-**Claude Code users:** this checkout ships a project-local `.mcp.json` that
-exposes a `pulp` MCP server (build/test/inspect tools) backed by the source
-build. The build above produces `build/tools/mcp/pulp-mcp`, which the server
-auto-detects — so when Claude Code asks whether to enable the `pulp` MCP
-server, say yes **after** your first build. Before that first build there's
-no binary to run and `/mcp` reports `pulp: failed to connect`. You don't
-need the released CLI or the Claude plugin for the source-tree MCP server —
-just build the repo. Run `pulp doctor` to confirm.
 
 ### Workflow
 
