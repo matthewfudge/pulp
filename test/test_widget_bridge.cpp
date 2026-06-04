@@ -25,13 +25,51 @@
 #include <thread>
 #include <utility>
 #include <cstdio>
-#if defined(__unix__) || defined(__APPLE__)
+#if defined(_WIN32)
+#include <io.h>
+#else
 #include <unistd.h>
 #endif
 
 using namespace pulp::view;
 using namespace pulp::state;
 using Catch::Matchers::WithinAbs;
+
+#if defined(_WIN32)
+static int pulp_test_dup_fd(int fd) { return _dup(fd); }
+static int pulp_test_dup2_fd(int old_fd, int new_fd) { return _dup2(old_fd, new_fd); }
+static int pulp_test_close_fd(int fd) { return _close(fd); }
+static int pulp_test_fileno(FILE* file) { return _fileno(file); }
+#else
+static int pulp_test_dup_fd(int fd) { return dup(fd); }
+static int pulp_test_dup2_fd(int old_fd, int new_fd) { return dup2(old_fd, new_fd); }
+static int pulp_test_close_fd(int fd) { return close(fd); }
+static int pulp_test_fileno(FILE* file) { return fileno(file); }
+#endif
+
+struct PulpTestFdGuard {
+    explicit PulpTestFdGuard(int fd_in) : fd(fd_in) {}
+    ~PulpTestFdGuard() {
+        if (fd >= 0) pulp_test_close_fd(fd);
+    }
+
+    PulpTestFdGuard(const PulpTestFdGuard&) = delete;
+    PulpTestFdGuard& operator=(const PulpTestFdGuard&) = delete;
+
+    int fd = -1;
+};
+
+struct PulpTestFileGuard {
+    explicit PulpTestFileGuard(FILE* file_in) : file(file_in) {}
+    ~PulpTestFileGuard() {
+        if (file != nullptr) std::fclose(file);
+    }
+
+    PulpTestFileGuard(const PulpTestFileGuard&) = delete;
+    PulpTestFileGuard& operator=(const PulpTestFileGuard&) = delete;
+
+    FILE* file = nullptr;
+};
 
 static std::string js_single_quoted(std::string value) {
     std::string out;
@@ -3246,20 +3284,22 @@ TEST_CASE("WidgetBridge ctor with non-null gpu_surface stores it",
 template <typename Body>
 static std::string capture_widget_bridge_stderr(Body&& body) {
     fflush(stderr);
-    int saved_fd = dup(fileno(stderr));
+    int saved_fd = pulp_test_dup_fd(pulp_test_fileno(stderr));
     REQUIRE(saved_fd >= 0);
-    char path_buf[] = "/tmp/pulp-wb-stderr-XXXXXX";
-    int tmp_fd = mkstemp(path_buf);
-    REQUIRE(tmp_fd >= 0);
-    REQUIRE(dup2(tmp_fd, fileno(stderr)) >= 0);
-    close(tmp_fd);
+    PulpTestFdGuard saved_fd_guard(saved_fd);
+    PulpTestFileGuard tmp_file(std::tmpfile());
+    REQUIRE(tmp_file.file != nullptr);
+    REQUIRE(pulp_test_dup2_fd(pulp_test_fileno(tmp_file.file), pulp_test_fileno(stderr)) >= 0);
     try { body(); } catch (...) { /* swallow — body asserts on throw */ }
     fflush(stderr);
-    dup2(saved_fd, fileno(stderr));
-    close(saved_fd);
-    std::ifstream in(path_buf);
-    std::stringstream ss; ss << in.rdbuf();
-    std::remove(path_buf);
+    REQUIRE(pulp_test_dup2_fd(saved_fd_guard.fd, pulp_test_fileno(stderr)) >= 0);
+    std::fflush(tmp_file.file);
+    std::fseek(tmp_file.file, 0, SEEK_SET);
+    std::stringstream ss;
+    char buffer[4096];
+    while (std::size_t n = std::fread(buffer, 1, sizeof(buffer), tmp_file.file)) {
+        ss.write(buffer, static_cast<std::streamsize>(n));
+    }
     return ss.str();
 }
 

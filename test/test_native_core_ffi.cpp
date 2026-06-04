@@ -11,6 +11,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
@@ -26,6 +27,10 @@ namespace {
 template <typename T>
 constexpr bool leads_with_size() {
     return offsetof(T, size) == 0 && sizeof(decltype(T{}.size)) == 4;
+}
+
+constexpr int native_test_popcount(pulp_native_caps value) {
+    return std::popcount(static_cast<unsigned>(value));
 }
 
 }  // namespace
@@ -190,7 +195,7 @@ TEST_CASE("decision 5: additive evolution via size + capability flags",
         PULP_NATIVE_CAP_STATE | PULP_NATIVE_CAP_TAIL |
         PULP_NATIVE_CAP_EDITOR_COMMAND;
     // 10 distinct bits set.
-    REQUIRE(__builtin_popcount(all) == 10);
+    REQUIRE(native_test_popcount(all) == 10);
 
     // is_compatible tolerates an older, smaller `size` at the same major.
     pulp_native_core_v1 core{};
