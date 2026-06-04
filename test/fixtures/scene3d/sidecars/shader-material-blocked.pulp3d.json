@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "provenance": {
+    "source": "fixtures/shader-material",
+    "exporter": "scene3d-test",
+    "exported_at": "2026-06-03T00:00:00Z",
+    "runtime_evidence": "native-preflight-fixture"
+  },
+  "diagnostics": [
+    {
+      "severity": "warning",
+      "code": "bake.unsupported_shader_material",
+      "message": "ShaderMaterial cannot be represented in glTF; convert to MeshStandardMaterial or keep the scene Live-only.",
+      "path": "fixtures/shader-material"
+    }
+  ],
+  "unsupported_features": [
+    {
+      "feature": "ShaderMaterial",
+      "reason": "ShaderMaterial cannot be represented in glTF; convert to MeshStandardMaterial or keep the scene Live-only.",
+      "node_path": "/Scene/CustomShader"
+    }
+  ],
+  "runtime_hints": []
+}
