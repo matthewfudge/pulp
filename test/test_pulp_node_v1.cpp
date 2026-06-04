@@ -16,6 +16,7 @@
 static_assert(pulp::native_components::kNodeAbiMajor == pulp::PULP_NODE_ABI_VERSION,
               "pulp_node_v1 major must match pulp::PULP_NODE_ABI_VERSION");
 
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -34,6 +35,10 @@ struct GainNode {
 
 const char kId[] = "pulp.test.node.gain";
 const char kName[] = "Gain Node";
+
+constexpr int node_test_popcount(uint32_t value) {
+    return std::popcount(value);
+}
 
 pulp_node_descriptor_v1 g_desc = [] {
     pulp_node_descriptor_v1 d{};
@@ -136,7 +141,7 @@ TEST_CASE("pulp_node_v1: ABI is POD-shaped with leading size/major",
     REQUIRE(PULP_NODE_ERR_MALFORMED_STATE_V1 != PULP_NODE_ERR_INVALID_STATE_V1);
     // Capability bits are distinct powers of two.
     REQUIRE((PULP_NODE_CAP_STATE_V1 & PULP_NODE_CAP_RESET_V1) == 0);
-    REQUIRE(__builtin_popcount(PULP_NODE_CAP_STATE_V1 | PULP_NODE_CAP_RESET_V1 |
+    REQUIRE(node_test_popcount(PULP_NODE_CAP_STATE_V1 | PULP_NODE_CAP_RESET_V1 |
                                PULP_NODE_CAP_EVENTS_V1 |
                                PULP_NODE_CAP_LATENCY_V1) == 4);
 }

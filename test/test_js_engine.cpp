@@ -9,9 +9,54 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+#if defined(_WIN32)
+#include <io.h>
+#else
 #include <unistd.h>
+#endif
 
 using namespace pulp::view;
+
+#if defined(_WIN32)
+static int js_test_dup_fd(int fd) { return _dup(fd); }
+static int js_test_dup2_fd(int old_fd, int new_fd) { return _dup2(old_fd, new_fd); }
+static int js_test_close_fd(int fd) { return _close(fd); }
+static int js_test_fileno(FILE* file) { return _fileno(file); }
+static FILE* js_test_tmpfile() {
+    FILE* file = nullptr;
+    return tmpfile_s(&file) == 0 ? file : nullptr;
+}
+#else
+static int js_test_dup_fd(int fd) { return dup(fd); }
+static int js_test_dup2_fd(int old_fd, int new_fd) { return dup2(old_fd, new_fd); }
+static int js_test_close_fd(int fd) { return close(fd); }
+static int js_test_fileno(FILE* file) { return fileno(file); }
+static FILE* js_test_tmpfile() { return std::tmpfile(); }
+#endif
+
+struct JsTestFdGuard {
+    explicit JsTestFdGuard(int fd_in) : fd(fd_in) {}
+    ~JsTestFdGuard() {
+        if (fd >= 0) js_test_close_fd(fd);
+    }
+
+    JsTestFdGuard(const JsTestFdGuard&) = delete;
+    JsTestFdGuard& operator=(const JsTestFdGuard&) = delete;
+
+    int fd = -1;
+};
+
+struct JsTestFileGuard {
+    explicit JsTestFileGuard(FILE* file_in) : file(file_in) {}
+    ~JsTestFileGuard() {
+        if (file != nullptr) std::fclose(file);
+    }
+
+    JsTestFileGuard(const JsTestFileGuard&) = delete;
+    JsTestFileGuard& operator=(const JsTestFileGuard&) = delete;
+
+    FILE* file = nullptr;
+};
 
 // Helper: capture stderr produced inside `body` so a test can assert that a
 // runtime::log_error marker actually fires. The dup2 + freopen dance is the
@@ -22,30 +67,28 @@ using namespace pulp::view;
 template <typename Body>
 static std::string capture_stderr(Body&& body) {
     fflush(stderr);
-    int saved_fd = dup(fileno(stderr));
+    int saved_fd = js_test_dup_fd(js_test_fileno(stderr));
     REQUIRE(saved_fd >= 0);
-    char path_buf[] = "/tmp/pulp-test-stderr-XXXXXX";
-    int tmp_fd = mkstemp(path_buf);
-    REQUIRE(tmp_fd >= 0);
-    REQUIRE(dup2(tmp_fd, fileno(stderr)) >= 0);
-    close(tmp_fd);
+    JsTestFdGuard saved_fd_guard(saved_fd);
+    JsTestFileGuard tmp_file(js_test_tmpfile());
+    REQUIRE(tmp_file.file != nullptr);
+    REQUIRE(js_test_dup2_fd(js_test_fileno(tmp_file.file), js_test_fileno(stderr)) >= 0);
     try {
         body();
     } catch (...) {
         fflush(stderr);
-        dup2(saved_fd, fileno(stderr));
-        close(saved_fd);
-        std::ifstream in(path_buf);
-        std::stringstream ss; ss << in.rdbuf();
-        std::remove(path_buf);
+        js_test_dup2_fd(saved_fd_guard.fd, js_test_fileno(stderr));
         throw;
     }
     fflush(stderr);
-    dup2(saved_fd, fileno(stderr));
-    close(saved_fd);
-    std::ifstream in(path_buf);
-    std::stringstream ss; ss << in.rdbuf();
-    std::remove(path_buf);
+    REQUIRE(js_test_dup2_fd(saved_fd_guard.fd, js_test_fileno(stderr)) >= 0);
+    std::fflush(tmp_file.file);
+    std::fseek(tmp_file.file, 0, SEEK_SET);
+    std::stringstream ss;
+    char buffer[4096];
+    while (std::size_t n = std::fread(buffer, 1, sizeof(buffer), tmp_file.file)) {
+        ss.write(buffer, static_cast<std::streamsize>(n));
+    }
     return ss.str();
 }
 

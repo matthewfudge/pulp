@@ -814,10 +814,10 @@ TEST_CASE("setBackgroundGradient maps radial sizing keywords to a radius",
         bridge.load_script("setBackgroundGradient('', '" + css + "');");
         return root.background_gradient_radius();
     };
-    auto near = [](float a, float b) { return std::abs(a - b) < 0.001f; };
-    CHECK(near(radius("radial-gradient(circle closest-side at 50% 50%, #fff, #000)"), 0.5f));
-    CHECK(near(radius("radial-gradient(farthest-corner at 50% 50%, #fff, #000)"), 0.7071f));
-    CHECK(near(radius("radial-gradient(#fff, #000)"), 0.7071f));  // no keyword -> default
+    auto radius_near = [](float a, float b) { return std::abs(a - b) < 0.001f; };
+    CHECK(radius_near(radius("radial-gradient(circle closest-side at 50% 50%, #fff, #000)"), 0.5f));
+    CHECK(radius_near(radius("radial-gradient(farthest-corner at 50% 50%, #fff, #000)"), 0.7071f));
+    CHECK(radius_near(radius("radial-gradient(#fff, #000)"), 0.7071f));  // no keyword -> default
 }
 
 TEST_CASE("setTextRuns builds a styled AttributedString on the Label",
