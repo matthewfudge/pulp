@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v03350"></a>
+## [0.335.0] - 2026-06-03
+
+- Add native Scene3D glTF bake slice ([#3429](https://github.com/danielraffel/pulp/pull/3429))
+
 <a id="v03340"></a>
 ## [0.334.0] - 2026-06-04
 
@@ -3590,6 +3595,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.335.0]: https://github.com/danielraffel/pulp/releases/tag/v0.335.0
 [0.334.0]: https://github.com/danielraffel/pulp/releases/tag/v0.334.0
 [0.333.0]: https://github.com/danielraffel/pulp/releases/tag/v0.333.0
 [0.332.1]: https://github.com/danielraffel/pulp/releases/tag/v0.332.1
