@@ -77,6 +77,52 @@ cmake -S . -B build-threejs-runtime-smoke -DCMAKE_BUILD_TYPE=Release \
   -DV8_LIBRARY_PATH=/opt/homebrew/opt/node@24/lib/libnode.137.dylib
 ```
 
+## Sealed v8-builder V8 provider
+
+Instead of a Homebrew `libnode`, the demo can run on a sealed V8 from the
+[v8-builder](https://github.com/danielraffel/v8-builder) project — a single
+`libv8.dylib` with no external ICU / zlib / Abseil dependencies and a pinned
+runtime version. Point `PULP_V8BUILDER_ROOT` at an unpacked sealed release root
+(the directory holding `include/`, `lib/libv8.dylib`, `manifest.json`):
+
+```bash
+cmake -S . -B build-v8seal -DCMAKE_BUILD_TYPE=Release \
+  -DPULP_ENABLE_GPU=ON -DPULP_BUILD_TESTS=ON \
+  -DPULP_JS_ENGINE=v8 \
+  -DPULP_V8BUILDER_ROOT=/path/to/v8-mac-arm64-<version> \
+  -DPULP_V8BUILDER_EXPECTED_VERSION=15.1.27 \
+  -DPULP_VALIDATE_V8_PROVIDER_STRICT=ON
+
+cmake --build build-v8seal \
+  --target pulp-threejs-native-demo pulp-test-js-engine -j8
+```
+
+Pulp validates the artifact layout, parses `manifest.json` for `v8_version`,
+checks it against `PULP_V8BUILDER_EXPECTED_VERSION`, links the sealed
+`@rpath/libv8.dylib`, and emits provider-identity compile definitions. The
+engine default is unchanged — this is a provider preference for the explicit V8
+lane.
+
+Prove which V8 is actually linked:
+
+```bash
+./build-v8seal/examples/threejs-native-demo/pulp-threejs-native-demo \
+  --print-engine-identity
+# → engine_type=V8 / runtime_version=15.1.27 / provider_kind=v8builder
+#   pulp_has_v8=1 / gpu_backend=Metal / gpu_software=0
+
+otool -L ./build-v8seal/examples/threejs-native-demo/pulp-threejs-native-demo \
+  | grep -i 'v8\|node'      # → @rpath/libv8.dylib, no libnode
+```
+
+`PULP_VALIDATE_V8_PROVIDER_STRICT=ON` adds the `v8_provider_identity_strict`
+CTest, a no-skip-pass gate that asserts the identity block and renders
+`--demo cube --capture` to a non-empty PNG (proving V8 + Dawn/Skia coexist):
+
+```bash
+ctest --test-dir build-v8seal -R v8_provider_identity_strict --output-on-failure
+```
+
 ## Run
 
 ```bash
