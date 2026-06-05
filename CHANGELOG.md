@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v03440"></a>
+## [0.344.0] - 2026-06-05
+
+- fix(design-import): non-destructive knob antenna clean — remove baked indicator without notching the disc ([#3460](https://github.com/danielraffel/pulp/pull/3460))
+- ci: retry flaky tests on sanitizer + coverage lanes (--repeat until-pass:2) ([#3458](https://github.com/danielraffel/pulp/pull/3458))
+
 <a id="v03430"></a>
 ## [0.343.0] - 2026-06-05
 
@@ -3647,6 +3653,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.344.0]: https://github.com/danielraffel/pulp/releases/tag/v0.344.0
 [0.343.0]: https://github.com/danielraffel/pulp/releases/tag/v0.343.0
 [0.342.0]: https://github.com/danielraffel/pulp/releases/tag/v0.342.0
 [0.341.0]: https://github.com/danielraffel/pulp/releases/tag/v0.341.0
