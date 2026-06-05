@@ -897,12 +897,16 @@ TEST_CASE("baked native materializer leaves prev/next cyclers and templates alon
         REQUIRE(root != nullptr);
         REQUIRE(dynamic_cast<ComboBox*>(root.get()) == nullptr);
     }
-    SECTION("unconfigured template ('Dropdown' value) stays a frame") {
+    SECTION("unconfigured template ('Dropdown' value) renders nothing") {
         DesignIR ir;
         ir.root = make_dropdown("Dropdown", 16.0f, 16.0f);  // square but template
         auto root = build_native_view_tree(ir, {}, {});
         REQUIRE(root != nullptr);
+        // Not a ComboBox, and inert: a hidden placeholder with no children, so it
+        // can't surface as a stray dropdown between panels.
         REQUIRE(dynamic_cast<ComboBox*>(root.get()) == nullptr);
+        CHECK(root->child_count() == 0);
+        CHECK_FALSE(root->hit_testable());
     }
 }
 
@@ -1008,6 +1012,58 @@ TEST_CASE("hoist_captured_art_knobs promotes a body disc + pointer to an interac
     CHECK(r_in == Catch::Approx(0.604f).margin(0.02f));
     CHECK(r_out > r_in);
     REQUIRE(k.attributes.at("knob_ind_color") == "#ffffff");
+}
+
+TEST_CASE("hoist_captured_art_knobs recognizes a stroke-demoted pointer frame",
+          "[view][import][native-materializer][knob][sprite]") {
+    // The stroke→fill demotion pass rewrites a hairline stroke vector (Figma
+    // "Vector 7") into a 1px-wide frame whose stroke color lives on
+    // background_color — NOT an asset image. The old hoist scanned only
+    // asset-backed image children, so it missed this pointer entirely: the knob
+    // fell back to a synthetic notch AND the demoted 1px frame rendered as a
+    // stuck second line. The pointer scan now walks every thin non-body child.
+    DesignIR ir;
+    ir.root.type = "frame";
+    ir.root.stable_anchor_id = "root";
+
+    IRNode knob;
+    knob.type = "frame";
+    knob.stable_anchor_id = "knob";
+    knob.audio_widget = AudioWidgetType::knob;
+    IRNode body;       // disc at (0,0) 30x32 → center (15,16), half-extent 15
+    body.type = "image";
+    body.stable_anchor_id = "body";
+    body.attributes["asset_ref"] = "disc-asset";
+    body.style.left = 0.0f;
+    body.style.top = 0.0f;
+    body.style.width = 30.0f;
+    body.style.height = 32.0f;
+    IRNode pointer;    // a DEMOTED 1px frame, not an image, color on background
+    pointer.type = "frame";
+    pointer.stable_anchor_id = "ptr";
+    pointer.attributes["__stroke_demoted"] = "1";
+    pointer.style.left = 14.0f;
+    pointer.style.top = 2.0f;
+    pointer.style.width = 1.0f;   // demoted hairline = 1px, not 0
+    pointer.style.height = 5.0f;  // spans y 2..7
+    pointer.style.background_color = "#ff4400";
+    knob.children.push_back(body);
+    knob.children.push_back(pointer);
+    ir.root.children.push_back(std::move(knob));
+
+    hoist_captured_art_knobs(ir);
+
+    const auto& k = ir.root.children.at(0);
+    REQUIRE(k.audio_widget == AudioWidgetType::knob);          // stays interactive
+    REQUIRE(k.attributes.at("asset_ref") == "disc-asset");     // disc hoisted
+    // The demoted pointer is recognized, its geometry + color stamped, and the
+    // stray 1px frame erased so it can't render as a stuck second line.
+    REQUIRE(k.children.empty());
+    REQUIRE(k.attributes.count("knob_ind_r_out") == 1);
+    CHECK(std::stof(k.attributes.at("knob_ind_r_out")) >
+          std::stof(k.attributes.at("knob_ind_r_in")));
+    // Color comes from background_color (where the demotion pass put the stroke).
+    REQUIRE(k.attributes.at("knob_ind_color") == "#ff4400");
 }
 
 TEST_CASE("hoist_captured_art_knobs demotes a multi-layer knob to a static container",
