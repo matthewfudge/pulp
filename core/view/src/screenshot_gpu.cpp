@@ -120,12 +120,18 @@ CaptureResult capture_view(View& root, uint32_t width, uint32_t height, float sc
         return r;  // ok=false
     }
 
-    // 4. Content floor — a blank / clear-only frame is a hard, explained failure.
+    // 4. Content floor — catch a BLANK / essentially-empty frame, the thing that
+    //    silently passed before. Deliberately lenient: a real but sparse UI must
+    //    still pass (the strict default floor is for golden-image work, not the
+    //    "did anything paint" guard). A native-overlay blank is already refused in
+    //    step 1, so here we only reject "nothing but the background fill".
     const ScreenshotContentStats stats = analyze_screenshot_content(r.png);
-    if (!stats.passes_content_floor()) {
+    if (!stats.passes_content_floor(/*min_unique_colors=*/3,
+                                    /*min_non_background_coverage=*/0.001,
+                                    /*min_opaque_coverage=*/0.0)) {
         r.reason =
-            "captured frame failed the content floor (too few unique colors / too little "
-            "non-background coverage) — the UI almost certainly did not paint";
+            "captured frame is essentially blank (only the background fill — no widgets "
+            "painted); the UI almost certainly did not render";
         return r;  // ok=false, png retained for debugging
     }
 

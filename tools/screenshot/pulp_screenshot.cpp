@@ -53,7 +53,7 @@ static void print_usage() {
     std::cerr << "  --height <px>        Height in points (default: 300)\n";
     std::cerr << "  --scale <factor>     Scale factor (default: 2.0)\n";
     std::cerr << "  --theme <name>       Theme: dark, light, pro_audio (default: dark)\n";
-    std::cerr << "  --backend <name>     Render backend: skia, coregraphics (default: skia)\n";
+    std::cerr << "  --backend <name>     Render backend: auto, skia, coregraphics, gpu (default: auto — smart: native-overlay refuse / GPU view / raster)\n";
     std::cerr << "  --runtime-trace <file.json>\n";
     std::cerr << "                       Dump JS listener/callback trace after settle\n";
     std::cerr << "  --base64             Output base64-encoded PNG to stdout\n";
@@ -99,7 +99,8 @@ struct ScreenshotCliOptions {
     float scale = 2.0f;
     std::string theme_name = "dark";
 #ifdef PULP_HAS_SKIA
-    std::string backend_name = "skia";
+    std::string backend_name = "auto";  // smart dispatch (capture_view): native-overlay
+                                        // refuse / GPU-required → gpu / else raster
 #else
     std::string backend_name = "coregraphics";
 #endif
@@ -383,11 +384,15 @@ int main(int argc, char* argv[]) {
         backend = ScreenshotBackend::coregraphics;
     } else if (options.backend_name == "skia") {
         backend = ScreenshotBackend::skia;
+    } else if (options.backend_name == "auto") {
+        backend = ScreenshotBackend::auto_select;
+    } else if (options.backend_name == "gpu") {
+        backend = ScreenshotBackend::gpu;
     } else if (options.backend_name == "default") {
         backend = ScreenshotBackend::default_backend;
     } else {
         std::cerr << "Error: unknown --backend '" << options.backend_name
-                  << "' (valid: skia, coregraphics, default)\n";
+                  << "' (valid: auto, skia, coregraphics, gpu, default)\n";
         return 1;
     }
 
@@ -500,22 +505,45 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Render
-    if (options.output_base64) {
-        auto png = render_to_png(root, options.width, options.height, options.scale, backend);
+    // Render. For the smart backends (auto/gpu) route through capture_view so the
+    // backend is auto-selected, native-overlay views are refused, and a blank /
+    // clear-only frame is a hard error (exit 3) instead of a silently saved blank.
+    const bool smart = (backend == ScreenshotBackend::auto_select ||
+                        backend == ScreenshotBackend::gpu);
+    std::vector<uint8_t> png;
+    std::string used_label = options.backend_name;
+    if (smart) {
+        CaptureResult cap =
+            capture_view(root, options.width, options.height, options.scale, backend);
+        if (!cap.ok) {
+            std::cerr << "Error: capture is not trustworthy — " << cap.reason << "\n";
+            return 3;  // native overlay / blank / no backend
+        }
+        png = std::move(cap.png);
+        used_label = (cap.used == ScreenshotBackend::gpu)          ? "gpu"
+                     : (cap.used == ScreenshotBackend::coregraphics) ? "coregraphics"
+                                                                     : "skia";
+    } else {
+        png = render_to_png(root, options.width, options.height, options.scale, backend);
         if (png.empty()) {
             std::cerr << "Error: rendering failed\n";
             return 1;
         }
+    }
+
+    if (options.output_base64) {
         std::cout << base64_encode(png);
         return 0;
-    } else {
-        bool ok = render_to_file(root, options.width, options.height, options.output_path, options.scale, backend);
-        if (!ok) {
-            std::cerr << "Error: rendering failed\n";
-            return 1;
-        }
-        std::cout << "Screenshot saved to " << options.output_path << " (" << options.width << "x" << options.height << " @" << options.scale << "x, backend=" << options.backend_name << ")\n";
-        return 0;
     }
+    std::ofstream out(options.output_path, std::ios::binary);
+    if (!out) {
+        std::cerr << "Error: cannot open output '" << options.output_path << "'\n";
+        return 1;
+    }
+    out.write(reinterpret_cast<const char*>(png.data()),
+              static_cast<std::streamsize>(png.size()));
+    std::cout << "Screenshot saved to " << options.output_path << " (" << options.width
+              << "x" << options.height << " @" << options.scale << "x, backend="
+              << used_label << ")\n";
+    return 0;
 }

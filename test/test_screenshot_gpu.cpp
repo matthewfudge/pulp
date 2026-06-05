@@ -34,7 +34,7 @@ TEST_CASE("capture_view rejects a blank / clear-only frame (content floor)",
     View root;  // nothing painted but the background fill → 1 unique color
     const CaptureResult r = capture_view(root, 200, 120, 1.0f);
     REQUIRE_FALSE(r.ok);
-    REQUIRE(r.reason.find("content floor") != std::string::npos);
+    REQUIRE(r.reason.find("blank") != std::string::npos);
 }
 
 // A reliably content-rich tree: a diagonal gradient background (hundreds of

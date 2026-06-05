@@ -160,7 +160,7 @@ TEST_CASE("pulp-screenshot option parser preserves documented defaults",
     REQUIRE_FALSE(options.demo);
     REQUIRE_FALSE(options.help);
 #ifdef PULP_HAS_SKIA
-    REQUIRE(options.backend_name == "skia");
+    REQUIRE(options.backend_name == "auto");  // default is smart dispatch
 #else
     REQUIRE(options.backend_name == "coregraphics");
 #endif
@@ -303,7 +303,7 @@ TEST_CASE("pulp-screenshot backend normalization rejects unavailable explicit Sk
     REQUIRE(default_backend.backend_was_defaulted);
     REQUIRE(normalize_backend(default_backend));
 #ifdef PULP_HAS_SKIA
-    REQUIRE(default_backend.backend_name == "skia");
+    REQUIRE(default_backend.backend_name == "auto");
 #else
     REQUIRE(default_backend.backend_name == "coregraphics");
 #endif
@@ -322,7 +322,7 @@ TEST_CASE("pulp-screenshot option parser handles malformed non-help invocations"
     auto incomplete_options = parse_args({"--script", "--output", "--backend"});
     REQUIRE(incomplete_options.script_path == "--output");
 #ifdef PULP_HAS_SKIA
-    REQUIRE(incomplete_options.backend_name == "skia");
+    REQUIRE(incomplete_options.backend_name == "auto");
 #else
     REQUIRE(incomplete_options.backend_name == "coregraphics");
 #endif
