@@ -95,9 +95,14 @@ CURRENT_VM=""; CURRENT_RPID=""
 discard_current_vm(){
   [ -n "$CURRENT_VM" ] || return 0
   note "stopping — tearing down in-flight VM $CURRENT_VM"
+  # Be FAST: on `launchctl unload` launchd SIGKILLs this supervisor shortly after
+  # SIGTERM, so a graceful `tart stop` + `sleep` can be cut short and leave a
+  # stopped clone behind (RAM is freed, but `tart delete` never runs). Hard-kill
+  # the `tart run` host process (ends the VM at once), then delete the now-stopped
+  # clone immediately — no graceful wait. `tart stop` stays as an idempotent
+  # belt-and-suspenders for the rare case rpid is unknown.
+  [ -n "$CURRENT_RPID" ] && kill -9 "$CURRENT_RPID" 2>/dev/null || true
   tart stop "$CURRENT_VM" >/dev/null 2>&1 || true
-  [ -n "$CURRENT_RPID" ] && kill "$CURRENT_RPID" 2>/dev/null || true
-  sleep 1
   tart delete "$CURRENT_VM" >/dev/null 2>&1 || true
   CURRENT_VM=""; CURRENT_RPID=""
 }
