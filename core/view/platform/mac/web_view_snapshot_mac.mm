@@ -34,14 +34,34 @@ std::vector<uint8_t> web_view_snapshot_png(void* ns_view_ptr) {
         WKWebView* webview = find_wkwebview(view);
         if (!webview) return {};
 
-        __block NSImage* snapshot = nil;
+        // Convert NSImage → PNG bytes INSIDE the completion handler, while the
+        // image is still alive — this file isn't ARC, and the snapshot image is
+        // autoreleased, so holding the NSImage* past the run-loop pump would
+        // dangle. Storing plain bytes sidesteps all ObjC lifetime concerns.
+        __block std::vector<uint8_t> result;
         __block bool done = false;
         WKSnapshotConfiguration* cfg = [[WKSnapshotConfiguration alloc] init];
         cfg.afterScreenUpdates = YES;
         [webview takeSnapshotWithConfiguration:cfg
                             completionHandler:^(NSImage* image, NSError* error) {
                               (void)error;
-                              snapshot = image;
+                              if (image) {
+                                  CGImageRef cg = [image CGImageForProposedRect:NULL
+                                                                        context:nil
+                                                                          hints:nil];
+                                  if (cg) {
+                                      NSBitmapImageRep* rep = [[NSBitmapImageRep alloc]
+                                          initWithCGImage:cg];
+                                      NSData* png = [rep
+                                          representationUsingType:NSBitmapImageFileTypePNG
+                                                       properties:@{}];
+                                      if (png && png.length > 0) {
+                                          const uint8_t* b =
+                                              static_cast<const uint8_t*>(png.bytes);
+                                          result.assign(b, b + png.length);
+                                      }
+                                  }
+                              }
                               done = true;
                             }];
 
@@ -53,16 +73,7 @@ std::vector<uint8_t> web_view_snapshot_png(void* ns_view_ptr) {
                 runMode:NSDefaultRunLoopMode
                 beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
         }
-        if (!snapshot) return {};
-
-        CGImageRef cg = [snapshot CGImageForProposedRect:NULL context:nil hints:nil];
-        if (!cg) return {};
-        NSBitmapImageRep* rep = [[NSBitmapImageRep alloc] initWithCGImage:cg];
-        NSData* png = [rep representationUsingType:NSBitmapImageFileTypePNG
-                                        properties:@{}];
-        if (!png || png.length == 0) return {};
-        const uint8_t* bytes = static_cast<const uint8_t*>(png.bytes);
-        return std::vector<uint8_t>(bytes, bytes + png.length);
+        return result;
     }
 }
 
