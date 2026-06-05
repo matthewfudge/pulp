@@ -8,7 +8,27 @@ description: Capture faithful PNGs of Pulp view trees / imported UIs headlessly.
 Pulp has two headless capture surfaces plus the live-host capture. Picking the
 wrong one wastes time on renders that look broken but aren't.
 
-## The one rule: use the **Skia** backend for anything with images
+## Default to `capture_view` / `--backend auto` — it picks the backend for you
+
+Don't hand-pick a backend unless you have a reason. `capture_view(root, w, h,
+scale)` (`screenshot.hpp`) and the CLI default `pulp-screenshot --backend auto`
+inspect the view tree and do the right thing, and **never return a silent blank**:
+
+| The view tree… | …gets | Why |
+|---|---|---|
+| has a `contains_native_overlay()` subtree (a WebView / native NSView) | **refused** with a reason | A WebKit/native overlay is composited by the OS, NOT painted into the Pulp canvas — headless capture can't see it (use a real window / OS screencapture) |
+| has a `requires_gpu_host()` view (GPU content, custom SkSL) | the **`gpu`** path (`render_to_png_gpu`, offscreen Dawn+Skia via `HeadlessSurface`) | CPU raster does NOT render GPU-required views correctly — they come out blank/wrong |
+| neither | CPU raster (`skia`) | fast, faithful for vector + image widgets |
+
+`capture_view` returns `{png, ok, used, reason}`; a blank/essentially-empty frame
+sets `ok=false`. The CLI exits 3 (not a saved blank) on refuse/blank. This is the
+"always-capturable" contract — if a UI didn't paint, you get told, not a blank PNG.
+
+**When to override:** force `--backend gpu` to capture a GPU view that isn't
+flagged `requires_gpu_host()`; use `skia`/`coregraphics` for the explicit cases
+below. The image-compositing rule still applies to the raster backends.
+
+## The image rule (raster backends): use **Skia** for anything with images
 
 `render_to_png(root, w, h, scale, backend)`
 (`core/view/include/pulp/view/screenshot.hpp`) takes a `ScreenshotBackend`:
