@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v03510"></a>
+## [0.351.0] - 2026-06-06
+
+- feat(design-import): native-overlay search field on faithful frames (Plan B / full-A slice 2) ([#3477](https://github.com/danielraffel/pulp/pull/3477))
+
 <a id="v03500"></a>
 ## [0.350.0] - 2026-06-06
 
@@ -3686,6 +3691,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.351.0]: https://github.com/danielraffel/pulp/releases/tag/v0.351.0
 [0.350.0]: https://github.com/danielraffel/pulp/releases/tag/v0.350.0
 [0.349.0]: https://github.com/danielraffel/pulp/releases/tag/v0.349.0
 [0.348.0]: https://github.com/danielraffel/pulp/releases/tag/v0.348.0
