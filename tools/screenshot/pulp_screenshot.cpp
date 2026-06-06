@@ -7,6 +7,7 @@
 #include <pulp/view/script_engine.hpp>
 #include <pulp/view/widget_bridge.hpp>
 #include <pulp/view/screenshot.hpp>
+#include <pulp/view/screenshot_compare.hpp>
 #include <pulp/state/store.hpp>
 #include <pulp/view/viewport_reconcile.hpp>
 #include <iostream>
@@ -58,6 +59,7 @@ static void print_usage() {
     std::cerr << "                       Dump JS listener/callback trace after settle\n";
     std::cerr << "  --base64             Output base64-encoded PNG to stdout\n";
     std::cerr << "  --demo               Render a demo UI (no script needed)\n";
+    std::cerr << "  --compare A.png B.png [--threshold 0.85] [--diff D.png]  Parity check: print similarity, exit 0 if >= threshold\n";
 }
 
 static std::string read_file(const std::string& path) {
@@ -367,6 +369,44 @@ static const char* runtime_trace_script() {
 }
 
 int main(int argc, char* argv[]) {
+    // Parity mode: `pulp-screenshot --compare <reference.png> <rendered.png>
+    //               [--threshold 0.85] [--diff <out.png>]`
+    // Prints similarity + mean error; exits 0 if similarity >= threshold else 1.
+    // Reuses the design-import / visual-regression comparison (compare_screenshot_files).
+    for (int i = 1; i + 2 < argc; ++i) {
+        if (std::string(argv[i]) != "--compare") continue;
+        const std::string ref = argv[i + 1];
+        const std::string rendered = argv[i + 2];
+        float threshold = 0.85f;
+        std::string diff_out;
+        for (int j = 1; j < argc; ++j) {
+            const std::string a = argv[j];
+            if (a == "--threshold" && j + 1 < argc) threshold = std::stof(argv[j + 1]);
+            else if (a == "--diff" && j + 1 < argc) diff_out = argv[j + 1];
+        }
+        const auto result = pulp::view::compare_screenshot_files(ref, rendered);
+        if (!result.valid) {
+            std::cerr << "Error: compare failed — could not read or size-match '" << ref
+                      << "' and '" << rendered << "'\n";
+            return 2;
+        }
+        const bool pass = result.passes(threshold);
+        std::cout << "similarity=" << result.similarity << " mean_error=" << result.mean_error
+                  << " threshold=" << threshold << " => " << (pass ? "PASS" : "FAIL") << "\n";
+        if (!diff_out.empty()) {
+            const auto a = read_file(ref), b = read_file(rendered);
+            const std::vector<uint8_t> ab(a.begin(), a.end()), bb(b.begin(), b.end());
+            const auto diff = pulp::view::generate_diff_image(ab, bb);
+            if (!diff.empty()) {
+                std::ofstream(diff_out, std::ios::binary)
+                    .write(reinterpret_cast<const char*>(diff.data()),
+                           static_cast<std::streamsize>(diff.size()));
+                std::cout << "diff image saved to " << diff_out << "\n";
+            }
+        }
+        return pass ? 0 : 1;
+    }
+
     auto options = parse_options(argc, argv);
     if (options.help) { print_usage(); return 0; }
 
