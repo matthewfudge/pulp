@@ -6,6 +6,7 @@
 
 #include <pulp/format/processor.hpp>
 #include <pulp/format/settings_panel.hpp>
+#include <pulp/format/standalone.hpp>
 #include <pulp/view/widgets.hpp>
 
 #include <memory>
@@ -84,6 +85,42 @@ TEST_CASE("add_section ignores a null view", "[format][settings]") {
     const int before = panel.tab_count();
     panel.add_section("Nope", nullptr);
     REQUIRE(panel.tab_count() == before);
+}
+
+TEST_CASE("Standalone settings persist across launches (save → load round-trip)", "[format][settings]") {
+    using pulp::format::StandaloneApp;
+    using pulp::format::StandaloneConfig;
+    const std::string app = "pulp-test-persist-roundtrip";
+
+    // The user picks a device / rate / buffer; the standalone saves it.
+    StandaloneConfig saved;
+    saved.audio_device_id = "test-headphones";
+    saved.midi_input_id = "test-midi";
+    saved.sample_rate = 44100.0;
+    saved.buffer_size = 256;
+    REQUIRE(StandaloneApp::save_persisted_config(app, saved));
+
+    // Next launch: load overlays the saved keys onto the app's configured defaults.
+    StandaloneConfig defaults;
+    defaults.sample_rate = 48000.0;
+    defaults.buffer_size = 512;
+    auto restored = StandaloneApp::load_persisted_config(app, defaults);
+    REQUIRE(restored.audio_device_id == "test-headphones");
+    REQUIRE(restored.midi_input_id == "test-midi");
+    REQUIRE(restored.sample_rate == 44100.0);  // persisted value wins over the default
+    REQUIRE(restored.buffer_size == 256);
+}
+
+TEST_CASE("load_persisted_config keeps the caller's defaults for an unknown app", "[format][settings]") {
+    using pulp::format::StandaloneApp;
+    using pulp::format::StandaloneConfig;
+    // An app name with no saved file returns the base untouched (the first-launch case).
+    StandaloneConfig defaults;
+    defaults.audio_device_id = "configured-default";
+    defaults.sample_rate = 96000.0;
+    auto restored = StandaloneApp::load_persisted_config("pulp-test-no-such-app-9F3A2", defaults);
+    REQUIRE(restored.audio_device_id == "configured-default");
+    REQUIRE(restored.sample_rate == 96000.0);
 }
 
 TEST_CASE("Host composition: plugin sections compose onto the host panel", "[format][settings]") {

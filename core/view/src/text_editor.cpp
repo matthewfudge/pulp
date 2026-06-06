@@ -1,4 +1,5 @@
 #include <pulp/view/text_editor.hpp>
+#include <pulp/view/frame_clock.hpp>  // caret-blink subscription
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -389,10 +390,31 @@ void TextEditor::on_text_input(const TextInputEvent& event) {
     notify_change();
 }
 
+TextEditor::~TextEditor() {
+    if (caret_blink_sub_ >= 0)
+        if (auto* fc = frame_clock()) fc->unsubscribe(caret_blink_sub_);
+}
+
 void TextEditor::on_focus_changed(bool gained) {
     View::on_focus_changed(gained);  // sets has_focus_ for border rendering
-    if (gained && select_on_focus) {
-        select_all();
+    if (gained) {
+        if (select_on_focus) select_all();
+        // Drive the caret blink from the frame clock so it keeps blinking while focused,
+        // independent of mouse movement (paint-driven blinking froze when the pointer left
+        // the field — repaints only happened on hover). Each tick just requests a repaint;
+        // paint() advances caret_blink_time_.
+        caret_blink_time_ = 0.0f;
+        if (caret_blink_sub_ < 0)
+            if (auto* fc = frame_clock())
+                caret_blink_sub_ = fc->subscribe([this](float) {
+                    request_repaint();
+                    return true;
+                });
+    } else {
+        if (caret_blink_sub_ >= 0)
+            if (auto* fc = frame_clock()) fc->unsubscribe(caret_blink_sub_);
+        caret_blink_sub_ = -1;
+        request_repaint();  // clear the caret now that focus is lost
     }
 }
 

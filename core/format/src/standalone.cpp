@@ -61,6 +61,14 @@ bool StandaloneApp::start() {
     auto desc = processor_->descriptor();
     runtime::log_info("Standalone: starting '{}'", desc.name);
 
+    // Restore the user's last-used audio/MIDI selection (default on; developer can opt out
+    // via StandaloneConfig::persist_settings). Overlays persisted keys onto the configured
+    // defaults, so the first launch (no saved file) keeps exactly what the app configured.
+    if (config_.persist_settings && !persisted_config_loaded_) {
+        config_ = load_persisted_config(desc.name, config_);
+        persisted_config_loaded_ = true;  // don't re-overlay on soft restarts (apply_config)
+    }
+
     // Set up audio
     audio_system_ = audio::create_audio_system();
     audio_device_ = audio_system_->create_device(config_.audio_device_id);
@@ -257,6 +265,9 @@ bool StandaloneApp::apply_config(const StandaloneConfig& new_config) {
     // dangle an editor ViewBridge holding a Processor& (#2693).
     if (was_running) stop_audio_keep_processor();
     config_ = new_config;
+    // Remember the user's device/rate/buffer selection across launches (default on).
+    if (config_.persist_settings && processor_)
+        save_persisted_config(processor_->descriptor().name, config_);
     if (was_running) return start();
     return true;
 }
@@ -506,8 +517,8 @@ constexpr std::string_view kKeyPlaying        = "standalone.transport_playing";
 
 }  // namespace
 
-StandaloneConfig StandaloneApp::load_persisted_config(std::string_view app_name) {
-    StandaloneConfig cfg;  // defaults
+StandaloneConfig StandaloneApp::load_persisted_config(std::string_view app_name,
+                                                      StandaloneConfig cfg) {
     if (app_name.empty()) return cfg;
 
     state::ApplicationProperties props(app_name);

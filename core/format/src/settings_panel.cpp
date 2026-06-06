@@ -1,5 +1,6 @@
 #include <pulp/format/settings_panel.hpp>
 #include <pulp/runtime/log.hpp>
+#include <pulp/view/buttons.hpp>  // TextButton (momentary Done)
 #include <algorithm>
 #include <cmath>
 #include <sstream>
@@ -28,17 +29,20 @@ SettingsPanel::SettingsPanel() {
     flex().direction = view::FlexDirection::column;
     flex().flex_grow = 1.0f;
 
-    // Header: a "Done" that returns to the editor. The standalone hosts this panel inside
-    // an outer card-stack TabPanel (tab bar hidden) whose tab 0 is the editor — walk up to
-    // it and switch back. No-op if there's no such ancestor (panel used standalone).
+    // Header: a right-aligned "Done" (momentary button) that returns to the editor. The
+    // standalone hosts this panel inside an outer card-stack TabPanel (tab bar hidden) whose
+    // tab 0 is the editor — walk up to it and switch back. No-op if there's no such ancestor.
     auto header = std::make_unique<view::View>();
     header->flex().direction = view::FlexDirection::row;
     header->flex().padding = 8.0f;
-    auto done = std::make_unique<view::ToggleButton>();
-    done->set_label("\xE2\x9C\x95 Done");  // ✕ Done
-    done->flex().preferred_width = 96.0f;
+    header->flex().align_items = view::FlexAlign::center;
+    auto spacer = std::make_unique<view::View>();
+    spacer->flex().flex_grow = 1.0f;
+    header->add_child(std::move(spacer));
+    auto done = std::make_unique<view::TextButton>("Done");
+    done->flex().preferred_width = 84.0f;
     done->flex().preferred_height = 28.0f;
-    done->on_toggle = [this](bool) {
+    done->on_click = [this] {
         for (view::View* v = parent(); v != nullptr; v = v->parent())
             if (auto* tp = dynamic_cast<view::TabPanel*>(v)) {
                 tp->set_active_tab(0);
@@ -160,7 +164,15 @@ void SettingsPanel::build_audio_tab() {
 
     audio_tab->add_child(std::move(tone_row));
 
-    tab_panel_->add_tab("Audio", std::move(audio_tab));
+    // The audio tab is taller than a compact editor window — make it scroll so nothing
+    // (Test Signal, the Done header) gets pushed off. The content height covers all rows.
+    audio_tab->flex().flex_shrink = 0.0f;
+    auto scroll = std::make_unique<view::ScrollView>();
+    scroll->set_direction(view::ScrollView::Direction::vertical);
+    scroll->set_content_size({0.0f, 470.0f});
+    scroll->flex().flex_grow = 1.0f;
+    scroll->add_child(std::move(audio_tab));
+    tab_panel_->add_tab("Audio", std::move(scroll));
 }
 
 void SettingsPanel::build_midi_tab() {
