@@ -36,9 +36,10 @@ struct InstalledModelRecord {
 
 struct ListedModel {
     ModelEntry model;
-    std::string status = "not_installed";  // installed | missing_checkpoint | not_installed
+    std::string status = "not_installed";  // installed | missing_checkpoint | partial | not_installed
     bool active = false;
     std::filesystem::path resolved_checkpoint_path;
+    float partial_fraction = -1.0f;  // >= 0 when a resumable .part exists (downloaded/total)
 };
 
 struct ModelListResult {

@@ -60,10 +60,11 @@ public:
         rebuild();
     }
 
-    ModelAction on_download;  ///< user tapped Download
-    ModelAction on_activate;  ///< user tapped Set default
-    ModelAction on_remove;    ///< user tapped Remove
-    ModelAction on_cancel;    ///< user tapped Cancel (mid-download)
+    ModelAction on_download;          ///< user tapped Download / Resume
+    ModelAction on_activate;          ///< user tapped Set default
+    ModelAction on_remove;            ///< user tapped Remove / Delete
+    ModelAction on_cancel;            ///< user tapped Cancel (mid-download)
+    std::function<void()> on_done;    ///< user tapped Done (return to the editor)
 
 private:
     static std::unique_ptr<Label> make_label(const std::string& text, float size,
@@ -87,6 +88,24 @@ private:
         return b;
     }
 
+    // A plain download progress bar: a dark track with a constant-accent fill sized to
+    // the fraction. (Deliberately NOT the audio Meter widget — that colors by level
+    // green→red, which reads as clipping, not progress.)
+    static std::unique_ptr<View> make_progress_bar(float fraction, float width) {
+        const float f = fraction < 0.0f ? 0.0f : (fraction > 1.0f ? 1.0f : fraction);
+        auto track = std::make_unique<View>();
+        track->flex().direction = FlexDirection::row;
+        track->flex().preferred_width = width;
+        track->flex().preferred_height = 8.0f;
+        track->set_background_color(canvas::Color::rgba8(55, 56, 60, 255));
+        auto fill = std::make_unique<View>();
+        fill->flex().preferred_width = f * width < 2.0f ? 2.0f : f * width;
+        fill->flex().preferred_height = 8.0f;
+        fill->set_background_color(canvas::Color::rgba8(127, 178, 255, 255));
+        track->add_child(std::move(fill));
+        return track;
+    }
+
     void rebuild() {
         if (rows_) {
             remove_child(rows_);
@@ -101,6 +120,19 @@ private:
         const auto white = canvas::Color::rgba8(235, 235, 240, 255);
         const auto teal = canvas::Color::rgba8(132, 243, 237, 255);
         const auto blue = canvas::Color::rgba8(127, 178, 255, 255);
+
+        // When a model is active there's an editor to return to — offer a way back.
+        bool has_active = false;
+        for (const auto& l : models_.models)
+            if (l.active) { has_active = true; break; }
+        if (has_active && on_done) {
+            auto done = std::make_unique<ToggleButton>();
+            done->set_label("← Done");
+            done->flex().preferred_width = 96.0f;
+            done->flex().preferred_height = 28.0f;
+            done->on_toggle = [this](bool) { if (on_done) on_done(); };
+            rows->add_child(std::move(done));
+        }
 
         if (models_.models.empty()) {
             auto empty = make_label("No models available yet.", 14.0f, muted);
@@ -123,32 +155,27 @@ private:
             row->add_child(std::move(name_label));
 
             const auto it = progress_.find(id);
-            const bool downloading = it != progress_.end();
-            if (downloading) {
-                auto meter = std::make_unique<Meter>();
-                meter->set_orientation(Meter::Orientation::horizontal);
-                meter->set_level(it->second, it->second);
-                meter->flex().preferred_width = 140.0f;
-                meter->flex().preferred_height = 10.0f;
-                row->add_child(std::move(meter));
-
-                int pct = static_cast<int>(it->second * 100.0f + 0.5f);
+            if (it != progress_.end()) {  // actively downloading
+                const int pct = static_cast<int>(it->second * 100.0f + 0.5f);
+                row->add_child(make_progress_bar(it->second, 140.0f));
                 row->add_child(make_label(std::to_string(pct) + "%", 12.0f, teal, 44.0f));
                 row->add_child(make_action("Cancel", id, &ModelManagerView::on_cancel));
-            } else {
-                std::string status = listed.active ? "Active"
-                                     : listed.status == "installed" ? "Installed"
-                                                                     : "Available";
-                row->add_child(make_label(status, 12.0f,
-                                          listed.active ? teal : (listed.status == "installed" ? blue : muted),
-                                          80.0f));
-
-                if (listed.status != "installed") {
-                    row->add_child(make_action("Download", id, &ModelManagerView::on_download));
-                } else {
-                    if (!listed.active) row->add_child(make_action("Set default", id, &ModelManagerView::on_activate));
-                    row->add_child(make_action("Remove", id, &ModelManagerView::on_remove));
-                }
+            } else if (listed.status == "partial") {  // paused / cancelled — resumable
+                const float frac = listed.partial_fraction < 0.0f ? 0.0f : listed.partial_fraction;
+                row->add_child(make_progress_bar(frac, 140.0f));
+                row->add_child(make_label("Paused " + std::to_string(static_cast<int>(frac * 100.0f + 0.5f)) + "%",
+                                          12.0f, muted, 90.0f));
+                row->add_child(make_action("Resume", id, &ModelManagerView::on_download));
+                row->add_child(make_action("Delete", id, &ModelManagerView::on_remove));
+            } else if (listed.status == "installed") {
+                row->add_child(make_label(listed.active ? "Active" : "Installed", 12.0f,
+                                          listed.active ? teal : blue, 80.0f));
+                if (!listed.active)
+                    row->add_child(make_action("Set default", id, &ModelManagerView::on_activate));
+                row->add_child(make_action("Remove", id, &ModelManagerView::on_remove));
+            } else {  // available
+                row->add_child(make_label("Available", 12.0f, muted, 80.0f));
+                row->add_child(make_action("Download", id, &ModelManagerView::on_download));
             }
             rows->add_child(std::move(row));
         }

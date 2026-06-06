@@ -166,6 +166,21 @@ ModelListResult list_models(const std::vector<ModelEntry>& registry, std::string
         if (installed.metadata_found) {
             listed.status = installed.checkpoint_exists ? "installed" : "missing_checkpoint";
             listed.resolved_checkpoint_path = installed.resolved_checkpoint_path;
+        } else {
+            // Not installed — surface a resumable partial (an interrupted/cancelled .part).
+            const fs::path dir = result.pulp_home / std::string(subsystem) / "models" / model.model_id;
+            std::error_code ec;
+            if (fs::exists(dir, ec)) {
+                for (const auto& entry : fs::directory_iterator(dir, ec)) {
+                    if (entry.path().extension() != ".part") continue;
+                    listed.status = "partial";
+                    if (model.size_bytes > 0) {
+                        const auto got = static_cast<float>(fs::file_size(entry.path(), ec));
+                        listed.partial_fraction = got / static_cast<float>(model.size_bytes);
+                    }
+                    break;
+                }
+            }
         }
         result.models.push_back(std::move(listed));
     }
