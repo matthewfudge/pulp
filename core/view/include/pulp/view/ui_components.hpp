@@ -57,6 +57,7 @@ public:
     void paint(canvas::Canvas& canvas) override;
     void on_mouse_event(const MouseEvent& event) override;
     bool on_key_event(const KeyEvent& event) override;
+    View* hit_test(Point local_point) override;  // extend hit area over the open dropdown
 
     void on_text_input(const TextInputEvent& event) override;
 
@@ -75,6 +76,11 @@ private:
     void set_selected_impl(int index, bool notify);
     void open_dropdown();
     void close_dropdown();
+    // Top of the dropdown menu in this combo's LOCAL coords. Below the field normally;
+    // negative (above the field) when flipped up because it would spill past the window.
+    // Shared by paint, hit_test, and mouse hover so they always agree.
+    float dropdown_local_top() const;
+    void move_hover(int delta);  // keyboard: move the highlighted row, skipping separators
 
     std::vector<std::string> items_;
     int selected_ = 0;
