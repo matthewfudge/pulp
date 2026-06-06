@@ -637,9 +637,17 @@ if(TARGET pulp-render)
     target_link_libraries(pulp-view-core PRIVATE pulp::render)
     target_link_libraries(pulp-view-script PRIVATE pulp::render)
     # Enables the offscreen-GPU view-capture path (render_to_png_gpu / capture_view
-    # via pulp::render::HeadlessSurface) in src/screenshot_gpu.cpp. Without
-    # pulp-render the capture degrades to raster honestly (has_gpu_capture()==false).
-    target_compile_definitions(pulp-view-core PRIVATE PULP_VIEW_HAS_GPU_CAPTURE=1)
+    # via pulp::render::HeadlessSurface) in src/screenshot_gpu.cpp. Gate on Skia,
+    # not merely on the pulp-render target: in a no-Skia build pulp-render still
+    # exists but HeadlessSurface::create() is compiled as the stub that always
+    # returns null, so the GPU path could never produce bytes. Defining the macro
+    # there would make has_gpu_capture() report true and suppress the honest raster
+    # fallback, ending in a no-bytes failure. Only claim GPU capture when Skia (and
+    # thus a real HeadlessSurface) is present; otherwise capture degrades to raster
+    # honestly (has_gpu_capture()==false).
+    if(PULP_HAS_SKIA)
+        target_compile_definitions(pulp-view-core PRIVATE PULP_VIEW_HAS_GPU_CAPTURE=1)
+    endif()
     # Slice 16 — when pulp-render is linked, WindowHost::mark_dirty() can
     # route dirty marks through a vblank-paced RenderLoop. GPU-off builds
     # (sanitizer matrix) have no pulp-render target, so mark_dirty() there

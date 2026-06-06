@@ -425,6 +425,73 @@ TEST_CASE("pulp-screenshot main renders demo files and base64 output",
     std::filesystem::remove(output);
 }
 
+TEST_CASE("pulp-screenshot main captures the demo through the smart auto backend",
+          "[tools][screenshot][coverage][requested]") {
+    auto output = temp_file_path("auto-output.png");
+    std::filesystem::remove(output);
+    const auto output_arg = output.string();
+
+    // `--backend auto` routes through capture_view (smart dispatch): no native
+    // overlay + no requires_gpu_host → raster. The CLI is always honest about the
+    // result: 0 = a trustworthy frame was captured and written; 3 = an explained
+    // refusal (blank / no usable backend). It must never silently report success.
+    const int rc = run_screenshot_cli({
+        "--demo",
+        "--output", output_arg.c_str(),
+        "--width", "96",
+        "--height", "64",
+        "--scale", "1",
+        "--theme", "light",
+        "--backend", "auto"
+    });
+    REQUIRE((rc == 0 || rc == 3));
+    if (rc == 0) {
+        REQUIRE(std::filesystem::is_regular_file(output));
+        REQUIRE(std::filesystem::file_size(output) > 8);
+    }
+
+    std::filesystem::remove(output);
+}
+
+TEST_CASE("pulp-screenshot --compare scores similarity and writes a diff image",
+          "[tools][screenshot][coverage][requested]") {
+    auto img = temp_file_path("compare-input.png");
+    auto diff = temp_file_path("compare-diff.png");
+    std::filesystem::remove(img);
+    std::filesystem::remove(diff);
+    const auto img_arg = img.string();
+
+    // Produce a real PNG to feed the parity comparison.
+    const int made = run_screenshot_cli({
+        "--demo",
+        "--output", img_arg.c_str(),
+        "--width", "48",
+        "--height", "32",
+        "--scale", "1",
+        "--backend", "default"
+    });
+    if (made != 0 || !std::filesystem::is_regular_file(img)) {
+        SUCCEED("no raster backend in this build — cannot produce a PNG to compare");
+        return;
+    }
+
+    // Identical inputs → similarity 1.0 ≥ threshold → exit 0 (PASS).
+    const auto diff_arg = diff.string();
+    REQUIRE(run_screenshot_cli({
+        "--compare", img_arg.c_str(), img_arg.c_str(),
+        "--threshold", "0.99",
+        "--diff", diff_arg.c_str()
+    }) == 0);
+
+    // An unreadable / missing reference → exit 2 (compare could not run).
+    REQUIRE(run_screenshot_cli({
+        "--compare", "/no/such/reference.png", img_arg.c_str()
+    }) == 2);
+
+    std::filesystem::remove(img);
+    std::filesystem::remove(diff);
+}
+
 TEST_CASE("pulp-screenshot main renders script files through the CLI path",
           "[tools][screenshot][coverage][requested]") {
     auto script = temp_file_path("script-render.js");

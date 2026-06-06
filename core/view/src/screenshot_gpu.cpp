@@ -25,27 +25,53 @@ namespace pulp::view {
 
 namespace {
 
-// Depth-first "does any node in the tree satisfy pred".
-template <typename Pred>
-bool subtree_any(const View& v, Pred pred) {
-    if (pred(v)) return true;
-    for (std::size_t i = 0; i < v.child_count(); ++i) {
-        const View* c = v.child_at(i);
-        if (c && subtree_any(*c, pred)) return true;
-    }
-    return false;
-}
+// Single depth-first walk that collects everything capture_view needs to route a
+// tree: the first view owning a native overlay (non-const, so we can call its
+// capture_native_overlay_png hook) and whether any node requires a GPU host. One
+// pass instead of two so a large tree is walked once, not once per predicate.
+struct TreeScan {
+    View* overlay = nullptr;   ///< First native-overlay-owning view, or null.
+    bool needs_gpu = false;    ///< Any requires_gpu_host() in the subtree.
+};
 
-// First view in the tree that owns a native overlay (non-const, so we can call
-// its capture_native_overlay_png hook).
-View* find_native_overlay(View& v) {
-    if (v.contains_native_overlay()) return &v;
+void scan_tree(View& v, TreeScan& s) {
+    if (!s.overlay && v.contains_native_overlay()) s.overlay = &v;
+    if (!s.needs_gpu && v.requires_gpu_host()) s.needs_gpu = true;
+    if (s.overlay && s.needs_gpu) return;  // both answered — stop early.
     for (std::size_t i = 0; i < v.child_count(); ++i) {
         if (View* c = v.child_at(i)) {
-            if (View* found = find_native_overlay(*c)) return found;
+            scan_tree(*c, s);
+            if (s.overlay && s.needs_gpu) return;
         }
     }
-    return nullptr;
+}
+
+// The raster backend the smart path falls back to. When this build has a real
+// Skia/HeadlessSurface (PULP_VIEW_HAS_GPU_CAPTURE, gated on PULP_HAS_SKIA in
+// CMake), the `skia` CPU backend renders correctly — including file images, which
+// the macOS CoreGraphics default cannot. Without Skia we must NOT force `skia`
+// (it would return empty bytes); defer to the platform default so a host-
+// registered ScreenshotProvider can handle the capture.
+constexpr ScreenshotBackend raster_fallback() {
+#ifdef PULP_VIEW_HAS_GPU_CAPTURE
+    return ScreenshotBackend::skia;
+#else
+    return ScreenshotBackend::default_backend;
+#endif
+}
+
+// The lenient "did anything paint?" floor used by capture_view. This is NOT the
+// strict golden-image floor — a real but sparse UI (few widgets, partly
+// transparent / non-opaque background) must still pass; we only reject a frame
+// that is nothing but the background fill. NOTE: passes_content_floor's positional
+// signature is (min_unique_colors, min_luminance_stddev, min_non_background_coverage,
+// min_opaque_coverage) — all four MUST be passed explicitly, otherwise the strict
+// defaults (5% non-background, 95% opaque) silently apply and reject sparse UIs.
+bool passes_capture_floor(const ScreenshotContentStats& st) {
+    return st.passes_content_floor(/*min_unique_colors=*/3,
+                                   /*min_luminance_stddev=*/0.0,
+                                   /*min_non_background_coverage=*/0.001,
+                                   /*min_opaque_coverage=*/0.0);
 }
 
 #ifdef PULP_VIEW_HAS_GPU_CAPTURE
@@ -97,17 +123,21 @@ CaptureResult capture_view(View& root, uint32_t width, uint32_t height, float sc
                            ScreenshotBackend backend) {
     CaptureResult r;
 
+    // Walk the tree once: find any native overlay AND whether GPU is required.
+    TreeScan scan;
+    scan_tree(root, scan);
+
     // 1. Native overlay (WebView / native NSView). It isn't painted into the Pulp
     //    canvas, so ask the owning view for an in-process snapshot (e.g. WKWebView
     //    takeSnapshot). If one comes back non-blank we're done; only if there's no
     //    in-process snapshot do we refuse (rather than return a silent blank).
-    if (View* overlay = find_native_overlay(root)) {
+    if (View* overlay = scan.overlay) {
         std::vector<uint8_t> png = overlay->capture_native_overlay_png(width, height);
         if (!png.empty()) {
             const ScreenshotContentStats st = analyze_screenshot_content(png);
             r.png = std::move(png);
             r.used = ScreenshotBackend::default_backend;  // native-overlay snapshot
-            if (st.passes_content_floor(/*colors=*/3, /*non_bg=*/0.001, /*opaque=*/0.0)) {
+            if (passes_capture_floor(st)) {
                 r.ok = true;
             } else {
                 r.reason = "native-overlay (WebView) snapshot came back essentially blank";
@@ -124,15 +154,13 @@ CaptureResult capture_view(View& root, uint32_t width, uint32_t height, float sc
     // 2. Resolve the backend.
     ScreenshotBackend chosen = backend;
     if (chosen == ScreenshotBackend::auto_select) {
-        const bool needs_gpu =
-            subtree_any(root, [](const View& v) { return v.requires_gpu_host(); });
-        chosen = needs_gpu ? ScreenshotBackend::gpu : ScreenshotBackend::skia;
+        chosen = scan.needs_gpu ? ScreenshotBackend::gpu : raster_fallback();
     }
     if (chosen == ScreenshotBackend::gpu && !has_gpu_capture()) {
         runtime::log_warn(
             "capture_view: GPU backend needed but not compiled in; falling back to "
             "raster (a requires_gpu_host view may render incompletely)");
-        chosen = ScreenshotBackend::skia;
+        chosen = raster_fallback();
     }
     r.used = chosen;
 
@@ -153,9 +181,7 @@ CaptureResult capture_view(View& root, uint32_t width, uint32_t height, float sc
     //    "did anything paint" guard). A native-overlay blank is already refused in
     //    step 1, so here we only reject "nothing but the background fill".
     const ScreenshotContentStats stats = analyze_screenshot_content(r.png);
-    if (!stats.passes_content_floor(/*min_unique_colors=*/3,
-                                    /*min_non_background_coverage=*/0.001,
-                                    /*min_opaque_coverage=*/0.0)) {
+    if (!passes_capture_floor(stats)) {
         r.reason =
             "captured frame is essentially blank (only the background fill — no widgets "
             "painted); the UI almost certainly did not render";

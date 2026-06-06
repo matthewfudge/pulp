@@ -582,6 +582,16 @@ int main(int argc, char* argv[]) {
     }
     out.write(reinterpret_cast<const char*>(png.data()),
               static_cast<std::streamsize>(png.size()));
+    // Check the stream state before reporting success: out.write() can fail
+    // silently (disk full, quota exceeded, I/O error, short write on a network
+    // filesystem). Flush/close explicitly so a deferred write error surfaces in
+    // the stream state rather than after the success message has been printed.
+    out.close();
+    if (!out) {
+        std::cerr << "Error: failed writing screenshot to '" << options.output_path
+                  << "' (disk full or I/O error)\n";
+        return 1;
+    }
     std::cout << "Screenshot saved to " << options.output_path << " (" << options.width
               << "x" << options.height << " @" << options.scale << "x, backend="
               << used_label << ")\n";
