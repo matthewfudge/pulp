@@ -154,14 +154,18 @@ public:
         return canvas_.get();
     }
 
-    void end_frame() override {
-        canvas_.reset();
-        frame_surface_.reset();  // release per-frame wrapped surface
-
+    void flush_recording() override {
         if (!recorder_ || !context_) return;
 
         // Submit the Graphite recording to the shared device/queue.
         // The GPU work targets the same texture that GpuSurface will present.
+        // CRITICAL: Graphite defers every draw op recorded since begin_frame()
+        // into this Recording; the pixels only exist on the target texture
+        // AFTER `insertRecording` + `submit`. A `read_current_rgba()` issued
+        // before this point reads the un-painted (just-cleared) backing — that
+        // was the live GPU-host blank-capture bug. We intentionally do NOT
+        // reset `frame_surface_`/`canvas_` here so the target stays valid for a
+        // subsequent readback; teardown happens in `end_frame()`.
         auto recording = recorder_->snap();
         if (recording) {
             skgpu::graphite::InsertRecordingInfo info;
@@ -181,6 +185,18 @@ public:
             context_->insertRecording(info);
             context_->submit({});
         }
+    }
+
+    void end_frame() override {
+        // Submit the painted recording first (so present shows real pixels and
+        // any pre-teardown readback already saw them), THEN release the
+        // per-frame target. Calling flush before teardown also makes a
+        // flush_recording()+read_current_rgba()+end_frame() sequence safe: the
+        // second snap here is a no-op empty recording.
+        flush_recording();
+
+        canvas_.reset();
+        frame_surface_.reset();  // release per-frame wrapped surface
 
         // GpuSurface::end_frame() handles the actual present call.
     }

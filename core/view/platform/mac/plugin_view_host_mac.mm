@@ -1100,6 +1100,13 @@ private:
 
         bool captured = true;
         if (capture_pixels && capture_width && capture_height) {
+            // Graphite defers all draws from paint_scene() into a Recording
+            // that is only realized on submit. Flush it FIRST so the painted
+            // pixels actually land on the target texture before we read them
+            // back — reading before the flush returns a blank/cleared surface
+            // (the live GPU-host blank-capture bug). flush_recording() keeps
+            // the per-frame surface alive; end_frame() below releases it.
+            skia_surface_->flush_recording();
             captured = skia_surface_->read_current_rgba(*capture_pixels,
                                                         *capture_width,
                                                         *capture_height);

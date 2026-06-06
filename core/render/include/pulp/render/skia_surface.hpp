@@ -50,6 +50,19 @@ public:
     /// Actual presentation is handled by GpuSurface::end_frame().
     virtual void end_frame() = 0;
 
+    /// Snap + insert + submit the in-progress Graphite recording WITHOUT
+    /// tearing down the per-frame target surface or canvas. After this call
+    /// the painted pixels have actually landed on the target texture, so
+    /// `read_current_rgba()` reads the real frame rather than a blank/cleared
+    /// surface. Graphite defers all draw ops into a Recording that is only
+    /// realized on `Context::submit`, so a readback issued *before* the
+    /// recording is submitted reads un-painted contents. Callers that need to
+    /// read the frame back (e.g. live GPU-host back-buffer capture) must call
+    /// `flush_recording()` between paint and `read_current_rgba()`, then call
+    /// `end_frame()` to release the per-frame surface. `end_frame()` itself
+    /// calls this internally, so the normal present path is unchanged.
+    virtual void flush_recording() = 0;
+
     /// Resize the surface
     virtual void resize(uint32_t width, uint32_t height, float scale = 1.0f) = 0;
 
