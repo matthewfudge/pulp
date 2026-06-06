@@ -84,19 +84,25 @@ void ComboBox::paint(canvas::Canvas& canvas) {
 
     // Dropdown menu: deferred to overlay queue so it paints on top of everything
     if (open_ && !items_.empty()) {
-        // Compute absolute position by walking up the parent chain
-        float abs_x = 0, abs_y = 0;
+        // Compute absolute position by walking up the parent chain; track the root view's
+        // height so we know the visible bottom edge.
+        float abs_x = 0, abs_y = 0, root_h = 0;
         View* v = this;
         while (v) {
             abs_x += v->bounds().x;
             abs_y += v->bounds().y;
+            root_h = v->bounds().height;  // last assignment is the root (window content height)
             v = v->parent();
         }
 
         float item_h = 24.0f;
-        float dd_top = abs_y + base_h + 2;
         float dd_w = b.width;
         float dd_h = static_cast<float>(items_.size()) * item_h;
+        // Open below by default; flip above the field when the menu would spill past the
+        // bottom of the window and there's room above (e.g. a combo near the window bottom).
+        float dd_top = abs_y + base_h + 2;
+        if (root_h > 0 && dd_top + dd_h > root_h && abs_y - dd_h - 2 >= 0)
+            dd_top = abs_y - dd_h - 2;
         int sel = selected_;
         int* hover_ptr = &hover_index_;  // live pointer for dynamic hover tracking
         auto items_copy = items_;
