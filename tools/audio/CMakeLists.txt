@@ -10,7 +10,6 @@ target_include_directories(pulp-tool-audio
 target_sources(pulp-tool-audio PRIVATE
     src/excerpt_service.cpp
     src/model_registry.cpp
-    src/model_store.cpp
     src/service.cpp
 )
 

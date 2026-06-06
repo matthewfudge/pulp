@@ -107,6 +107,8 @@ target_sources(pulp-runtime PRIVATE
     src/memory_message_channel.cpp
     src/websocket_channel.cpp
     src/json_rpc.cpp
+    src/model_registry.cpp
+    src/model_store.cpp
     src/ip_address.cpp
     src/mac_address.cpp
     src/url.cpp

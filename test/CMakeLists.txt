@@ -896,6 +896,9 @@ pulp_add_test_suite(pulp-test-progress-parser LIBRARIES pulp::platform)
 # Stream tests (unified I/O interface)
 pulp_add_test_suite(pulp-test-stream LIBRARIES pulp::runtime)
 
+# Generic model registry/store (MM-PR1)
+pulp_add_test_suite(pulp-test-model-store LIBRARIES pulp::runtime)
+
 # Native-component core ABI contract tests. Always built (no Rust toolchain
 # needed) — one case per forward-compatibility decision (1-12) so the C ABI
 # shape can't silently drift. The Rust round-trip + RT-safety self-test is the
