@@ -32,15 +32,19 @@ SettingsPanel::SettingsPanel() {
     // Header: a right-aligned "Done" (momentary button) that returns to the editor. The
     // standalone hosts this panel inside an outer card-stack TabPanel (tab bar hidden) whose
     // tab 0 is the editor — walk up to it and switch back. No-op if there's no such ancestor.
+    // Keep this bar IDENTICAL to the editor's gear bar (height/padding) so the top-right
+    // button doesn't shift vertically when switching between the editor and Settings.
     auto header = std::make_unique<view::View>();
     header->flex().direction = view::FlexDirection::row;
-    header->flex().padding = 8.0f;
+    header->flex().padding = 12.0f;
+    header->flex().preferred_height = 52.0f;
+    header->flex().flex_shrink = 0.0f;
     header->flex().align_items = view::FlexAlign::center;
     auto spacer = std::make_unique<view::View>();
     spacer->flex().flex_grow = 1.0f;
     header->add_child(std::move(spacer));
     auto done = std::make_unique<view::TextButton>("Done");
-    done->flex().preferred_width = 84.0f;
+    done->flex().preferred_width = 112.0f;
     done->flex().preferred_height = 28.0f;
     done->on_click = [this] {
         for (view::View* v = parent(); v != nullptr; v = v->parent())
@@ -164,15 +168,7 @@ void SettingsPanel::build_audio_tab() {
 
     audio_tab->add_child(std::move(tone_row));
 
-    // The audio tab is taller than a compact editor window — make it scroll so nothing
-    // (Test Signal, the Done header) gets pushed off. The content height covers all rows.
-    audio_tab->flex().flex_shrink = 0.0f;
-    auto scroll = std::make_unique<view::ScrollView>();
-    scroll->set_direction(view::ScrollView::Direction::vertical);
-    scroll->set_content_size({0.0f, 470.0f});
-    scroll->flex().flex_grow = 1.0f;
-    scroll->add_child(std::move(audio_tab));
-    tab_panel_->add_tab("Audio", std::move(scroll));
+    tab_panel_->add_tab("Audio", std::move(audio_tab));
 }
 
 void SettingsPanel::build_midi_tab() {
