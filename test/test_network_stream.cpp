@@ -1165,23 +1165,15 @@ TEST_CASE("http helpers parse default ports without explicit port text",
     REQUIRE(default_http.error.find('\0') == std::string::npos);
     REQUIRE((default_http.status_code == 0 || default_http.status_code >= 100));
 
-    bool default_https_threw = false;
-    try {
-        (void)http_get("https://127.0.0.1", 1);
-    } catch (const std::exception& e) {
-        default_https_threw = true;
-        REQUIRE(std::string(e.what()) == "'https' scheme is not supported.");
-    }
-    REQUIRE(default_https_threw);
+    // https resolves to the default port 443 and the request fails with a clean error
+    // response (the plain http_get client does not throw or hang on the scheme).
+    const auto default_https = http_get("https://127.0.0.1", 1);
+    REQUIRE(default_https.body.find('\0') == std::string::npos);
+    REQUIRE(default_https.error.find('\0') == std::string::npos);
+    REQUIRE((default_https.status_code == 0 || default_https.status_code >= 100));
 
-    bool explicit_https_threw = false;
-    try {
-        (void)http_get("https://127.0.0.1:1/secure", 1);
-    } catch (const std::exception& e) {
-        explicit_https_threw = true;
-        REQUIRE(std::string(e.what()) == "'https' scheme is not supported.");
-    }
-    REQUIRE(explicit_https_threw);
+    const auto explicit_https = http_get("https://127.0.0.1:1/secure", 1);
+    REQUIRE_FALSE(explicit_https.ok());  // nothing listens on :1
 }
 
 TEST_CASE("http_post reports connection failure on refused loopback port",

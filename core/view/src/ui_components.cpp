@@ -279,9 +279,16 @@ bool ComboBox::on_key_event(const KeyEvent& event) {
     if (!event.is_down) return false;
 
     if (!open_) {
-        // Closed: Enter/Space/Up/Down opens the menu (highlight starts on the current value).
-        if (event.key == KeyCode::enter || event.key == KeyCode::space ||
-            event.key == KeyCode::up || event.key == KeyCode::down) {
+        // Closed: Up/Down step the value like a stepper; Enter/Space opens the menu.
+        if (event.key == KeyCode::up && selected_ > 0) {
+            set_selected(selected_ - 1);
+            return true;
+        }
+        if (event.key == KeyCode::down && selected_ < static_cast<int>(items_.size()) - 1) {
+            set_selected(selected_ + 1);
+            return true;
+        }
+        if (event.key == KeyCode::enter || event.key == KeyCode::space) {
             open_dropdown();
             request_repaint();
             return true;
