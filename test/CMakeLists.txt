@@ -904,6 +904,11 @@ pulp_add_test_suite(pulp-test-model-download LIBRARIES pulp::runtime)
 target_include_directories(pulp-test-model-download PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../external/cpp-httplib)
 
+# ModelManager view (MM-PR3) — needs the view stack (pulp::view) for render_to_png
+add_executable(pulp-test-model-manager-view test_model_manager_view.cpp)
+target_link_libraries(pulp-test-model-manager-view PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-model-manager-view)
+
 # Native-component core ABI contract tests. Always built (no Rust toolchain
 # needed) — one case per forward-compatibility decision (1-12) so the C ABI
 # shape can't silently drift. The Rust round-trip + RT-safety self-test is the
