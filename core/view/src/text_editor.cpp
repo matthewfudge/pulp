@@ -199,6 +199,7 @@ void TextEditor::move_caret(int delta, bool extend) {
         selection_end_ = caret_position_;
     else
         selection_start_ = selection_end_ = caret_position_;
+    caret_blink_time_ = 0;  // keep the caret solid while moving; it resumes blinking when idle
 }
 
 void TextEditor::move_word(int direction, bool extend) {
@@ -284,6 +285,10 @@ void TextEditor::on_mouse_event(const MouseEvent& event) {
 
 bool TextEditor::on_key_event(const KeyEvent& event) {
     if (!event.is_down) return false;
+
+    // Any key press makes the caret solid (and it resumes blinking when idle) — standard
+    // text-field behavior so the caret never appears to vanish mid-keystroke.
+    caret_blink_time_ = 0;
 
     bool shift = event.isShiftDown();
     bool mod = event.isMainModifier();  // Cmd on macOS, Ctrl on Win/Linux

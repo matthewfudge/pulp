@@ -139,6 +139,10 @@ void SettingsPanel::build_audio_tab() {
     auto tone_toggle = std::make_unique<view::Toggle>();
     test_tone_toggle_ = tone_toggle.get();
     tone_toggle->set_label("Sine Tone");
+    // The Toggle centers its label in its own width; without a width it collapses to ~40px
+    // and "Sine Tone" overflows off the left edge. Reserve room for the label.
+    tone_toggle->flex().preferred_width = 96.0f;
+    tone_toggle->flex().flex_shrink = 0.0f;
     tone_toggle->on_toggle = [this](bool on) {
         if (callbacks_.on_test_signal_changed) {
             TestSignalConfig cfg;

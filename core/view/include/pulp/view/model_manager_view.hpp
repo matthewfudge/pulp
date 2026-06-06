@@ -13,6 +13,7 @@
 
 #include <pulp/view/view.hpp>
 #include <pulp/view/widgets.hpp>
+#include <pulp/view/buttons.hpp>  // TextButton (centered, momentary action buttons)
 #include <pulp/runtime/model_store.hpp>
 #include <pulp/canvas/canvas.hpp>
 
@@ -77,13 +78,14 @@ private:
         return l;
     }
 
-    std::unique_ptr<ToggleButton> make_action(const std::string& label, const std::string& id,
-                                              ModelAction ModelManagerView::* member) {
-        auto b = std::make_unique<ToggleButton>();
-        b->set_label(label);
+    std::unique_ptr<TextButton> make_action(const std::string& label, const std::string& id,
+                                            ModelAction ModelManagerView::* member) {
+        // Momentary TextButton (centered label, proper hover/press) rather than a latched
+        // ToggleButton — these are one-shot actions, and the label should read centered.
+        auto b = std::make_unique<TextButton>(label);
         b->flex().preferred_width = 96.0f;
         b->flex().preferred_height = 28.0f;
-        b->on_toggle = [this, id, member](bool) {
+        b->on_click = [this, id, member] {
             if (this->*member) (this->*member)(id);
         };
         return b;
