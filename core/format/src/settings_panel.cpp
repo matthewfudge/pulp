@@ -128,17 +128,23 @@ void SettingsPanel::build_audio_tab() {
     meter->flex().preferred_height = 24.0f;
     audio_tab->add_child(std::move(meter));
 
-    // Test tone section
-    audio_tab->add_child(make_section_label("Test Signal"));
+    // Test tone section. Header line: "Test Signal" on the left, the "Sine Tone" switch on
+    // the right; the frequency dropdown sits full-width on its own line below so it never
+    // gets squished.
+    auto ts_header = std::make_unique<view::View>();
+    ts_header->flex().direction = view::FlexDirection::row;
+    ts_header->flex().align_items = view::FlexAlign::center;
+    ts_header->flex().gap = 8.0f;
+    ts_header->flex().preferred_height = 28.0f;
+    ts_header->add_child(make_section_label("Test Signal"));
+    auto ts_spacer = std::make_unique<view::View>();
+    ts_spacer->flex().flex_grow = 1.0f;
+    ts_header->add_child(std::move(ts_spacer));
+    auto tone_label = make_info_label("Sine Tone");
+    tone_label->flex().flex_shrink = 0.0f;
+    ts_header->add_child(std::move(tone_label));
 
-    auto tone_row = std::make_unique<view::View>();
-    tone_row->flex().direction = view::FlexDirection::row;
-    tone_row->flex().gap = 8.0f;
-    tone_row->flex().preferred_height = 32.0f;
-    tone_row->flex().align_items = view::FlexAlign::center;
-
-    // Just the switch (no stacked label) so it's compact and clearly clickable; the label is
-    // a separate sibling so it can't overflow the toggle's width.
+    // Switch only (no stacked label) — compact and clearly clickable.
     auto tone_toggle = std::make_unique<view::Toggle>();
     test_tone_toggle_ = tone_toggle.get();
     tone_toggle->flex().preferred_width = 48.0f;
@@ -157,26 +163,20 @@ void SettingsPanel::build_audio_tab() {
             callbacks_.on_test_signal_changed(cfg);
         }
     };
-    tone_row->add_child(std::move(tone_toggle));
-
-    auto tone_label = make_info_label("Sine Tone");
-    tone_label->flex().preferred_width = 72.0f;
-    tone_label->flex().flex_shrink = 0.0f;
-    tone_row->add_child(std::move(tone_label));
+    ts_header->add_child(std::move(tone_toggle));
+    audio_tab->add_child(std::move(ts_header));
 
     auto freq_combo = std::make_unique<view::ComboBox>();
     tone_freq_combo_ = freq_combo.get();
     freq_combo->set_items({ "220 Hz (A3)", "440 Hz (A4)", "880 Hz (A5)", "1000 Hz" });
     freq_combo->set_selected_silent(1);
-    freq_combo->flex().flex_grow = 1.0f;
+    freq_combo->flex().preferred_height = 28.0f;
     freq_combo->on_change = [this](int) {
         if (test_tone_toggle_ && test_tone_toggle_->is_on()) {
             test_tone_toggle_->on_toggle(true);
         }
     };
-    tone_row->add_child(std::move(freq_combo));
-
-    audio_tab->add_child(std::move(tone_row));
+    audio_tab->add_child(std::move(freq_combo));
 
     tab_panel_->add_tab("Audio", std::move(audio_tab));
 }
