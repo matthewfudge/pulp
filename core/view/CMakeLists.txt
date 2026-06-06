@@ -164,6 +164,94 @@ set_property(CACHE PULP_JS_ENGINE PROPERTY STRINGS auto quickjs jsc v8)
 set(V8_LIBRARY_PATH "" CACHE FILEPATH "Full path to the V8 provider library (e.g. libv8_monolith or libnode)")
 set(V8_LIBRARY_NAME "" CACHE STRING "Library name to link for V8 when V8_LIBRARY_PATH is not set")
 
+# ── Sealed v8-builder provider (additive, opt-in) ────────────────────────────
+# PULP_V8BUILDER_ROOT: path to an unpacked v8-builder sealed release root (the
+# directory containing include/, lib/<v8 library>, and manifest.json). When set,
+# Pulp derives V8_INCLUDE_DIR / V8_LIB_DIR / V8_LIBRARY_PATH from the sealed
+# artifact and parses manifest.json for the V8 runtime version. This is a
+# *provider preference* for the explicit V8 lane — it does NOT change the engine
+# default. Leave it unset to use the legacy V8_INCLUDE_DIR/V8_LIB_DIR discovery.
+#
+# The sealed library file is platform-specific:
+#   macOS  → lib/libv8.dylib
+#   Linux  → lib/libv8.so
+#   Windows→ lib/v8.dll.lib   (import lib for v8.dll; see PulpV8Windows.cmake for
+#                              the clang-cl + Chromium libc++ (__Cr) ABI contract
+#                              the Windows v8.dll requires of its consumer)
+set(PULP_V8BUILDER_ROOT "" CACHE PATH
+    "Unpacked v8-builder sealed release root (include/ + lib/<v8 lib> + manifest.json)")
+set(PULP_V8BUILDER_EXPECTED_VERSION "" CACHE STRING
+    "Expected V8 runtime version (e.g. 15.1.27); validated against manifest.json when set")
+
+if(PULP_V8BUILDER_ROOT)
+    get_filename_component(_pulp_v8b_root "${PULP_V8BUILDER_ROOT}" ABSOLUTE)
+    set(_pulp_v8b_include "${_pulp_v8b_root}/include")
+    set(_pulp_v8b_header "${_pulp_v8b_include}/v8.h")
+    set(_pulp_v8b_lib_dir "${_pulp_v8b_root}/lib")
+    set(_pulp_v8b_manifest "${_pulp_v8b_root}/manifest.json")
+
+    # Resolve the sealed library. Windows ships an import lib (v8.dll.lib) next
+    # to v8.dll; mac/linux ship the dylib/so directly. Probe in platform order.
+    set(_pulp_v8b_lib "")
+    foreach(_cand
+            "${_pulp_v8b_lib_dir}/v8.dll.lib"
+            "${_pulp_v8b_lib_dir}/libv8.dylib"
+            "${_pulp_v8b_lib_dir}/libv8.so"
+            "${_pulp_v8b_lib_dir}/libv8.a")
+        if(EXISTS "${_cand}")
+            set(_pulp_v8b_lib "${_cand}")
+            break()
+        endif()
+    endforeach()
+
+    # A malformed root is always fatal — an explicit sealed-provider request must
+    # never silently fall back to libnode/system discovery.
+    if(NOT EXISTS "${_pulp_v8b_header}")
+        message(FATAL_ERROR
+            "PULP_V8BUILDER_ROOT='${_pulp_v8b_root}' is missing include/v8.h — "
+            "not a valid v8-builder sealed release root.")
+    endif()
+    if(NOT _pulp_v8b_lib)
+        message(FATAL_ERROR
+            "PULP_V8BUILDER_ROOT='${_pulp_v8b_root}' is missing "
+            "lib/{v8.dll.lib,libv8.{dylib,so,a}} — not a valid v8-builder sealed "
+            "release root.")
+    endif()
+    if(NOT EXISTS "${_pulp_v8b_manifest}")
+        message(FATAL_ERROR
+            "PULP_V8BUILDER_ROOT='${_pulp_v8b_root}' is missing manifest.json — "
+            "not a valid v8-builder sealed release root.")
+    endif()
+
+    # Parse the V8 runtime version out of manifest.json (a small flat object).
+    file(READ "${_pulp_v8b_manifest}" _pulp_v8b_manifest_text)
+    if(NOT _pulp_v8b_manifest_text MATCHES "\"v8_version\"[ \t]*:[ \t]*\"([^\"]+)\"")
+        message(FATAL_ERROR
+            "PULP_V8BUILDER_ROOT manifest.json has no \"v8_version\" field: "
+            "${_pulp_v8b_manifest}")
+    endif()
+    set(_pulp_v8b_manifest_version "${CMAKE_MATCH_1}")
+
+    if(PULP_V8BUILDER_EXPECTED_VERSION
+            AND NOT PULP_V8BUILDER_EXPECTED_VERSION STREQUAL _pulp_v8b_manifest_version)
+        message(FATAL_ERROR
+            "v8-builder version mismatch: manifest.json reports "
+            "'${_pulp_v8b_manifest_version}' but PULP_V8BUILDER_EXPECTED_VERSION="
+            "'${PULP_V8BUILDER_EXPECTED_VERSION}'.")
+    endif()
+
+    # Derive the legacy V8_* knobs so the existing V8 backend block links the
+    # sealed library and includes the sealed headers.
+    set(V8_INCLUDE_DIR "${_pulp_v8b_include}")
+    set(V8_LIB_DIR "${_pulp_v8b_lib_dir}")
+    set(V8_LIBRARY_PATH "${_pulp_v8b_lib}")
+    set(PULP_V8_EXPECTED_RUNTIME_VERSION "${_pulp_v8b_manifest_version}")
+
+    message(STATUS
+        "Pulp: v8-builder sealed V8 provider — version ${_pulp_v8b_manifest_version}, "
+        "lib ${_pulp_v8b_lib}")
+endif()
+
 # QuickJS backend is always compiled (portable fallback)
 set(PULP_JS_ENGINE_SOURCES
     src/js_quickjs_engine.cpp
@@ -241,6 +329,14 @@ if(PULP_JS_ENGINE STREQUAL "v8" OR (PULP_JS_ENGINE STREQUAL "auto" AND DEFINED V
             endif()
         endif()
         set(PULP_HAS_V8_ACTUAL ON)
+
+        # Windows: the sealed v8.dll exposes the Chromium libc++ (__Cr) ABI with
+        # pointer compression ON, so the V8 translation unit must be compiled
+        # with clang-cl + that libc++ + V8_COMPRESS_POINTERS. This is a no-op off
+        # Windows; on Windows it hard-fails if the compiler is MSVC cl rather
+        # than clang-cl. See tools/cmake/PulpV8Windows.cmake.
+        include(${CMAKE_SOURCE_DIR}/tools/cmake/PulpV8Windows.cmake)
+        pulp_v8_windows_apply_abi(pulp-view-script)
     else()
         if(PULP_JS_ENGINE STREQUAL "v8")
             message(FATAL_ERROR "PULP_JS_ENGINE=v8 requires V8_INCLUDE_DIR and V8_LIB_DIR")
@@ -266,6 +362,14 @@ endif()
 # Set compile definitions for engine availability / defaults
 if(PULP_HAS_V8_ACTUAL)
     target_compile_definitions(pulp-view-script PRIVATE PULP_HAS_V8=1)
+    # When the sealed v8-builder provider supplied a manifest version, surface it
+    # so the runtime can cross-check V8::GetVersion() against the pinned value.
+    # (The js_v8_engine.cpp accessor that reads this is additive and degrades to
+    # empty when the define is absent — see the sealed-provider integration.)
+    if(PULP_V8_EXPECTED_RUNTIME_VERSION)
+        target_compile_definitions(pulp-view-script PRIVATE
+            PULP_V8_EXPECTED_RUNTIME_VERSION="${PULP_V8_EXPECTED_RUNTIME_VERSION}")
+    endif()
 endif()
 
 # Only set non-QuickJS default when explicitly requested (not auto)
