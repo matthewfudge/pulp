@@ -200,10 +200,13 @@ std::vector<T*> descendants(View& root) {
 }
 
 TabPanel& settings_tabs(SettingsPanel& panel) {
-    REQUIRE(panel.child_count() == 1);
-    auto* tabs = dynamic_cast<TabPanel*>(panel.child_at(0));
-    REQUIRE(tabs != nullptr);
-    return *tabs;
+    // The panel hosts a "Done" header plus the Audio/MIDI/<plugin> TabPanel — find the
+    // TabPanel among the children rather than assuming it's the only child.
+    for (int i = 0; i < panel.child_count(); ++i)
+        if (auto* tabs = dynamic_cast<TabPanel*>(panel.child_at(static_cast<size_t>(i))))
+            return *tabs;
+    REQUIRE(false);  // no TabPanel found
+    static TabPanel never; return never;  // unreachable; satisfies the return type
 }
 
 } // namespace
@@ -591,7 +594,7 @@ TEST_CASE("Standalone editor chrome wraps editor and settings in a tab panel",
     REQUIRE(&chrome.window_root() == chrome.tab_panel());
     REQUIRE(chrome.settings_panel() != nullptr);
     REQUIRE(chrome.tab_panel()->tab_count() == 2);
-    REQUIRE(chrome.extra_window_height() == 32.0f);
+    REQUIRE(chrome.extra_window_height() == 0.0f);  // outer tab bar hidden — reserves no height
     REQUIRE(chrome.chrome_label() == std::string_view("tabs"));
 }
 
@@ -654,9 +657,11 @@ TEST_CASE("Standalone editor content size subtracts chrome height",
     auto tabs = make_standalone_editor_chrome(
         std::move(editor_root), StandaloneConfig{}, nullptr, nullptr, nullptr, {});
 
+    // The outer [Editor][Settings] tab bar is hidden (card-stack chrome), so it reserves no
+    // height — the editor fills the whole window and content height == window height.
     auto size = standalone_editor_content_size({640, 392}, tabs);
     REQUIRE(size.width == 640);
-    REQUIRE(size.height == 360);
+    REQUIRE(size.height == 392);
 
     auto editor_only = make_standalone_editor_chrome(
         std::make_unique<View>(),
@@ -705,12 +710,12 @@ TEST_CASE("Standalone host sync installs a resize callback and applies initial s
     REQUIRE(window.resize_callback_ != nullptr);
     REQUIRE(seen_sizes.size() == 1);
     REQUIRE(seen_sizes[0].width == 800);
-    REQUIRE(seen_sizes[0].height == 400);
+    REQUIRE(seen_sizes[0].height == 432);  // hidden outer tab bar reserves no height
 
     window.resize_callback_(900, 532);
     REQUIRE(seen_sizes.size() == 2);
     REQUIRE(seen_sizes[1].width == 900);
-    REQUIRE(seen_sizes[1].height == 500);
+    REQUIRE(seen_sizes[1].height == 532);
 }
 
 TEST_CASE("Standalone host sync skips zero-sized initial host content",
@@ -734,7 +739,7 @@ TEST_CASE("Standalone host sync skips zero-sized initial host content",
     window.resize_callback_(900, 532);
     REQUIRE(seen_sizes.size() == 1);
     REQUIRE(seen_sizes[0].width == 900);
-    REQUIRE(seen_sizes[0].height == 500);
+    REQUIRE(seen_sizes[0].height == 532);  // no outer-chrome height subtracted
 }
 
 TEST_CASE("Standalone bridge attach forwards host sizing through bridge resize",
@@ -750,12 +755,12 @@ TEST_CASE("Standalone bridge attach forwards host sizing through bridge resize",
     REQUIRE(window.resize_callback_ != nullptr);
     REQUIRE(bridge.resize_calls_.size() == 1);
     REQUIRE(bridge.resize_calls_[0].width == 840);
-    REQUIRE(bridge.resize_calls_[0].height == 420);
+    REQUIRE(bridge.resize_calls_[0].height == 452);  // no outer-chrome height subtracted
 
     window.resize_callback_(900, 500);
     REQUIRE(bridge.resize_calls_.size() == 2);
     REQUIRE(bridge.resize_calls_[1].width == 900);
-    REQUIRE(bridge.resize_calls_[1].height == 468);
+    REQUIRE(bridge.resize_calls_[1].height == 500);
 }
 
 TEST_CASE("Standalone design viewport applies proportional window resize",
@@ -792,8 +797,8 @@ TEST_CASE("Standalone design viewport includes settings chrome height",
     configure_standalone_design_viewport(window, hints, chrome);
 
     REQUIRE(window.design_width_ == Catch::Approx(900.0f));
-    REQUIRE(window.design_height_ == Catch::Approx(552.0f));
-    REQUIRE(window.aspect_ratio_ == Catch::Approx(900.0f / 552.0f));
+    REQUIRE(window.design_height_ == Catch::Approx(520.0f));  // no outer-chrome height
+    REQUIRE(window.aspect_ratio_ == Catch::Approx(900.0f / 520.0f));
 }
 
 TEST_CASE("Standalone log helper formats the chrome mode",
@@ -971,15 +976,14 @@ TEST_CASE("make_standalone_window_options leaves min_* at zero when unset",
 
 TEST_CASE("make_standalone_window_options extends min_height when chrome adds rows",
           "[standalone][chrome][issue-1362]") {
-    // Settings tab adds 32px of chrome — the height min must rise in
-    // lockstep with the preferred-height extension so the editor area
-    // can never be squeezed below its declared min.
+    // The Settings tab is reached via the editor's own control (the outer tab bar is hidden),
+    // so the chrome reserves no extra height and the window/min sizes are unchanged.
     auto editor_root = std::make_unique<View>();
     auto chrome = make_standalone_editor_chrome(
         std::move(editor_root),
         StandaloneConfig{.show_settings_tab = true},
         nullptr, nullptr, nullptr, {});
-    REQUIRE(chrome.extra_window_height() == Catch::Approx(32.0f));
+    REQUIRE(chrome.extra_window_height() == Catch::Approx(0.0f));
 
     pulp::format::ViewSize hints;
     hints.preferred_width = 1320;
@@ -990,9 +994,7 @@ TEST_CASE("make_standalone_window_options extends min_height when chrome adds ro
     auto opts = make_standalone_window_options(hints, chrome, "Plug", false);
 
     // Preferred height = preferred_height + chrome.extra_window_height()
-    REQUIRE(opts.height == Catch::Approx(892.0f));
-    // Min height is shifted by the same chrome amount so the editor
-    // area's own minimum is never violated.
+    REQUIRE(opts.height == Catch::Approx(860.0f));  // preferred_height + 0 chrome
     REQUIRE(opts.min_width == Catch::Approx(800.0f));
-    REQUIRE(opts.min_height == Catch::Approx(632.0f));
+    REQUIRE(opts.min_height == Catch::Approx(600.0f));  // min unchanged (no chrome height)
 }

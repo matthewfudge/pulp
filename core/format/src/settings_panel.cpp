@@ -1,5 +1,6 @@
 #include <pulp/format/settings_panel.hpp>
 #include <pulp/runtime/log.hpp>
+#include <pulp/view/buttons.hpp>  // TextButton (momentary Done)
 #include <algorithm>
 #include <cmath>
 #include <sstream>
@@ -27,6 +28,33 @@ static std::unique_ptr<view::Label> make_info_label(const std::string& text) {
 SettingsPanel::SettingsPanel() {
     flex().direction = view::FlexDirection::column;
     flex().flex_grow = 1.0f;
+
+    // Header: a right-aligned "Done" (momentary button) that returns to the editor. The
+    // standalone hosts this panel inside an outer card-stack TabPanel (tab bar hidden) whose
+    // tab 0 is the editor — walk up to it and switch back. No-op if there's no such ancestor.
+    // Keep this bar IDENTICAL to the editor's gear bar (height/padding) so the top-right
+    // button doesn't shift vertically when switching between the editor and Settings.
+    auto header = std::make_unique<view::View>();
+    header->flex().direction = view::FlexDirection::row;
+    header->flex().padding = 12.0f;
+    header->flex().preferred_height = 52.0f;
+    header->flex().flex_shrink = 0.0f;
+    header->flex().align_items = view::FlexAlign::center;
+    auto spacer = std::make_unique<view::View>();
+    spacer->flex().flex_grow = 1.0f;
+    header->add_child(std::move(spacer));
+    auto done = std::make_unique<view::TextButton>("Done");
+    done->flex().preferred_width = 112.0f;
+    done->flex().preferred_height = 28.0f;
+    done->on_click = [this] {
+        for (view::View* v = parent(); v != nullptr; v = v->parent())
+            if (auto* tp = dynamic_cast<view::TabPanel*>(v)) {
+                tp->set_active_tab(0);
+                return;
+            }
+    };
+    header->add_child(std::move(done));
+    add_child(std::move(header));
 
     auto tabs = std::make_unique<view::TabPanel>();
     tab_panel_ = tabs.get();
@@ -100,17 +128,28 @@ void SettingsPanel::build_audio_tab() {
     meter->flex().preferred_height = 24.0f;
     audio_tab->add_child(std::move(meter));
 
-    // Test tone section
-    audio_tab->add_child(make_section_label("Test Signal"));
+    // Test tone section. Header line: "Test Signal" on the left, the "Sine Tone" switch on
+    // the right; the frequency dropdown sits full-width on its own line below so it never
+    // gets squished.
+    auto ts_header = std::make_unique<view::View>();
+    ts_header->flex().direction = view::FlexDirection::row;
+    ts_header->flex().align_items = view::FlexAlign::center;
+    ts_header->flex().gap = 8.0f;
+    ts_header->flex().preferred_height = 28.0f;
+    ts_header->add_child(make_section_label("Test Signal"));
+    auto ts_spacer = std::make_unique<view::View>();
+    ts_spacer->flex().flex_grow = 1.0f;
+    ts_header->add_child(std::move(ts_spacer));
+    auto tone_label = make_info_label("Sine Tone");
+    tone_label->flex().flex_shrink = 0.0f;
+    ts_header->add_child(std::move(tone_label));
 
-    auto tone_row = std::make_unique<view::View>();
-    tone_row->flex().direction = view::FlexDirection::row;
-    tone_row->flex().gap = 8.0f;
-    tone_row->flex().preferred_height = 28.0f;
-
+    // Switch only (no stacked label) — compact and clearly clickable.
     auto tone_toggle = std::make_unique<view::Toggle>();
     test_tone_toggle_ = tone_toggle.get();
-    tone_toggle->set_label("Sine Tone");
+    tone_toggle->flex().preferred_width = 48.0f;
+    tone_toggle->flex().preferred_height = 26.0f;
+    tone_toggle->flex().flex_shrink = 0.0f;
     tone_toggle->on_toggle = [this](bool on) {
         if (callbacks_.on_test_signal_changed) {
             TestSignalConfig cfg;
@@ -124,21 +163,20 @@ void SettingsPanel::build_audio_tab() {
             callbacks_.on_test_signal_changed(cfg);
         }
     };
-    tone_row->add_child(std::move(tone_toggle));
+    ts_header->add_child(std::move(tone_toggle));
+    audio_tab->add_child(std::move(ts_header));
 
     auto freq_combo = std::make_unique<view::ComboBox>();
     tone_freq_combo_ = freq_combo.get();
     freq_combo->set_items({ "220 Hz (A3)", "440 Hz (A4)", "880 Hz (A5)", "1000 Hz" });
     freq_combo->set_selected_silent(1);
-    freq_combo->flex().flex_grow = 1.0f;
+    freq_combo->flex().preferred_height = 28.0f;
     freq_combo->on_change = [this](int) {
         if (test_tone_toggle_ && test_tone_toggle_->is_on()) {
             test_tone_toggle_->on_toggle(true);
         }
     };
-    tone_row->add_child(std::move(freq_combo));
-
-    audio_tab->add_child(std::move(tone_row));
+    audio_tab->add_child(std::move(freq_combo));
 
     tab_panel_->add_tab("Audio", std::move(audio_tab));
 }
@@ -167,6 +205,14 @@ void SettingsPanel::build_midi_tab() {
     midi_tab->add_child(std::move(info));
 
     tab_panel_->add_tab("MIDI", std::move(midi_tab));
+}
+
+void SettingsPanel::add_section(std::string title, std::unique_ptr<view::View> view) {
+    if (tab_panel_ && view) tab_panel_->add_tab(std::move(title), std::move(view));
+}
+
+int SettingsPanel::tab_count() const {
+    return tab_panel_ ? tab_panel_->tab_count() : 0;
 }
 
 void SettingsPanel::bind_systems(audio::AudioSystem* audio_sys, midi::MidiSystem* midi_sys) {

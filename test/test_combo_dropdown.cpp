@@ -102,13 +102,14 @@ TEST_CASE("ComboBox: keyboard navigation moves the row highlight while open",
     REQUIRE(combo.is_open());
     REQUIRE(combo.hovered_index() == 0);
 
-    // Arrowing down moves BOTH the selection (check glyph) and the highlight.
+    // While open, arrowing moves the HIGHLIGHT only (like mouse hover); the selection is
+    // not committed until Enter — so the user can browse, then accept or cancel.
     KeyEvent down;
     down.key = KeyCode::down;
     down.is_down = true;
     combo.on_key_event(down);
-    REQUIRE(combo.selected_text() == "B");
     REQUIRE(combo.hovered_index() == 1);
+    REQUIRE(combo.selected_text() == "A");  // not committed yet
 
     combo.on_key_event(down);
     REQUIRE(combo.hovered_index() == 2);
@@ -118,6 +119,14 @@ TEST_CASE("ComboBox: keyboard navigation moves the row highlight while open",
     up.is_down = true;
     combo.on_key_event(up);
     REQUIRE(combo.hovered_index() == 1);
+
+    // Enter commits the highlighted row and closes; Esc would cancel with no change.
+    KeyEvent ret;
+    ret.key = KeyCode::enter;
+    ret.is_down = true;
+    combo.on_key_event(ret);
+    REQUIRE(combo.selected_text() == "B");
+    REQUIRE_FALSE(combo.is_open());
 }
 
 // ── Regression: dropdown overlay click routing ───────────────────────────

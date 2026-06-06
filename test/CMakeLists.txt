@@ -896,6 +896,19 @@ pulp_add_test_suite(pulp-test-progress-parser LIBRARIES pulp::platform)
 # Stream tests (unified I/O interface)
 pulp_add_test_suite(pulp-test-stream LIBRARIES pulp::runtime)
 
+# Generic model registry/store (MM-PR1)
+pulp_add_test_suite(pulp-test-model-store LIBRARIES pulp::runtime)
+
+# Streaming model downloader (MM-PR2) — uses a local httplib server fixture
+pulp_add_test_suite(pulp-test-model-download LIBRARIES pulp::runtime)
+target_include_directories(pulp-test-model-download PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../external/cpp-httplib)
+
+# ModelManager view (MM-PR3) — needs the view stack (pulp::view) for render_to_png
+add_executable(pulp-test-model-manager-view test_model_manager_view.cpp)
+target_link_libraries(pulp-test-model-manager-view PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-model-manager-view)
+
 # Native-component core ABI contract tests. Always built (no Rust toolchain
 # needed) — one case per forward-compatibility decision (1-12) so the C ABI
 # shape can't silently drift. The Rust round-trip + RT-safety self-test is the
@@ -1024,6 +1037,9 @@ pulp_add_test_suite(pulp-test-json-rpc LIBRARIES pulp::runtime)
 
 # Validation harness tests (Phase 2)
 pulp_add_test_suite(pulp-test-validation-harness LIBRARIES pulp::format)
+
+# Plugin-contributed settings sections (MM-PR5) — SettingsPanel lives in pulp::standalone
+pulp_add_test_suite(pulp-test-settings-sections LIBRARIES pulp::standalone)
 
 pulp_add_test_suite(pulp-test-plugin-state-io LIBRARIES pulp::format)
 

@@ -129,7 +129,8 @@ private:
         audio::AudioSystem*,
         midi::MidiSystem*,
         view::AudioBridge*,
-        StandaloneSettingsActions);
+        StandaloneSettingsActions,
+        std::vector<Processor::SettingsSection>);
 
     view::View* window_root_ = nullptr;
     SettingsPanel* settings_panel_ = nullptr;
@@ -144,7 +145,8 @@ inline StandaloneEditorChrome make_standalone_editor_chrome(
     audio::AudioSystem* audio_system,
     midi::MidiSystem* midi_system,
     view::AudioBridge* input_bridge,
-    StandaloneSettingsActions actions) {
+    StandaloneSettingsActions actions,
+    std::vector<Processor::SettingsSection> plugin_sections = {}) {
     StandaloneEditorChrome chrome(std::move(editor_root));
     if (!config.show_settings_tab) {
         return chrome;
@@ -158,15 +160,23 @@ inline StandaloneEditorChrome make_standalone_editor_chrome(
     settings_panel->set_callbacks(
         make_standalone_settings_callbacks(*settings_panel, std::move(actions)));
 
+    // Compose plugin-contributed settings tabs after the host-owned Audio/MIDI tabs.
+    for (auto& section : plugin_sections)
+        if (section.view) settings_panel->add_section(std::move(section.title), std::move(section.view));
+
     auto tab_panel = std::make_unique<view::TabPanel>();
     tab_panel->flex().flex_grow = 1.0f;
     tab_panel->add_tab("Editor", std::move(chrome.editor_root_));
     tab_panel->add_tab("Settings", std::move(settings_panel));
+    // No outer [Editor][Settings] tab bar — the editor reaches Settings via its own
+    // control (e.g. a gear button) and the Settings panel has a Done back to the editor.
+    // This keeps one level of tabs (the panel's own Audio/MIDI/<plugin> tabs).
+    tab_panel->set_show_tab_bar(false);
 
     chrome.window_root_ = tab_panel.get();
     chrome.settings_panel_ = settings_ptr;
     chrome.tab_panel_ = std::move(tab_panel);
-    chrome.extra_window_height_ = 32.0f;
+    chrome.extra_window_height_ = 0.0f;  // no outer tab bar to reserve room for
     return chrome;
 }
 

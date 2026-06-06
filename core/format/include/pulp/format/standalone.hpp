@@ -29,6 +29,13 @@ struct StandaloneConfig {
     // When false, run_with_editor() hosts the editor directly and omits the
     // built-in Settings tab.
     bool show_settings_tab = true;
+
+    // Remember the user's audio/MIDI device selection (+ sample rate, buffer, transport)
+    // across launches, keyed by the plugin name. On by default; a developer can set this
+    // false to always start from the configured defaults. Saved whenever settings change,
+    // restored at startup (the first launch keeps the configured defaults).
+    bool persist_settings = true;
+
     // When non-empty, run_with_editor() installs a one-shot idle callback
     // that captures the first painted frame via WindowHost::capture_png()
     // and writes to this path, then closes the window. Codified in the SDK
@@ -89,7 +96,10 @@ public:
     // sample-rate, buffer-size, MIDI input, and built-in transport
     // settings on the next launch. Returns false when the storage layer
     // failed to write (e.g. read-only profile, missing app name).
-    static StandaloneConfig load_persisted_config(std::string_view app_name);
+    // Overlays any persisted keys onto `base` and returns it — so unsaved fields keep the
+    // caller's defaults (the first launch, with no file, returns `base` unchanged).
+    static StandaloneConfig load_persisted_config(std::string_view app_name,
+                                                  StandaloneConfig base = {});
     static bool save_persisted_config(std::string_view app_name,
                                       const StandaloneConfig& config);
 
@@ -103,6 +113,7 @@ private:
     std::unique_ptr<Processor> processor_;
     state::StateStore store_;
     StandaloneConfig config_;
+    bool persisted_config_loaded_ = false;  // overlay persisted settings once, not on soft restarts
 
     std::unique_ptr<audio::AudioSystem> audio_system_;
     std::unique_ptr<audio::AudioDevice> audio_device_;
