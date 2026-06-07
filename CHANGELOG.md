@@ -8,6 +8,13 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v03640"></a>
+## [0.364.0] - 2026-06-07
+
+- feat(audio): Linux ALSA device hotplug via libudev (#3327 / L4) ([#3533](https://github.com/danielraffel/pulp/pull/3533))
+- docs(status): reflect shipped Win/Linux catch-up slices in support matrix ([#3528](https://github.com/danielraffel/pulp/pull/3528))
+- test(view): harden render_to_rgba raster test against transient load (retry-on-blank) ([#3532](https://github.com/danielraffel/pulp/pull/3532))
+
 <a id="v03630"></a>
 ## [0.363.0] - 2026-06-07
 
@@ -3786,6 +3793,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.364.0]: https://github.com/danielraffel/pulp/releases/tag/v0.364.0
 [0.363.0]: https://github.com/danielraffel/pulp/releases/tag/v0.363.0
 [0.362.0]: https://github.com/danielraffel/pulp/releases/tag/v0.362.0
 [0.361.0]: https://github.com/danielraffel/pulp/releases/tag/v0.361.0
