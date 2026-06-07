@@ -729,15 +729,25 @@ def detect_overlay_controls(figma_root, root_abs, panel_origin):
             })
             return  # the field is a leaf overlay — don't recurse into it
         # ── dropdown ────────────────────────────────────────────────────
-        # A FRAME named ~"dropdown" of field-like size (skip tiny "+" buttons and
-        # stray TEXT). The shown value is its first text; real option lists need
-        # source component variants, so we stub a couple so the popup is usable.
+        # A real dropdown is a FRAME named ~"dropdown", field-sized, that contains
+        # a DOWN-chevron child (Material "expand_more"). That down-chevron is the
+        # discriminator: the section-header preset selectors are named "Dropdown"
+        # too but are < > STEPPERS (their chevron child is a "Frame 41" pair, not
+        # expand_more) — those must NOT become dropdowns. We also skip the
+        # unconfigured placeholder template whose shown text is literally
+        # "Dropdown". Real option lists need source component variants, so a couple
+        # of stubs follow the shown value so the popup is usable.
+        current = _first_text(n) or "Select"
+        has_down_chevron = any(
+            (c.get("name") or "").lower().startswith("expand_more")
+            for c in n.get("children", []))
         is_dropdown = ("dropdown" in name and ntype == "FRAME" and bb
                        and bb.get("width", 0.0) >= 40.0
-                       and 14.0 <= bb.get("height", 0.0) <= 44.0)
+                       and 14.0 <= bb.get("height", 0.0) <= 44.0
+                       and has_down_chevron
+                       and current != "Dropdown")
         if is_dropdown:
             dx, dy, dw, dh = to_svg(bb)
-            current = _first_text(n) or "Select"
             out.append({
                 "kind": "dropdown",
                 "x": dx, "y": dy, "w": dw, "h": dh,

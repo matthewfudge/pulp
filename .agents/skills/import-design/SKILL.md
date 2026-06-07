@@ -628,8 +628,13 @@ rect (x,y,w,h) + `options`/`selected_index`/`placeholder`.
   replaces the baked box — known fidelity cost: the SVG's leading icon is
   covered, a styling follow-up).
 - `dropdown` → `ComboBox` (set_items from `options`; opens a popup on click).
-  Option LISTS aren't in a static design, so the producer stubs a couple after
-  the shown value — real lists need source component variants (TODO).
+  A real dropdown is detected only when the "dropdown"-named FRAME has a
+  DOWN-chevron child (Material `expand_more`) AND its shown text isn't the
+  unconfigured placeholder "Dropdown". ELYSIUM names the `< >` section-header
+  STEPPERS "Dropdown" too, but their chevron child is a `Frame 41` pair (no
+  `expand_more`) — so they stay faithful-static, not dropdowns. Option LISTS
+  aren't in a static design, so the producer stubs a couple after the shown
+  value — real lists need source component variants (TODO).
 - `tab_group` → `DesignTabGroup` (a compact segmented control drawn opaque over
   the tab strip; click a slot to move the selection highlight). Detected
   structurally (`detect_tab_group`): a row of ≥3 similar-width container children
