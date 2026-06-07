@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v03550"></a>
+## [0.355.0] - 2026-06-06
+
+- feat(runtime): install_model fetches every asset of a multi-asset bundle ([#3488](https://github.com/danielraffel/pulp/pull/3488))
+
 <a id="v03540"></a>
 ## [0.354.0] - 2026-06-06
 
@@ -3706,6 +3711,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.355.0]: https://github.com/danielraffel/pulp/releases/tag/v0.355.0
 [0.354.0]: https://github.com/danielraffel/pulp/releases/tag/v0.354.0
 [0.353.0]: https://github.com/danielraffel/pulp/releases/tag/v0.353.0
 [0.352.0]: https://github.com/danielraffel/pulp/releases/tag/v0.352.0
