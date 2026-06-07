@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v03650"></a>
+## [0.365.0] - 2026-06-07
+
+- feat(midi): Linux ALSA MIDI device hotplug; promote udev monitor to runtime (#3327 / L4) ([#3535](https://github.com/danielraffel/pulp/pull/3535))
+
 <a id="v03640"></a>
 ## [0.364.0] - 2026-06-07
 
@@ -3793,6 +3798,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.365.0]: https://github.com/danielraffel/pulp/releases/tag/v0.365.0
 [0.364.0]: https://github.com/danielraffel/pulp/releases/tag/v0.364.0
 [0.363.0]: https://github.com/danielraffel/pulp/releases/tag/v0.363.0
 [0.362.0]: https://github.com/danielraffel/pulp/releases/tag/v0.362.0
