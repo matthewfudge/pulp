@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v03680"></a>
+## [0.368.0] - 2026-06-07
+
+- fix(design-import): preserve a search field's leading icon (inset + bg-color match) ([#3526](https://github.com/danielraffel/pulp/pull/3526))
+- feat(platform): Linux file dialogs via xdg-desktop-portal + reusable DBus client ([#3539](https://github.com/danielraffel/pulp/pull/3539))
+
 <a id="v03670"></a>
 ## [0.367.0] - 2026-06-07
 
@@ -3808,6 +3814,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.368.0]: https://github.com/danielraffel/pulp/releases/tag/v0.368.0
 [0.367.0]: https://github.com/danielraffel/pulp/releases/tag/v0.367.0
 [0.366.0]: https://github.com/danielraffel/pulp/releases/tag/v0.366.0
 [0.365.0]: https://github.com/danielraffel/pulp/releases/tag/v0.365.0
