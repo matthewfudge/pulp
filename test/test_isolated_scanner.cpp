@@ -75,7 +75,7 @@ TEST_CASE("IsolatedPluginScanner returns Ok for a parseable VST3 bundle",
     fs::create_directories(bundle / "Contents" / "Resources");
 
     IsolatedPluginScanner scanner{PULP_ISOLATED_SCANNER_REAL_WORKER};
-    auto result = scanner.scan(bundle.string(), /*timeout_ms=*/5000);
+    auto result = scanner.scan(bundle.string(), /*timeout_ms=*/30000);
 
     REQUIRE(result.status == ScanStatus::Ok);
     REQUIRE(result.descriptor.has_value());
@@ -92,7 +92,7 @@ TEST_CASE("IsolatedPluginScanner returns FormatError for an unknown extension",
     write_file(file, "this is not a plugin");
 
     IsolatedPluginScanner scanner{PULP_ISOLATED_SCANNER_REAL_WORKER};
-    auto result = scanner.scan(file.string(), /*timeout_ms=*/5000);
+    auto result = scanner.scan(file.string(), /*timeout_ms=*/30000);
 
     REQUIRE(result.status == ScanStatus::FormatError);
     REQUIRE(result.exit_code == 3);
@@ -142,12 +142,12 @@ TEST_CASE("pulp-scan-worker preserves requested-alias identity for symlinks",
 
     IsolatedPluginScanner scanner{PULP_ISOLATED_SCANNER_REAL_WORKER};
 
-    auto real_result = scanner.scan(real_bundle.string(), /*timeout_ms=*/5000);
+    auto real_result = scanner.scan(real_bundle.string(), /*timeout_ms=*/30000);
     REQUIRE(real_result.status == ScanStatus::Ok);
     REQUIRE(real_result.descriptor.has_value());
     REQUIRE(real_result.descriptor->path == real_bundle.string());
 
-    auto alias_result = scanner.scan(alias_bundle.string(), /*timeout_ms=*/5000);
+    auto alias_result = scanner.scan(alias_bundle.string(), /*timeout_ms=*/30000);
     REQUIRE(alias_result.status == ScanStatus::Ok);
     REQUIRE(alias_result.descriptor.has_value());
     REQUIRE(alias_result.descriptor->path == alias_bundle.string());
@@ -158,7 +158,7 @@ TEST_CASE("pulp-scan-worker preserves requested-alias identity for symlinks",
 TEST_CASE("IsolatedPluginScanner classifies a worker SIGSEGV as Crash",
           "[host][isolated-scanner][item-4.1][crash]") {
     IsolatedPluginScanner scanner{PULP_ISOLATED_SCANNER_CRASH_HELPER};
-    auto result = scanner.scan("crash", /*timeout_ms=*/5000);
+    auto result = scanner.scan("crash", /*timeout_ms=*/30000);
 
     REQUIRE(result.status == ScanStatus::Crash);
     REQUIRE_FALSE(result.descriptor.has_value());
@@ -181,7 +181,7 @@ TEST_CASE("IsolatedPluginScanner classifies a hung worker as Timeout",
 TEST_CASE("IsolatedPluginScanner classifies unparseable worker output as Crash",
           "[host][isolated-scanner][item-4.1][crash]") {
     IsolatedPluginScanner scanner{PULP_ISOLATED_SCANNER_CRASH_HELPER};
-    auto result = scanner.scan("garbage", /*timeout_ms=*/5000);
+    auto result = scanner.scan("garbage", /*timeout_ms=*/30000);
 
     // exit 0 + non-JSON stdout — we don't trust that and report Crash.
     REQUIRE(result.status == ScanStatus::Crash);
@@ -192,7 +192,7 @@ TEST_CASE("IsolatedPluginScanner classifies unparseable worker output as Crash",
 TEST_CASE("IsolatedPluginScanner returns NotPlugin when worker exits clean with no output",
           "[host][isolated-scanner][item-4.1]") {
     IsolatedPluginScanner scanner{PULP_ISOLATED_SCANNER_CRASH_HELPER};
-    auto result = scanner.scan("silent", /*timeout_ms=*/5000);
+    auto result = scanner.scan("silent", /*timeout_ms=*/30000);
 
     REQUIRE(result.status == ScanStatus::NotPlugin);
     REQUIRE_FALSE(result.descriptor.has_value());

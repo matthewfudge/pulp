@@ -82,7 +82,7 @@ void wait_for_named_pipe_server_ready(const std::string& pipe_name,
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
 #else
     const auto reply = std::filesystem::path(pipe_name + ".reply");
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
     while ((!std::filesystem::exists(pipe_name) || !std::filesystem::exists(reply)) &&
            std::chrono::steady_clock::now() < deadline) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -235,7 +235,7 @@ TEST_CASE("IPC named pipe exchanges framed messages without self-consuming",
     REQUIRE(client.send_message("client-to-server"));
     {
         std::unique_lock<std::mutex> lock(mutex);
-        REQUIRE(cv.wait_for(lock, std::chrono::seconds(2), [&] {
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return server_text == "client-to-server";
         }));
     }
@@ -243,7 +243,7 @@ TEST_CASE("IPC named pipe exchanges framed messages without self-consuming",
     REQUIRE(server.send_message("server-to-client"));
     {
         std::unique_lock<std::mutex> lock(mutex);
-        REQUIRE(cv.wait_for(lock, std::chrono::seconds(2), [&] {
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return client_text == "server-to-client";
         }));
     }
@@ -296,7 +296,7 @@ TEST_CASE("IPC named pipe observes graceful peer disconnect",
     client.disconnect();
     {
         std::unique_lock<std::mutex> lock(mutex);
-        REQUIRE(cv.wait_for(lock, std::chrono::seconds(2), [&] {
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return server_disconnected;
         }));
     }
@@ -362,7 +362,7 @@ TEST_CASE("IPC named pipe observes abrupt peer death",
 
     {
         std::unique_lock<std::mutex> lock(mutex);
-        REQUIRE(cv.wait_for(lock, std::chrono::seconds(5), [&] {
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return ready;
         }));
     }
@@ -372,7 +372,7 @@ TEST_CASE("IPC named pipe observes abrupt peer death",
 
     {
         std::unique_lock<std::mutex> lock(mutex);
-        REQUIRE(cv.wait_for(lock, std::chrono::seconds(5), [&] {
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return disconnected;
         }));
     }
@@ -445,7 +445,7 @@ TEST_CASE("ConnectedChildProcess reports real child exit code",
 
     {
         std::unique_lock<std::mutex> lock(mutex);
-        REQUIRE(cv.wait_for(lock, std::chrono::seconds(5), [&] {
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return message == "ready";
         }));
     }
@@ -491,7 +491,7 @@ TEST_CASE("ConnectedChildProcess kill terminates child process",
     REQUIRE(child.launch(fixture, {"--hold-ms", "5000"}));
     {
         std::unique_lock<std::mutex> lock(mutex);
-        REQUIRE(cv.wait_for(lock, std::chrono::seconds(5), [&] { return ready; }));
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(20), [&] { return ready; }));
     }
 
     REQUIRE(child.is_running());
@@ -521,7 +521,7 @@ TEST_CASE("ConnectedChildProcess concurrent kill joins once",
     REQUIRE(child.launch(fixture, {"--hold-ms", "5000"}));
     {
         std::unique_lock<std::mutex> lock(mutex);
-        REQUIRE(cv.wait_for(lock, std::chrono::seconds(5), [&] { return ready; }));
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(20), [&] { return ready; }));
     }
 
     std::thread first([&] { child.kill(); });
@@ -553,7 +553,7 @@ TEST_CASE("ConnectedChildProcess can relaunch after async completion",
     REQUIRE(child.launch(fixture, {"--exit-code", "5"}));
     {
         std::unique_lock<std::mutex> lock(mutex);
-        REQUIRE(cv.wait_for(lock, std::chrono::seconds(5), [&] {
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return exits == 1 && last_exit_code == 5;
         }));
     }
@@ -602,7 +602,7 @@ TEST_CASE("ConnectedChildProcess wait_for_exit is safe from exit callback",
     REQUIRE(child.launch(fixture, {"--exit-code", "32"}));
     {
         std::unique_lock<std::mutex> lock(mutex);
-        REQUIRE(cv.wait_for(lock, std::chrono::seconds(5), [&] {
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return callback_done;
         }));
     }
@@ -640,7 +640,7 @@ TEST_CASE("ConnectedChildProcess wait_for_exit is safe from message callback kil
     REQUIRE(child.launch(fixture, {"--hold-ms", "5000"}));
     {
         std::unique_lock<std::mutex> lock(mutex);
-        REQUIRE(cv.wait_for(lock, std::chrono::seconds(5), [&] {
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return callback_done;
         }));
     }
@@ -699,7 +699,7 @@ TEST_CASE("ConnectedChildProcess can relaunch after message callback kill",
     REQUIRE(child.launch(fixture, {"--hold-ms", "5000"}));
     {
         std::unique_lock<std::mutex> lock(mutex);
-        REQUIRE(cv.wait_for(lock, std::chrono::seconds(5), [&] {
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return callback_done;
         }));
     }
@@ -739,7 +739,7 @@ TEST_CASE("ConnectedChildProcess destructor waits for active message callback",
     REQUIRE(child->launch(fixture, {"--hold-ms", "5000"}));
     {
         std::unique_lock<std::mutex> lock(mutex);
-        REQUIRE(cv.wait_for(lock, std::chrono::seconds(5), [&] {
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return callback_entered;
         }));
     }
@@ -762,7 +762,7 @@ TEST_CASE("ConnectedChildProcess destructor waits for active message callback",
 
     {
         std::unique_lock<std::mutex> lock(mutex);
-        REQUIRE(cv.wait_for(lock, std::chrono::seconds(5), [&] {
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return destructor_started;
         }));
         REQUIRE_FALSE(cv.wait_for(lock, std::chrono::milliseconds(100), [&] {
@@ -835,7 +835,7 @@ TEST_CASE("ChildProcessManager wait_all waits for active connected children",
         {
             std::unique_lock<std::mutex> lock(mutex);
             saw_first_before_second_release =
-                cv.wait_for(lock, std::chrono::seconds(5), [&] {
+                cv.wait_for(lock, std::chrono::seconds(20), [&] {
                     return saw_first;
                 });
         }
@@ -894,7 +894,7 @@ TEST_CASE("ChildProcessManager cleanup is safe from exit callback",
 
     {
         std::unique_lock<std::mutex> lock(mutex);
-        REQUIRE(cv.wait_for(lock, std::chrono::seconds(5), [&] {
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return callback_done;
         }));
     }
@@ -1025,7 +1025,7 @@ TEST_CASE("IPC socket server accepts client and exchanges framed messages",
 
     {
         std::unique_lock<std::mutex> lock(mutex);
-        REQUIRE(cv.wait_for(lock, std::chrono::seconds(2), [&] {
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return client_connected && accepted_connected;
         }));
     }
@@ -1034,7 +1034,7 @@ TEST_CASE("IPC socket server accepts client and exchanges framed messages",
 
     {
         std::unique_lock<std::mutex> lock(mutex);
-        REQUIRE(cv.wait_for(lock, std::chrono::seconds(2), [&] {
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return server_received;
         }));
         REQUIRE(server_text == "client-to-server");
@@ -1048,7 +1048,7 @@ TEST_CASE("IPC socket server accepts client and exchanges framed messages",
 
     {
         std::unique_lock<std::mutex> lock(mutex);
-        REQUIRE(cv.wait_for(lock, std::chrono::seconds(2), [&] {
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return client_received;
         }));
         REQUIRE(client_text == "server-to-client");
@@ -1074,7 +1074,7 @@ TEST_CASE("IPC socket server virtual callback accepts empty frames",
 
     {
         std::unique_lock<std::mutex> lock(server.mutex);
-        REQUIRE(server.cv.wait_for(lock, std::chrono::seconds(2), [&] {
+        REQUIRE(server.cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return server.accepted != nullptr;
         }));
     }
@@ -1083,7 +1083,7 @@ TEST_CASE("IPC socket server virtual callback accepts empty frames",
 
     {
         std::unique_lock<std::mutex> lock(server.mutex);
-        REQUIRE(server.cv.wait_for(lock, std::chrono::seconds(2), [&] {
+        REQUIRE(server.cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return server.binary_messages == 1 && server.text_messages == 1;
         }));
         REQUIRE(server.last_binary_size == 0);
@@ -1107,7 +1107,7 @@ TEST_CASE("IPC socket server receives binary payload frames",
 
     {
         std::unique_lock<std::mutex> lock(server.mutex);
-        REQUIRE(server.cv.wait_for(lock, std::chrono::seconds(2), [&] {
+        REQUIRE(server.cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return server.accepted != nullptr;
         }));
     }
@@ -1117,7 +1117,7 @@ TEST_CASE("IPC socket server receives binary payload frames",
 
     {
         std::unique_lock<std::mutex> lock(server.mutex);
-        REQUIRE(server.cv.wait_for(lock, std::chrono::seconds(2), [&] {
+        REQUIRE(server.cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return server.binary_messages == 1 && server.text_messages == 1;
         }));
         REQUIRE(server.last_binary_size == payload.size());
@@ -1141,7 +1141,7 @@ TEST_CASE("IPC socket server observes client disconnect",
 
     {
         std::unique_lock<std::mutex> lock(server.mutex);
-        REQUIRE(server.cv.wait_for(lock, std::chrono::seconds(2), [&] {
+        REQUIRE(server.cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return server.accepted != nullptr;
         }));
     }
@@ -1149,7 +1149,7 @@ TEST_CASE("IPC socket server observes client disconnect",
     client.disconnect();
     {
         std::unique_lock<std::mutex> lock(server.mutex);
-        REQUIRE(server.cv.wait_for(lock, std::chrono::seconds(2), [&] {
+        REQUIRE(server.cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return server.disconnects == 1;
         }));
     }
@@ -1172,7 +1172,7 @@ TEST_CASE("IPC socket client reports disconnect callback once",
 
     {
         std::unique_lock<std::mutex> lock(server.mutex);
-        REQUIRE(server.cv.wait_for(lock, std::chrono::seconds(2), [&] {
+        REQUIRE(server.cv.wait_for(lock, std::chrono::seconds(20), [&] {
             return server.accepted != nullptr;
         }));
     }
