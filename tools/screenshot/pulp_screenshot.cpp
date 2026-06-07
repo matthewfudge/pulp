@@ -7,6 +7,7 @@
 #include <pulp/view/script_engine.hpp>
 #include <pulp/view/widget_bridge.hpp>
 #include <pulp/view/screenshot.hpp>
+#include <pulp/view/screenshot_compare.hpp>
 #include <pulp/state/store.hpp>
 #include <pulp/view/viewport_reconcile.hpp>
 #include <iostream>
@@ -53,11 +54,12 @@ static void print_usage() {
     std::cerr << "  --height <px>        Height in points (default: 300)\n";
     std::cerr << "  --scale <factor>     Scale factor (default: 2.0)\n";
     std::cerr << "  --theme <name>       Theme: dark, light, pro_audio (default: dark)\n";
-    std::cerr << "  --backend <name>     Render backend: skia, coregraphics (default: skia)\n";
+    std::cerr << "  --backend <name>     Render backend: auto, skia, coregraphics, gpu (default: auto — smart: native-overlay refuse / GPU view / raster)\n";
     std::cerr << "  --runtime-trace <file.json>\n";
     std::cerr << "                       Dump JS listener/callback trace after settle\n";
     std::cerr << "  --base64             Output base64-encoded PNG to stdout\n";
     std::cerr << "  --demo               Render a demo UI (no script needed)\n";
+    std::cerr << "  --compare A.png B.png [--threshold 0.85] [--diff D.png]  Parity check: print similarity, exit 0 if >= threshold\n";
 }
 
 static std::string read_file(const std::string& path) {
@@ -99,7 +101,8 @@ struct ScreenshotCliOptions {
     float scale = 2.0f;
     std::string theme_name = "dark";
 #ifdef PULP_HAS_SKIA
-    std::string backend_name = "skia";
+    std::string backend_name = "auto";  // smart dispatch (capture_view): native-overlay
+                                        // refuse / GPU-required → gpu / else raster
 #else
     std::string backend_name = "coregraphics";
 #endif
@@ -366,6 +369,44 @@ static const char* runtime_trace_script() {
 }
 
 int main(int argc, char* argv[]) {
+    // Parity mode: `pulp-screenshot --compare <reference.png> <rendered.png>
+    //               [--threshold 0.85] [--diff <out.png>]`
+    // Prints similarity + mean error; exits 0 if similarity >= threshold else 1.
+    // Reuses the design-import / visual-regression comparison (compare_screenshot_files).
+    for (int i = 1; i + 2 < argc; ++i) {
+        if (std::string(argv[i]) != "--compare") continue;
+        const std::string ref = argv[i + 1];
+        const std::string rendered = argv[i + 2];
+        float threshold = 0.85f;
+        std::string diff_out;
+        for (int j = 1; j < argc; ++j) {
+            const std::string a = argv[j];
+            if (a == "--threshold" && j + 1 < argc) threshold = std::stof(argv[j + 1]);
+            else if (a == "--diff" && j + 1 < argc) diff_out = argv[j + 1];
+        }
+        const auto result = pulp::view::compare_screenshot_files(ref, rendered);
+        if (!result.valid) {
+            std::cerr << "Error: compare failed — could not read or size-match '" << ref
+                      << "' and '" << rendered << "'\n";
+            return 2;
+        }
+        const bool pass = result.passes(threshold);
+        std::cout << "similarity=" << result.similarity << " mean_error=" << result.mean_error
+                  << " threshold=" << threshold << " => " << (pass ? "PASS" : "FAIL") << "\n";
+        if (!diff_out.empty()) {
+            const auto a = read_file(ref), b = read_file(rendered);
+            const std::vector<uint8_t> ab(a.begin(), a.end()), bb(b.begin(), b.end());
+            const auto diff = pulp::view::generate_diff_image(ab, bb);
+            if (!diff.empty()) {
+                std::ofstream(diff_out, std::ios::binary)
+                    .write(reinterpret_cast<const char*>(diff.data()),
+                           static_cast<std::streamsize>(diff.size()));
+                std::cout << "diff image saved to " << diff_out << "\n";
+            }
+        }
+        return pass ? 0 : 1;
+    }
+
     auto options = parse_options(argc, argv);
     if (options.help) { print_usage(); return 0; }
 
@@ -383,11 +424,15 @@ int main(int argc, char* argv[]) {
         backend = ScreenshotBackend::coregraphics;
     } else if (options.backend_name == "skia") {
         backend = ScreenshotBackend::skia;
+    } else if (options.backend_name == "auto") {
+        backend = ScreenshotBackend::auto_select;
+    } else if (options.backend_name == "gpu") {
+        backend = ScreenshotBackend::gpu;
     } else if (options.backend_name == "default") {
         backend = ScreenshotBackend::default_backend;
     } else {
         std::cerr << "Error: unknown --backend '" << options.backend_name
-                  << "' (valid: skia, coregraphics, default)\n";
+                  << "' (valid: auto, skia, coregraphics, gpu, default)\n";
         return 1;
     }
 
@@ -500,22 +545,55 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Render
-    if (options.output_base64) {
-        auto png = render_to_png(root, options.width, options.height, options.scale, backend);
+    // Render. For the smart backends (auto/gpu) route through capture_view so the
+    // backend is auto-selected, native-overlay views are refused, and a blank /
+    // clear-only frame is a hard error (exit 3) instead of a silently saved blank.
+    const bool smart = (backend == ScreenshotBackend::auto_select ||
+                        backend == ScreenshotBackend::gpu);
+    std::vector<uint8_t> png;
+    std::string used_label = options.backend_name;
+    if (smart) {
+        CaptureResult cap =
+            capture_view(root, options.width, options.height, options.scale, backend);
+        if (!cap.ok) {
+            std::cerr << "Error: capture is not trustworthy — " << cap.reason << "\n";
+            return 3;  // native overlay / blank / no backend
+        }
+        png = std::move(cap.png);
+        used_label = (cap.used == ScreenshotBackend::gpu)          ? "gpu"
+                     : (cap.used == ScreenshotBackend::coregraphics) ? "coregraphics"
+                                                                     : "skia";
+    } else {
+        png = render_to_png(root, options.width, options.height, options.scale, backend);
         if (png.empty()) {
             std::cerr << "Error: rendering failed\n";
             return 1;
         }
+    }
+
+    if (options.output_base64) {
         std::cout << base64_encode(png);
         return 0;
-    } else {
-        bool ok = render_to_file(root, options.width, options.height, options.output_path, options.scale, backend);
-        if (!ok) {
-            std::cerr << "Error: rendering failed\n";
-            return 1;
-        }
-        std::cout << "Screenshot saved to " << options.output_path << " (" << options.width << "x" << options.height << " @" << options.scale << "x, backend=" << options.backend_name << ")\n";
-        return 0;
     }
+    std::ofstream out(options.output_path, std::ios::binary);
+    if (!out) {
+        std::cerr << "Error: cannot open output '" << options.output_path << "'\n";
+        return 1;
+    }
+    out.write(reinterpret_cast<const char*>(png.data()),
+              static_cast<std::streamsize>(png.size()));
+    // Check the stream state before reporting success: out.write() can fail
+    // silently (disk full, quota exceeded, I/O error, short write on a network
+    // filesystem). Flush/close explicitly so a deferred write error surfaces in
+    // the stream state rather than after the success message has been printed.
+    out.close();
+    if (!out) {
+        std::cerr << "Error: failed writing screenshot to '" << options.output_path
+                  << "' (disk full or I/O error)\n";
+        return 1;
+    }
+    std::cout << "Screenshot saved to " << options.output_path << " (" << options.width
+              << "x" << options.height << " @" << options.scale << "x, backend="
+              << used_label << ")\n";
+    return 0;
 }

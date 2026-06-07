@@ -156,10 +156,27 @@ public:
                 panel_->set_html(kWebViewEditorHtml);
             }
         });
+
+        // This pane attaches a native WebView child that the OS composites — it
+        // is NOT painted into the Pulp Skia canvas. Mark the subtree so the smart
+        // capture path (view::capture_view / standalone --screenshot) routes to
+        // the in-process WebView snapshot below instead of silently rastering a
+        // blank area where the native overlay sits.
+        set_contains_native_overlay(true);
     }
 
     ~WebViewEditorPane() override {
         detach_if_needed();
+    }
+
+    // Headless snapshot of the OS-composited WebView (WKWebView takeSnapshot on
+    // macOS). capture_view() calls this for the contains_native_overlay() subtree
+    // so the native overlay is captured rather than refused. Empty when the
+    // backend has no in-process snapshot (capture_view then reports an honest
+    // "not capturable" reason instead of a silent blank).
+    std::vector<uint8_t> capture_native_overlay_png(uint32_t /*width*/,
+                                                    uint32_t /*height*/) override {
+        return panel_ ? panel_->snapshot_png() : std::vector<uint8_t>{};
     }
 
     void attach_if_needed() {

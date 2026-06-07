@@ -8,7 +8,41 @@ description: Capture faithful PNGs of Pulp view trees / imported UIs headlessly.
 Pulp has two headless capture surfaces plus the live-host capture. Picking the
 wrong one wastes time on renders that look broken but aren't.
 
-## The one rule: use the **Skia** backend for anything with images
+## Default to `capture_view` / `--backend auto` — it picks the backend for you
+
+Don't hand-pick a backend unless you have a reason. `capture_view(root, w, h,
+scale)` (`screenshot.hpp`) and the CLI default `pulp-screenshot --backend auto`
+inspect the view tree and do the right thing, and **never return a silent blank**:
+
+| The view tree… | …gets | Why |
+|---|---|---|
+| has a `contains_native_overlay()` subtree (a WebView / native NSView) | the overlay's **in-process snapshot** (`View::capture_native_overlay_png` → e.g. WKWebView `takeSnapshot`); **refused** with a reason only if no snapshot is available | A WebKit/native overlay is composited by the OS, NOT painted into the Pulp canvas — headless raster can't see it, but a backend that exposes an in-process snapshot can still be captured |
+| has a `requires_gpu_host()` view (GPU content, custom SkSL) | the **`gpu`** path (`render_to_png_gpu`, offscreen Dawn+Skia via `HeadlessSurface`) | CPU raster does NOT render GPU-required views correctly — they come out blank/wrong |
+| neither | CPU raster (`skia` when Skia is built, else the platform `default_backend` / a registered provider) | fast, faithful for vector + image widgets |
+
+`capture_view` returns `{png, ok, used, reason}`; a blank/essentially-empty frame
+sets `ok=false`. The CLI exits 3 (not a saved blank) on refuse/blank. This is the
+"always-capturable" contract — if a UI didn't paint, you get told, not a blank PNG.
+
+**Wrappers must opt in.** A WebView is only captured/refused correctly when the
+owning Pulp `View` actually sets `set_contains_native_overlay(true)` and overrides
+`capture_native_overlay_png()` to forward `WebViewPanel::snapshot_png()`. Without
+that flag, `auto` rasters the (blank) overlay area silently — set it on any
+wrapper that attaches a native child via `attach_native_child_view` (see
+`examples/webview-plugin` `WebViewEditorPane`).
+
+**Build gating.** The `gpu` path and `has_gpu_capture()` are compiled in only when
+Skia is present (`PULP_VIEW_HAS_GPU_CAPTURE`, gated on `PULP_HAS_SKIA` — not merely
+on the `pulp-render` target, whose `HeadlessSurface::create()` is a null stub in a
+no-Skia build). In a no-Skia build the auto raster fallback is `default_backend`
+(so a host-registered `ScreenshotProvider` handles it), not a forced `skia` that
+would return empty bytes.
+
+**When to override:** force `--backend gpu` to capture a GPU view that isn't
+flagged `requires_gpu_host()`; use `skia`/`coregraphics` for the explicit cases
+below. The image-compositing rule still applies to the raster backends.
+
+## The image rule (raster backends): use **Skia** for anything with images
 
 `render_to_png(root, w, h, scale, backend)`
 (`core/view/include/pulp/view/screenshot.hpp`) takes a `ScreenshotBackend`:

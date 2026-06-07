@@ -16,7 +16,27 @@
 #include <sstream>
 #include <unordered_map>
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+
+// web_view_snapshot_mac.mm (the WKWebView takeSnapshot impl) is compiled ONLY on
+// macOS (CMake: APPLE AND NOT PULP_IOS), so the forward declaration and the call
+// site must be macOS-only too — guarding them with bare __APPLE__ would compile a
+// call to an undefined symbol on iOS (also __APPLE__) and break the iOS link.
+#if defined(__APPLE__) && TARGET_OS_OSX
+#define PULP_WEB_VIEW_HAS_MAC_SNAPSHOT 1
+#endif
+
 namespace pulp::view {
+
+#ifdef PULP_WEB_VIEW_HAS_MAC_SNAPSHOT
+// Implemented in platform/mac/web_view_snapshot_mac.mm (WKWebView takeSnapshot).
+namespace detail {
+std::vector<uint8_t> web_view_snapshot_png(void* ns_view_ptr);
+}  // namespace detail
+#endif
+
 namespace {
 
 constexpr const char* kPostMessageBinding = "__pulpPostMessage";
@@ -515,6 +535,17 @@ public:
     NativeViewHandle native_handle() override {
         if (!webview_ || !webview_->loadedOK()) return nullptr;
         return webview_->getViewHandle();
+    }
+
+    std::vector<uint8_t> snapshot_png() override {
+#ifdef PULP_WEB_VIEW_HAS_MAC_SNAPSHOT
+        NativeViewHandle nh = native_handle();
+        if (!nh) return {};
+        return detail::web_view_snapshot_png(nh);
+#else
+        // No in-process snapshot backend on this platform (iOS/Windows/Linux yet).
+        return {};
+#endif
     }
 
     void navigate(const std::string& url) override {

@@ -199,6 +199,25 @@ For Monaco specifically:
 - browser-served proof page is useful to confirm bundling, workers, and CSS
 - native-host proof is still required before claiming the bridge is working
 
+### Headless capture of a native WebView overlay
+
+A WebView is an OS-composited native child view (`attach_native_child_view`); it
+is NOT painted into the Pulp Skia canvas, so a plain headless capture
+(`render_to_png` / a host back-buffer read) of an editor that hosts one sees a
+blank where the WebView is. To make a WebView editor self-verifiable headlessly,
+the **owning Pulp `View` wrapper** must opt in:
+
+1. call `set_contains_native_overlay(true)` when it attaches the WebView, and
+2. override `capture_native_overlay_png()` to forward `WebViewPanel::snapshot_png()`
+   (macOS: WKWebView `takeSnapshot`, no screen-recording permission needed).
+
+The smart capture path (`pulp::view::capture_view` / `pulp-screenshot --backend
+auto` / standalone `--screenshot`) then returns the in-process WebView snapshot
+instead of silently rastering a blank, and **refuses with a reason** only when no
+snapshot is available. Without the flag+override, `auto` captures a blank overlay
+area silently. See `examples/webview-plugin` `WebViewEditorPane` for the pattern
+and the `screenshot` skill for the dispatch contract.
+
 ## Canvas2D bridge gotchas (when the editor is on the @pulp/react native path, NOT WebView)
 
 When porting a WebView editor to the native bridge (translating browser `<canvas>` + Canvas2D code to pulp's `canvas*` bridge globals via a JS shim like Spectr's `canvas2d-shim.ts`), several browser idioms silently break. Authoritative reference is the **`import-design` skill's "Canvas2D Bridge Gotchas" section** — see that for the full rule set with example code. Top-of-mind summary:
