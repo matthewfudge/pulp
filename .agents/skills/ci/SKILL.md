@@ -1023,6 +1023,35 @@ Pulp's local macOS runner runs through `actions-runner` (PIDs surfaced
 via `ps aux | grep Runner.Listener`); the daemon co-exists with the
 existing service.
 
+### Prevent: ccache false-hit guard (#3504 follow-up)
+
+The build-dir sentinel above does **not** cover the *ccache*, and the
+self-hosted macОS runners share one cache (`CCACHE_DIR=…/cache/ccache`,
+configured in each runner's `~/actions-runner-*/.env`). That `.env` sets
+`CCACHE_DEPEND=true` with the default `compiler_check=mtime` — depend mode
+skips the preprocessor and trusts the compiler's dependency manifest, and
+`mtime` keys the compiler weakly; on a shared cache a stale/false-hit object
+gets served and corrupts unrelated TUs **even on a clean build dir**. Observed
+2026-06-07: the same change-unrelated tests failed on *every* PR's `macos`
+gate — including a pure function `resolve_checkpoint_url()` returning `""` —
+while the identical tests passed on clean local Debug **and** Release builds on
+the same machine. A one-time `ccache -C` does **not** fix it: concurrent builds
+repopulate the cache within minutes, so the bad entries come right back.
+
+The fix is a *config* override, not a clear. `build.yml`'s `build` job `env:`
+forces the safe ccache path (job env overrides the runner-service `.env` for
+those steps): `CCACHE_COMPILERCHECK=content` (key the compiler by content, and
+namespace away the contaminated mtime-keyed entries), `CCACHE_DEPEND=false`
+\+ `CCACHE_DIRECT=false` (genuine preprocessor mode → hash the fully-expanded
+source so content changes can't false-hit), `CCACHE_SLOPPINESS=time_macros`
+(pulp uses no PCH, so `pch_defines` was inert). A `Ccache effective config
+(proof of override)` step prints `ccache --show-config` before Configure so the
+run log proves the override reached the step. `CCACHE_DIRECT=false` is the
+unambiguous-correctness setting; it may be relaxed for speed once the lane is
+proven stable. Durable host-side hardening (not required once the env override
+is in place): give each runner its own `CCACHE_DIR`, or set
+`compiler_check=content` in the runner `.env`.
+
 ### Keep current: `shipyard update`
 
 ```bash
