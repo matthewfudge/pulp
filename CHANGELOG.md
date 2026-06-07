@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v03570"></a>
+## [0.357.0] - 2026-06-07
+
+- feat(view): headless GPU view capture + smart capture_view (P1) ([#3459](https://github.com/danielraffel/pulp/pull/3459))
+- fix(ci): make jsc-bundler + design-import tests Windows-safe (path/CRLF) ([#3485](https://github.com/danielraffel/pulp/pull/3485))
+
 <a id="v03560"></a>
 ## [0.356.0] - 2026-06-06
 
@@ -3723,6 +3729,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.357.0]: https://github.com/danielraffel/pulp/releases/tag/v0.357.0
 [0.356.0]: https://github.com/danielraffel/pulp/releases/tag/v0.356.0
 [0.355.1]: https://github.com/danielraffel/pulp/releases/tag/v0.355.1
 [0.355.0]: https://github.com/danielraffel/pulp/releases/tag/v0.355.0
