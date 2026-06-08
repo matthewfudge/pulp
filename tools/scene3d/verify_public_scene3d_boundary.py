@@ -33,6 +33,7 @@ EXPECTED_PUBLIC_HEADERS = [
     "core/scene/include/pulp/scene/gltf_loader.hpp",
     "core/scene/include/pulp/scene/material_key.hpp",
     "core/scene/include/pulp/scene/render_packet.hpp",
+    "core/scene/include/pulp/scene/renderer3d_characterization.hpp",
     "core/scene/include/pulp/scene/scene_data.hpp",
     "core/scene/include/pulp/scene/scene_graph.hpp",
     "core/scene/include/pulp/scene/scene_stats.hpp",

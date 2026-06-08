@@ -28,10 +28,8 @@ if(Python3_Interpreter_FOUND)
             --boundary-verifier
             "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene3d_cmake_boundary.py"
             --build-dir "${CMAKE_BINARY_DIR}")
-    set_tests_properties(scene3d-cmake-boundary-negative-contract
-        PROPERTIES
-        PASS_REGULAR_EXPRESSION
-            "scene3d_cmake_boundary_contract_case=valid-current-${PULP_SCENE3D_CMAKE_EXPECT}.*scene3d_cmake_boundary_contract_case=expect-mismatch.*scene3d_cmake_boundary_contract_case=enabled-missing-build-path.*scene3d_cmake_boundary_contract_case=enabled-missing-link-file.*scene3d_cmake_boundary_contract_case=valid-disabled.*scene3d_cmake_boundary_contract_case=disabled-build-path-present.*scene3d_cmake_boundary_contract_case=disabled-link-file-present.*scene3d_cmake_boundary_contract_case=disabled-target-present.*scene3d_cmake_boundary_contract_verified=true")
+    set_tests_properties(scene3d-cmake-boundary-negative-contract PROPERTIES
+        PASS_REGULAR_EXPRESSION "scene3d_cmake_boundary_contract_case=valid-current-${PULP_SCENE3D_CMAKE_EXPECT}.*scene3d_cmake_boundary_contract_case=expect-mismatch.*scene3d_cmake_boundary_contract_case=enabled-missing-build-path.*scene3d_cmake_boundary_contract_case=enabled-missing-link-file.*scene3d_cmake_boundary_contract_case=valid-enabled-gpu-off.*scene3d_cmake_boundary_contract_case=enabled-gpu-off-render-target-present.*scene3d_cmake_boundary_contract_case=valid-disabled.*scene3d_cmake_boundary_contract_case=disabled-build-path-present.*scene3d_cmake_boundary_contract_case=disabled-link-file-present.*scene3d_cmake_boundary_contract_case=disabled-target-present.*scene3d_cmake_boundary_contract_verified=true")
     include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/refactor_baseline_tests.cmake")
 endif()
 # iOS AUv3 helper configure smoke (macOS host only; skipped when iOS SDK absent).
@@ -2170,6 +2168,8 @@ if(PULP_ENABLE_SCENE3D)
         PULP_TEST_SCENE3D_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d")
     catch_discover_tests(pulp-test-scene3d)
 
+    pulp_add_test_suite(pulp-test-scene3d-renderer-characterization SOURCES test_scene3d_renderer_characterization.cpp LIBRARIES pulp::scene)
+
     add_test(NAME scene3d-inspect-boxtextured-stats
         COMMAND $<TARGET_FILE:pulp-scene3d-inspect>
             "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/BoxTextured/BoxTextured.glb")
@@ -2753,7 +2753,7 @@ if(PULP_ENABLE_SCENE3D)
                 --repo-root "${CMAKE_SOURCE_DIR}")
         set_tests_properties(scene3d-public-boundary PROPERTIES
             PASS_REGULAR_EXPRESSION
-                "public_scene3d_boundary_verified=10 headers")
+                "public_scene3d_boundary_verified=11 headers")
 
         add_test(NAME scene3d-public-boundary-negative-contract
             COMMAND ${Python3_EXECUTABLE}
@@ -2833,7 +2833,7 @@ if(PULP_ENABLE_SCENE3D)
                 --repo-root "${CMAKE_SOURCE_DIR}")
         set_tests_properties(scene3d-native-source-boundary PROPERTIES
             PASS_REGULAR_EXPRESSION
-                "native_source_boundary_verified=13 sources")
+                "native_source_boundary_verified=14 sources")
 
         add_test(NAME scene3d-native-source-boundary-negative-contract
             COMMAND ${Python3_EXECUTABLE}

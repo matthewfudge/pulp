@@ -4,29 +4,40 @@ import sys
 from pathlib import Path
 
 
-SCENE3D_BUILD_PATHS = [
+SCENE3D_CORE_BUILD_PATHS = [
     "core/scene",
+    "test/CMakeFiles/pulp-test-scene3d-renderer-characterization.dir",
+    "test/CMakeFiles/pulp-test-scene3d.dir",
+]
+
+SCENE3D_GPU_BUILD_PATHS = [
     "core/render/CMakeFiles/pulp-renderer3d-probe.dir",
     "core/render/CMakeFiles/pulp-scene3d-inspect-native.dir",
-    "test/CMakeFiles/pulp-test-scene3d.dir",
     "test/CMakeFiles/pulp-test-renderer3d.dir",
 ]
 
-SCENE3D_CLI_TARGET_NAMES = [
+SCENE3D_CORE_CLI_TARGET_NAMES = [
     "pulp-scene3d-inspect",
     "pulp-scene3d-sidecar",
     "pulp-scene3d-bake-preflight",
+]
+
+SCENE3D_GPU_CLI_TARGET_NAMES = [
     "pulp-renderer3d-probe",
     "pulp-scene3d-inspect-native",
 ]
 
-SCENE3D_GENERATED_LINK_FILES = [
+SCENE3D_CORE_GENERATED_LINK_FILES = [
     "core/scene/CMakeFiles/pulp-scene3d-inspect.dir/link.txt",
     "core/scene/CMakeFiles/pulp-scene3d-sidecar.dir/link.txt",
     "core/scene/CMakeFiles/pulp-scene3d-bake-preflight.dir/link.txt",
+    "test/CMakeFiles/pulp-test-scene3d-renderer-characterization.dir/link.txt",
+    "test/CMakeFiles/pulp-test-scene3d.dir/link.txt",
+]
+
+SCENE3D_GPU_GENERATED_LINK_FILES = [
     "core/render/CMakeFiles/pulp-renderer3d-probe.dir/link.txt",
     "core/render/CMakeFiles/pulp-scene3d-inspect-native.dir/link.txt",
-    "test/CMakeFiles/pulp-test-scene3d.dir/link.txt",
     "test/CMakeFiles/pulp-test-renderer3d.dir/link.txt",
 ]
 
@@ -75,6 +86,7 @@ def main():
         return 2
 
     actual_enabled = cache_bool(cache, "PULP_ENABLE_SCENE3D")
+    gpu_enabled = cache_bool(cache, "PULP_ENABLE_GPU")
     expected_enabled = args.expect == "on"
     errors = []
     if actual_enabled != expected_enabled:
@@ -83,22 +95,49 @@ def main():
             f"cache has {'on' if actual_enabled else 'off'}")
 
     if expected_enabled:
-        for relative in SCENE3D_BUILD_PATHS:
+        for relative in SCENE3D_CORE_BUILD_PATHS:
             if not path_exists(build_dir, relative):
                 errors.append(f"expected Scene3D build path missing: {relative}")
-        for relative in SCENE3D_GENERATED_LINK_FILES:
+        for relative in SCENE3D_CORE_GENERATED_LINK_FILES:
             if not path_exists(build_dir, relative):
                 errors.append(
                     f"expected Scene3D generated link file missing: {relative}")
+        if gpu_enabled:
+            for relative in SCENE3D_GPU_BUILD_PATHS:
+                if not path_exists(build_dir, relative):
+                    errors.append(
+                        f"expected Scene3D GPU build path missing: {relative}")
+            for relative in SCENE3D_GPU_GENERATED_LINK_FILES:
+                if not path_exists(build_dir, relative):
+                    errors.append(
+                        f"expected Scene3D GPU generated link file missing: {relative}")
+        else:
+            for relative in SCENE3D_GPU_BUILD_PATHS:
+                if path_exists(build_dir, relative):
+                    errors.append(
+                        f"Scene3D GPU build path present while GPU disabled: {relative}")
+            for relative in SCENE3D_GPU_GENERATED_LINK_FILES:
+                if path_exists(build_dir, relative):
+                    errors.append(
+                        f"Scene3D GPU generated link file present while GPU disabled: {relative}")
+            for target in SCENE3D_GPU_CLI_TARGET_NAMES:
+                matches = find_cli_target(build_dir, target)
+                if matches:
+                    joined = ", ".join(str(path.relative_to(build_dir))
+                                       for path in matches)
+                    errors.append(
+                        f"Scene3D GPU target present while GPU disabled: {target}: {joined}")
     else:
-        for relative in SCENE3D_BUILD_PATHS:
+        for relative in SCENE3D_CORE_BUILD_PATHS + SCENE3D_GPU_BUILD_PATHS:
             if path_exists(build_dir, relative):
                 errors.append(f"Scene3D build path present while disabled: {relative}")
-        for relative in SCENE3D_GENERATED_LINK_FILES:
+        for relative in (
+                SCENE3D_CORE_GENERATED_LINK_FILES +
+                SCENE3D_GPU_GENERATED_LINK_FILES):
             if path_exists(build_dir, relative):
                 errors.append(
                     f"Scene3D generated link file present while disabled: {relative}")
-        for target in SCENE3D_CLI_TARGET_NAMES:
+        for target in SCENE3D_CORE_CLI_TARGET_NAMES + SCENE3D_GPU_CLI_TARGET_NAMES:
             matches = find_cli_target(build_dir, target)
             if matches:
                 joined = ", ".join(str(path.relative_to(build_dir))

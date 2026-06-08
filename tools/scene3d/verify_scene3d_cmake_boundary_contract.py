@@ -9,21 +9,29 @@ import tempfile
 from pathlib import Path
 
 
-SCENE3D_BUILD_PATHS = (
+SCENE3D_CORE_BUILD_PATHS = (
     "core/scene",
+    "test/CMakeFiles/pulp-test-scene3d-renderer-characterization.dir",
+    "test/CMakeFiles/pulp-test-scene3d.dir",
+)
+
+SCENE3D_GPU_BUILD_PATHS = (
     "core/render/CMakeFiles/pulp-renderer3d-probe.dir",
     "core/render/CMakeFiles/pulp-scene3d-inspect-native.dir",
-    "test/CMakeFiles/pulp-test-scene3d.dir",
     "test/CMakeFiles/pulp-test-renderer3d.dir",
 )
 
-SCENE3D_GENERATED_LINK_FILES = (
+SCENE3D_CORE_GENERATED_LINK_FILES = (
     "core/scene/CMakeFiles/pulp-scene3d-inspect.dir/link.txt",
     "core/scene/CMakeFiles/pulp-scene3d-sidecar.dir/link.txt",
     "core/scene/CMakeFiles/pulp-scene3d-bake-preflight.dir/link.txt",
+    "test/CMakeFiles/pulp-test-scene3d-renderer-characterization.dir/link.txt",
+    "test/CMakeFiles/pulp-test-scene3d.dir/link.txt",
+)
+
+SCENE3D_GPU_GENERATED_LINK_FILES = (
     "core/render/CMakeFiles/pulp-renderer3d-probe.dir/link.txt",
     "core/render/CMakeFiles/pulp-scene3d-inspect-native.dir/link.txt",
-    "test/CMakeFiles/pulp-test-scene3d.dir/link.txt",
     "test/CMakeFiles/pulp-test-renderer3d.dir/link.txt",
 )
 
@@ -33,25 +41,40 @@ def write_text(path, text):
     path.write_text(text, encoding="utf-8")
 
 
-def write_cache(build_dir, enabled):
-    value = "ON" if enabled else "OFF"
+def write_cache(build_dir, enabled, gpu_enabled=True):
+    scene_value = "ON" if enabled else "OFF"
+    gpu_value = "ON" if gpu_enabled else "OFF"
     write_text(build_dir / "CMakeCache.txt",
-               f"PULP_ENABLE_SCENE3D:BOOL={value}\n")
+               f"PULP_ENABLE_SCENE3D:BOOL={scene_value}\n"
+               f"PULP_ENABLE_GPU:BOOL={gpu_value}\n")
 
 
-def load_cache_enabled(build_dir):
+def load_cache_flags(build_dir):
     cache = build_dir / "CMakeCache.txt"
+    flags = {"PULP_ENABLE_SCENE3D": False, "PULP_ENABLE_GPU": False}
     for line in cache.read_text(encoding="utf-8").splitlines():
-        if line.startswith("PULP_ENABLE_SCENE3D:") and "=" in line:
-            return line.split("=", 1)[1].upper() in {"1", "ON", "TRUE", "YES"}
-    return False
+        for key in flags:
+            if line.startswith(f"{key}:") and "=" in line:
+                flags[key] = line.split("=", 1)[1].upper() in {
+                    "1",
+                    "ON",
+                    "TRUE",
+                    "YES",
+                }
+    return flags
 
 
-def populate_enabled_scene3d_outputs(build_dir):
-    for relative in SCENE3D_BUILD_PATHS:
+def populate_enabled_scene3d_outputs(build_dir, gpu_enabled=True):
+    for relative in SCENE3D_CORE_BUILD_PATHS:
         (build_dir / relative).mkdir(parents=True, exist_ok=True)
-    for relative in SCENE3D_GENERATED_LINK_FILES:
+    for relative in SCENE3D_CORE_GENERATED_LINK_FILES:
         write_text(build_dir / relative, "scene3d link\n")
+    if not gpu_enabled:
+        return
+    for relative in SCENE3D_GPU_BUILD_PATHS:
+        (build_dir / relative).mkdir(parents=True, exist_ok=True)
+    for relative in SCENE3D_GPU_GENERATED_LINK_FILES:
+        write_text(build_dir / relative, "scene3d gpu link\n")
 
 
 def add_disabled_build_path(build_dir):
@@ -59,7 +82,7 @@ def add_disabled_build_path(build_dir):
 
 
 def add_disabled_link_file(build_dir):
-    write_text(build_dir / SCENE3D_GENERATED_LINK_FILES[0], "scene3d link\n")
+    write_text(build_dir / SCENE3D_CORE_GENERATED_LINK_FILES[0], "scene3d link\n")
 
 
 def add_disabled_cli_target(build_dir):
@@ -71,7 +94,11 @@ def remove_enabled_build_path(build_dir):
 
 
 def remove_enabled_link_file(build_dir):
-    (build_dir / SCENE3D_GENERATED_LINK_FILES[-1]).unlink()
+    (build_dir / SCENE3D_GPU_GENERATED_LINK_FILES[-1]).unlink()
+
+
+def add_gpu_build_path(build_dir):
+    (build_dir / SCENE3D_GPU_BUILD_PATHS[0]).mkdir(parents=True, exist_ok=True)
 
 
 def run_verifier(verifier, build_dir, expect):
@@ -119,7 +146,8 @@ def main():
         return 2
 
     errors = []
-    current_enabled = load_cache_enabled(args.build_dir)
+    current_flags = load_cache_flags(args.build_dir)
+    current_enabled = current_flags["PULP_ENABLE_SCENE3D"]
     current_expect = "on" if current_enabled else "off"
     cases = [(f"valid-current-{current_expect}", args.build_dir, current_expect, 0,
               f"scene3d_cmake_boundary_verified={current_expect}")]
@@ -128,7 +156,7 @@ def main():
         temp_root = Path(tmp)
 
         mismatch = temp_root / "expect-mismatch"
-        write_cache(mismatch, enabled=False)
+        write_cache(mismatch, enabled=False, gpu_enabled=False)
         cases.append(("expect-mismatch", mismatch, "on", 1,
                       "PULP_ENABLE_SCENE3D expected on, cache has off"))
 
@@ -144,27 +172,43 @@ def main():
         populate_enabled_scene3d_outputs(enabled_missing_link)
         remove_enabled_link_file(enabled_missing_link)
         cases.append(("enabled-missing-link-file", enabled_missing_link, "on", 1,
-                      "expected Scene3D generated link file missing"))
+                      "expected Scene3D GPU generated link file missing"))
+
+        valid_gpu_off = temp_root / "valid-enabled-gpu-off"
+        write_cache(valid_gpu_off, enabled=True, gpu_enabled=False)
+        populate_enabled_scene3d_outputs(valid_gpu_off, gpu_enabled=False)
+        cases.append(("valid-enabled-gpu-off", valid_gpu_off, "on", 0,
+                      "scene3d_cmake_boundary_verified=on"))
+
+        gpu_off_with_renderer = temp_root / "enabled-gpu-off-render-target-present"
+        write_cache(gpu_off_with_renderer, enabled=True, gpu_enabled=False)
+        populate_enabled_scene3d_outputs(gpu_off_with_renderer, gpu_enabled=False)
+        add_gpu_build_path(gpu_off_with_renderer)
+        cases.append(("enabled-gpu-off-render-target-present",
+                      gpu_off_with_renderer,
+                      "on",
+                      1,
+                      "Scene3D GPU build path present while GPU disabled"))
 
         valid_disabled = temp_root / "valid-disabled"
-        write_cache(valid_disabled, enabled=False)
+        write_cache(valid_disabled, enabled=False, gpu_enabled=False)
         cases.append(("valid-disabled", valid_disabled, "off", 0,
                       "scene3d_cmake_boundary_verified=off"))
 
         disabled_path = temp_root / "disabled-build-path-present"
-        write_cache(disabled_path, enabled=False)
+        write_cache(disabled_path, enabled=False, gpu_enabled=False)
         add_disabled_build_path(disabled_path)
         cases.append(("disabled-build-path-present", disabled_path, "off", 1,
                       "Scene3D build path present while disabled: core/scene"))
 
         disabled_link = temp_root / "disabled-link-file-present"
-        write_cache(disabled_link, enabled=False)
+        write_cache(disabled_link, enabled=False, gpu_enabled=False)
         add_disabled_link_file(disabled_link)
         cases.append(("disabled-link-file-present", disabled_link, "off", 1,
                       "Scene3D generated link file present while disabled"))
 
         disabled_target = temp_root / "disabled-target-present"
-        write_cache(disabled_target, enabled=False)
+        write_cache(disabled_target, enabled=False, gpu_enabled=False)
         add_disabled_cli_target(disabled_target)
         cases.append(("disabled-target-present", disabled_target, "off", 1,
                       "Scene3D target present while disabled"))
