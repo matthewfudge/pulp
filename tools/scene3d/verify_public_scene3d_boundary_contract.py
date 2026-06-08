@@ -14,6 +14,7 @@ EXPECTED_PUBLIC_HEADERS = [
     "core/scene/include/pulp/scene/gltf_loader.hpp",
     "core/scene/include/pulp/scene/material_key.hpp",
     "core/scene/include/pulp/scene/render_packet.hpp",
+    "core/scene/include/pulp/scene/renderer3d_characterization.hpp",
     "core/scene/include/pulp/scene/scene_data.hpp",
     "core/scene/include/pulp/scene/scene_graph.hpp",
     "core/scene/include/pulp/scene/scene_stats.hpp",
@@ -106,7 +107,7 @@ def main():
             "valid-current-boundary",
             run_verifier(args.boundary_verifier, "--repo-root", repo_root),
             0,
-            "public_scene3d_boundary_verified=10 headers",
+            "public_scene3d_boundary_verified=11 headers",
             errors,
         )
 

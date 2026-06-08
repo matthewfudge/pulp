@@ -14,6 +14,7 @@ SCENE_SOURCES = (
     "core/scene/src/gltf_loader.cpp",
     "core/scene/src/material_key.cpp",
     "core/scene/src/render_packet.cpp",
+    "core/scene/src/renderer3d_characterization.cpp",
     "core/scene/src/scene3d_bake_preflight.cpp",
     "core/scene/src/scene3d_inspect.cpp",
     "core/scene/src/scene3d_sidecar.cpp",
@@ -161,7 +162,7 @@ def main():
 
     cases = [
         ("valid-current-source-boundary", None, 0,
-         "native_source_boundary_verified=13 sources"),
+         "native_source_boundary_verified=14 sources"),
         ("unexpected-source", add_unexpected_scene_source, 1,
          "unexpected native Scene3D source"),
         ("missing-source", remove_expected_scene_source, 1,
@@ -181,11 +182,11 @@ def main():
         ("renderer-parser-leak", mutate_parser_leak_to_renderer, 1,
          "forbidden glTF parser namespace"),
         ("loader-parser-allowed", mutate_parser_allowed_in_loader, 0,
-         "native_source_boundary_verified=13 sources"),
+         "native_source_boundary_verified=14 sources"),
         ("loader-gpu-rejected", mutate_gpu_allowed_in_loader, 1,
          "forbidden Dawn/WebGPU type"),
         ("renderer-gpu-allowed", mutate_gpu_allowed_in_renderer, 0,
-         "native_source_boundary_verified=13 sources"),
+         "native_source_boundary_verified=14 sources"),
     ]
     errors = []
 
