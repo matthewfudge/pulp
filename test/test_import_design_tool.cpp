@@ -1188,7 +1188,7 @@ TEST_CASE("pulp-import-design auto-unpacks .pulp.zip Figma-plugin exports",
     // Minimal figma-plugin envelope with a Pulp / Knob recognised by
     // Phase 3's audio_widget="knob" path. The full envelope shape is
     // documented in tools/figma-plugin/schema/figma-plugin-export-v1.json
-    // and exercised end-to-end by test/test_design_import.cpp's
+    // and exercised end-to-end by test/test_design_import_codegen.cpp's
     // "[figma-plugin][phase-3]" cases. Here we only care that the CLI
     // unpacks the zip and round-trips the IR through to the codegen.
     const std::string envelope = R"JSON({

@@ -21,18 +21,48 @@
     },
     {
       "path": "test/CMakeLists.txt",
-      "max_loc": 5940,
+      "max_loc": 5937,
       "note": "shared test registration hotspot"
     },
     {
-      "path": "test/test_design_import.cpp",
-      "max_loc": 5486,
-      "note": "design-import test outlier"
+      "path": "test/test_design_import_codegen.cpp",
+      "max_loc": 1910,
+      "note": "design-import codegen test split"
     },
     {
-      "path": "test/test_renderer3d.cpp",
-      "max_loc": 4805,
-      "note": "Renderer3D test outlier"
+      "path": "test/test_design_import_fidelity.cpp",
+      "max_loc": 1226,
+      "note": "design-import fidelity test split"
+    },
+    {
+      "path": "test/test_design_import_ir.cpp",
+      "max_loc": 851,
+      "note": "design-import IR test split"
+    },
+    {
+      "path": "test/test_design_import_sources.cpp",
+      "max_loc": 1203,
+      "note": "design-import source parser test split"
+    },
+    {
+      "path": "test/test_renderer3d_shared.hpp",
+      "max_loc": 2441,
+      "note": "Renderer3D shared test fixtures"
+    },
+    {
+      "path": "test/test_renderer3d_materials.cpp",
+      "max_loc": 1093,
+      "note": "Renderer3D material test split"
+    },
+    {
+      "path": "test/test_renderer3d_scene.cpp",
+      "max_loc": 717,
+      "note": "Renderer3D scene test split"
+    },
+    {
+      "path": "test/test_renderer3d_loading.cpp",
+      "max_loc": 564,
+      "note": "Renderer3D loading test split"
     },
     {
       "path": "core/render/src/renderer3d.cpp",
