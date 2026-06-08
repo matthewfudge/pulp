@@ -75,7 +75,7 @@
           "pulp-test-design-import"
         ],
         "test_files": [
-          "test/test_design_import.cpp"
+          "test/test_design_import_codegen.cpp"
         ],
         "test_tags": [
           "[view][import][issue-709][issue-468]"
@@ -168,7 +168,7 @@
           "pulp-test-widget-bridge-runtime-import"
         ],
         "test_files": [
-          "test/test_design_import.cpp",
+          "test/test_design_import_sources.cpp",
           "test/test_design_import_react_runtime.cpp",
           "test/test_widget_bridge.cpp",
           "test/test_widget_bridge_runtime_import.cpp"
@@ -338,7 +338,7 @@
           "pulp-test-widget-bridge-runtime-import"
         ],
         "test_files": [
-          "test/test_design_import.cpp",
+          "test/test_design_import_sources.cpp",
           "test/test_design_import_react_runtime.cpp",
           "test/test_widget_bridge.cpp",
           "test/test_widget_bridge_runtime_import.cpp"
@@ -437,7 +437,7 @@
           "pulp-test-widget-bridge-runtime-import"
         ],
         "test_files": [
-          "test/test_design_import.cpp",
+          "test/test_design_import_codegen.cpp",
           "test/test_design_import_react_runtime.cpp",
           "test/test_widget_bridge.cpp",
           "test/test_widget_bridge_runtime_import.cpp"
@@ -513,7 +513,7 @@
           "pulp-test-design-import"
         ],
         "test_files": [
-          "test/test_design_import.cpp"
+          "test/test_design_import_sources.cpp"
         ],
         "test_tags": [],
         "pulp_render_reference": {
@@ -599,7 +599,7 @@
           "pulp-test-widget-bridge-runtime-import"
         ],
         "test_files": [
-          "test/test_design_import.cpp",
+          "test/test_design_import_codegen.cpp",
           "test/test_design_import_react_runtime.cpp",
           "test/test_widget_bridge.cpp",
           "test/test_widget_bridge_runtime_import.cpp"
@@ -764,7 +764,7 @@
           "pulp-test-widget-bridge-runtime-import"
         ],
         "test_files": [
-          "test/test_design_import.cpp",
+          "test/test_design_import_codegen.cpp",
           "test/test_design_import_react_runtime.cpp",
           "test/test_widget_bridge.cpp",
           "test/test_widget_bridge_runtime_import.cpp"
@@ -858,7 +858,7 @@
         ],
         "test_files": [
           "test/test_import_design_tool.cpp",
-          "test/test_design_import.cpp",
+          "test/test_design_import_codegen.cpp",
           "test/test_widget_bridge_runtime_import.cpp",
           "test/test_design_import_jsx_runtime.cpp"
         ],

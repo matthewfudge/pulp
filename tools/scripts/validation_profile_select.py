@@ -65,8 +65,8 @@ PARSER_ONLY_PATTERNS: tuple[str, ...] = (
     # Import fixtures consumed by parser tests
     "test/fixtures/imports/**",
     # Parser-specific C++ tests in the test/ directory
-    "test/test_design_import.cpp",
     "test/test_design_import_*.cpp",
+    "test/test_design_import_shared.hpp",
     "test/test_design_export.cpp",
     "test/test_cli_import_design.cpp",
     "test/test_cli_import_detect.cpp",

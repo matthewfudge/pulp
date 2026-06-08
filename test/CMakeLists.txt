@@ -2850,7 +2850,7 @@ if(PULP_ENABLE_SCENE3D)
             COMMAND ${Python3_EXECUTABLE}
                 "${CMAKE_SOURCE_DIR}/tools/scene3d/validate_renderer_golden_manifest.py"
                 "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/renderer3d-goldens.json"
-                --cpp-test "${CMAKE_CURRENT_SOURCE_DIR}/test_renderer3d.cpp")
+                --cpp-test "${CMAKE_CURRENT_SOURCE_DIR}/test_renderer3d_shared.hpp")
         set_tests_properties(scene3d-renderer-golden-manifest PROPERTIES
             PASS_REGULAR_EXPRESSION "Renderer3D golden manifest entries=2")
 
@@ -2861,7 +2861,7 @@ if(PULP_ENABLE_SCENE3D)
                 "${CMAKE_SOURCE_DIR}/tools/scene3d/validate_renderer_golden_manifest.py"
                 --manifest
                 "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/renderer3d-goldens.json"
-                --cpp-test "${CMAKE_CURRENT_SOURCE_DIR}/test_renderer3d.cpp")
+                --cpp-test "${CMAKE_CURRENT_SOURCE_DIR}/test_renderer3d_shared.hpp")
         set_tests_properties(scene3d-renderer-golden-manifest-malformed
             PROPERTIES
             PASS_REGULAR_EXPRESSION
@@ -2876,7 +2876,7 @@ if(PULP_ENABLE_SCENE3D)
                 ${Python3_EXECUTABLE}
                 "${CMAKE_SOURCE_DIR}/tools/scene3d/validate_renderer_golden_manifest.py"
                 "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/renderer3d-goldens.json"
-                --cpp-test "${CMAKE_CURRENT_SOURCE_DIR}/test_renderer3d.cpp"
+                --cpp-test "${CMAKE_CURRENT_SOURCE_DIR}/test_renderer3d_shared.hpp"
                 --require-pixel-software-adapter)
         set_tests_properties(scene3d-renderer-golden-software-adapter-required
             PROPERTIES
@@ -3009,22 +3009,19 @@ if(PULP_ENABLE_GPU)
     catch_discover_tests(pulp-test-gpu-compute ${PULP_GPU_TEST_DISCOVERY_ARGS})
 
     if(PULP_ENABLE_SCENE3D)
-        add_executable(pulp-test-renderer3d test_renderer3d.cpp)
-        target_link_libraries(pulp-test-renderer3d PRIVATE
-            pulp::render pulp::scene Catch2::Catch2WithMain)
-        target_compile_definitions(pulp-test-renderer3d PRIVATE
-            PULP_TEST_SCENE3D_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d")
+        set(_pulp_renderer3d_test_libs pulp::render pulp::scene)
+        set(_pulp_renderer3d_test_definitions PULP_TEST_SCENE3D_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d")
         if(PULP_HAS_DRACO)
-            target_link_libraries(pulp-test-renderer3d PRIVATE draco::draco)
-            target_compile_definitions(pulp-test-renderer3d PRIVATE
-                PULP_TEST_HAS_DRACO=1)
-            target_include_directories(pulp-test-renderer3d PRIVATE
-                "${draco_SOURCE_DIR}/src"
-                "${draco_BINARY_DIR}"
-                "${CMAKE_BINARY_DIR}")
+            list(APPEND _pulp_renderer3d_test_libs draco::draco)
+            list(APPEND _pulp_renderer3d_test_definitions PULP_TEST_HAS_DRACO=1)
+            list(APPEND _pulp_renderer3d_test_includes "${draco_SOURCE_DIR}/src" "${draco_BINARY_DIR}" "${CMAKE_BINARY_DIR}")
         endif()
-        catch_discover_tests(pulp-test-renderer3d
-            ${PULP_GPU_TEST_DISCOVERY_ARGS})
+        pulp_add_test_suite(pulp-test-renderer3d
+            SOURCES test_renderer3d_loading.cpp test_renderer3d_scene.cpp test_renderer3d_materials.cpp
+            LIBRARIES ${_pulp_renderer3d_test_libs}
+            COMPILE_DEFINITIONS ${_pulp_renderer3d_test_definitions}
+            INCLUDE_DIRS ${_pulp_renderer3d_test_includes}
+            DISCOVERY_ARGS ${PULP_GPU_TEST_DISCOVERY_ARGS})
 
         if(PULP_HAS_SKIA AND TARGET pulp-renderer3d-probe)
             add_test(NAME scene3d-renderer-probe-hardcoded
@@ -4848,13 +4845,13 @@ target_link_libraries(pulp-test-design-export PRIVATE pulp::view Catch2::Catch2W
 catch_discover_tests(pulp-test-design-export
     PROPERTIES LABELS "parser-import")
 
-# Design import tests (Figma/Stitch/v0/Pencil → Pulp, W3C tokens)
-add_executable(pulp-test-design-import test_design_import.cpp)
-target_link_libraries(pulp-test-design-import PRIVATE pulp::view Catch2::Catch2WithMain)
-target_compile_definitions(pulp-test-design-import PRIVATE PULP_REPO_ROOT="${CMAKE_SOURCE_DIR}")
-catch_discover_tests(pulp-test-design-import
+# Design import tests (Figma/Stitch/v0/Pencil -> Pulp, W3C tokens)
+pulp_add_test_suite(pulp-test-design-import
+    SOURCES test_design_import_ir.cpp test_design_import_codegen.cpp test_design_import_sources.cpp test_design_import_fidelity.cpp
+    LIBRARIES pulp::view
+    COMPILE_DEFINITIONS PULP_REPO_ROOT="${CMAKE_SOURCE_DIR}"
     TEST_SPEC "~[network]"
-    PROPERTIES LABELS "parser-import")
+    LABELS "parser-import")
 
 # Reference-free import-fidelity self-checks (core/view/src/design_fidelity.cpp).
 add_executable(pulp-test-design-fidelity test_design_fidelity.cpp)

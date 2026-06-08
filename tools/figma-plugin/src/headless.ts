@@ -11,7 +11,7 @@
 // `tools/import-design/figma_rest_export.py`. This bundle is the
 // *plugin-side* conformance oracle — it produces byte-identical output to
 // the published plugin's `Export to Pulp`, so the conformance test in
-// `test/test_design_import.cpp` can detect drift between the Python REST
+// `test/test_design_import_sources.cpp` can detect drift between the Python REST
 // port and the in-Figma plugin.
 //
 // Usage from a driver:
