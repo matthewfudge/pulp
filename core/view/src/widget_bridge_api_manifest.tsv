@@ -28,8 +28,8 @@ setMax	widget_value	function	core/view/src/widget_bridge.cpp
 setStep	widget_value	function	core/view/src/widget_bridge.cpp
 setOrientation	widget_value	function	core/view/src/widget_bridge.cpp
 setAccentColor	widget_value	function	core/view/src/widget_bridge.cpp
-getParam	state_binding	function	core/view/src/widget_bridge.cpp
-setParam	state_binding	function	core/view/src/widget_bridge.cpp
+getParam	state_binding	function	core/view/src/widget_bridge/state_binding_api.cpp
+setParam	state_binding	function	core/view/src/widget_bridge/state_binding_api.cpp
 animate	animation	function	core/view/src/widget_bridge.cpp
 setMotionToken	tokens	function	core/view/src/widget_bridge/tokens_api.cpp
 getMotionToken	tokens	function	core/view/src/widget_bridge/tokens_api.cpp
