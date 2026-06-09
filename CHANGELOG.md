@@ -8,6 +8,13 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v03890"></a>
+## [0.389.0] - 2026-06-09
+
+- feat(audio): WASAPI shared low-latency (IAudioClient3) + device-invalidation recovery (W4b) ([#3717](https://github.com/danielraffel/pulp/pull/3717))
+- refactor: migrate RN compatibility bridge API to registry helper ([#3705](https://github.com/danielraffel/pulp/pull/3705))
+- refactor: migrate widget value content bridge API to registry helper ([#3716](https://github.com/danielraffel/pulp/pull/3716))
+
 <a id="v03880"></a>
 ## [0.388.0] - 2026-06-09
 
@@ -4001,6 +4008,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.389.0]: https://github.com/danielraffel/pulp/releases/tag/v0.389.0
 [0.388.0]: https://github.com/danielraffel/pulp/releases/tag/v0.388.0
 [0.387.4]: https://github.com/danielraffel/pulp/releases/tag/v0.387.4
 [0.387.3]: https://github.com/danielraffel/pulp/releases/tag/v0.387.3
