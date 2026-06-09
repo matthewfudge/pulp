@@ -8,6 +8,13 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v03874"></a>
+## [0.387.4] - 2026-06-09
+
+- fix(runtime): address post-merge review feedback (#3488 sha256/collision + #3492 caret test) ([#3703](https://github.com/danielraffel/pulp/pull/3703))
+- ci(coverage): include importer CLI test targets in the diff-cover lane ([#3707](https://github.com/danielraffel/pulp/pull/3707))
+- refactor: migrate storage asset bridge API to registry helper ([#3706](https://github.com/danielraffel/pulp/pull/3706))
+
 <a id="v03873"></a>
 ## [0.387.3] - 2026-06-08
 
@@ -3988,6 +3995,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.387.4]: https://github.com/danielraffel/pulp/releases/tag/v0.387.4
 [0.387.3]: https://github.com/danielraffel/pulp/releases/tag/v0.387.3
 [0.386.1]: https://github.com/danielraffel/pulp/releases/tag/v0.386.1
 [0.386.0]: https://github.com/danielraffel/pulp/releases/tag/v0.386.0
