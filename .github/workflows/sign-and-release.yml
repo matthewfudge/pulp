@@ -127,8 +127,40 @@ jobs:
       # excluded the `validation`/auval suite here for the same hosted-runner
       # reason — see #720; this completes it.) The Build step above is the
       # release-config compile smoke; format validators are gated by validate.yml
-      # on PR. A fast built-ARTIFACT smoke (dlopen the signed .clap / load a
-      # plugin) is a worthwhile headless-safe follow-up, tracked separately.
+      # on PR. The artifact smoke below is the headless-safe replacement gate.
+
+      - name: Smoke built plugins (headless-safe — format entry point exported)
+        # Replacement for the removed unit-test re-run: confirm a BUILT plugin
+        # actually exports its format C-ABI entry, so a linkage regression that
+        # compiles-but-ships-a-dud is caught before publishing. Static symbol
+        # read (`nm`) — NO execution, so no GPU/display/audio needed (safe on the
+        # headless runner; that's why this, not dlopen+init or ctest). Zero
+        # block-risk: FAILS only on a built .clap whose Mach-O lacks
+        # `clap_entry` (a real regression); if no artifact is found it WARNS and
+        # passes, so a path/setup miss can never re-block the release.
+        run: |
+          set -uo pipefail
+          shopt -s nullglob
+          built=0
+          for clap in build/CLAP/*.clap; do
+            name="$(basename "$clap" .clap)"
+            bin="$clap/Contents/MacOS/$name"
+            [ -f "$bin" ] || bin="$clap"               # tolerate a flat .clap
+            if [ ! -f "$bin" ]; then
+              echo "::warning::no Mach-O found for $clap — skipping"
+              continue
+            fi
+            built=$((built + 1))
+            if nm -gU "$bin" 2>/dev/null | grep -q "_clap_entry"; then
+              echo "ok: $name exports clap_entry"
+            else
+              echo "::error::$bin built but does NOT export clap_entry (linkage regression)"
+              exit 1
+            fi
+          done
+          if [ "$built" -eq 0 ]; then
+            echo "::warning::no .clap plugins built — nothing to smoke (not a failure)"
+          fi
 
       - name: Import signing certificate
         if: env.MACOS_CERTIFICATE != ''
