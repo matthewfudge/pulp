@@ -8,6 +8,18 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v03900"></a>
+## [0.390.0] - 2026-06-09
+
+- feat(view): register Linux AT-SPI root over direct D-Bus (L7a-2) ([#3732](https://github.com/danielraffel/pulp/pull/3732))
+- refactor: migrate runtime bridge API to registry helper ([#3731](https://github.com/danielraffel/pulp/pull/3731))
+- refactor: migrate SVG bridge API to registry helper ([#3726](https://github.com/danielraffel/pulp/pull/3726))
+- refactor: migrate platform services bridge API to registry helper ([#3725](https://github.com/danielraffel/pulp/pull/3725))
+- refactor: migrate widget asset bridge API to registry helper ([#3723](https://github.com/danielraffel/pulp/pull/3723))
+- refactor: migrate runtime import bridge API to registry helper ([#3720](https://github.com/danielraffel/pulp/pull/3720))
+- refactor: migrate widget schema bridge API to registry helper ([#3721](https://github.com/danielraffel/pulp/pull/3721))
+- feat(platform): generic D-Bus object-server layer (L7a-1) ([#3698](https://github.com/danielraffel/pulp/pull/3698))
+
 <a id="v03890"></a>
 ## [0.389.0] - 2026-06-09
 
@@ -4008,6 +4020,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.390.0]: https://github.com/danielraffel/pulp/releases/tag/v0.390.0
 [0.389.0]: https://github.com/danielraffel/pulp/releases/tag/v0.389.0
 [0.388.0]: https://github.com/danielraffel/pulp/releases/tag/v0.388.0
 [0.387.4]: https://github.com/danielraffel/pulp/releases/tag/v0.387.4
