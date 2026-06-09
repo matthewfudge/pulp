@@ -8,6 +8,18 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v03950"></a>
+## [0.395.0] - 2026-06-09
+
+- fix(midi,view): address Codex P2 review on UMP system messages + Linux XDND HiDPI ([#3793](https://github.com/danielraffel/pulp/pull/3793))
+- refactor(local-ci): extract stale-running selection helper ([#3789](https://github.com/danielraffel/pulp/pull/3789))
+- ci(release): stop re-running the unit suite in sign-and-release (not a test gate) ([#3783](https://github.com/danielraffel/pulp/pull/3783))
+- feat(midi): implement WinRT MIDI 2.0 (UMP) backend with device hotplug ([#3781](https://github.com/danielraffel/pulp/pull/3781))
+- fix(view): @pulp/react forwards <img src> to setImageSource (parity-found) ([#3790](https://github.com/danielraffel/pulp/pull/3790))
+- refactor(local-ci): extract job completion helper ([#3788](https://github.com/danielraffel/pulp/pull/3788))
+- refactor(local-ci): extract stale-running queue helpers ([#3787](https://github.com/danielraffel/pulp/pull/3787))
+- refactor(local-ci): extract runner active-target helper ([#3786](https://github.com/danielraffel/pulp/pull/3786))
+
 <a id="v03940"></a>
 ## [0.394.0] - 2026-06-09
 
@@ -4071,6 +4083,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.395.0]: https://github.com/danielraffel/pulp/releases/tag/v0.395.0
 [0.394.0]: https://github.com/danielraffel/pulp/releases/tag/v0.394.0
 [0.393.0]: https://github.com/danielraffel/pulp/releases/tag/v0.393.0
 [0.392.2]: https://github.com/danielraffel/pulp/releases/tag/v0.392.2
