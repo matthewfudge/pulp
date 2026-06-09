@@ -29,17 +29,19 @@ TEST_CASE("AtspiRole numbers match the published AT-SPI2 enumeration",
     // NOT the legacy AtkRole values. They are part of the AT-SPI2 protocol.
     REQUIRE(kRoleImage        == 27);
     REQUIRE(kRoleLabel        == 29);
-    REQUIRE(kRoleProgressBar  == 51);
-    REQUIRE(kRolePanel        == 54);
-    REQUIRE(kRoleSlider       == 71);
+    REQUIRE(kRolePanel        == 39);
+    REQUIRE(kRoleProgressBar  == 42);
+    REQUIRE(kRoleSlider       == 51);
+    REQUIRE(kRoleToggleButton == 62);
     REQUIRE(kRoleApplication  == 75);
-    REQUIRE(kRoleToggleButton == 79);
 
     // Guard against a regression back to the old ATK numbers (slider was 34,
-    // toggle 42, label 24, panel 35, progress 33, image 21 under AtkRole).
+    // label 24, panel 35, progress 33, image 21 under AtkRole) or the
+    // post-application AT-SPI roles Pulp accidentally used in L7b.
     REQUIRE(kRoleSlider != 34u);
-    REQUIRE(kRoleToggleButton != 42u);
     REQUIRE(kRoleLabel != 24u);
+    REQUIRE(kRoleSlider != 71u);
+    REQUIRE(kRoleToggleButton != 79u);
 }
 
 TEST_CASE("AT-SPI mapping is total for unknown role values", "[a11y][atspi]") {
@@ -57,6 +59,11 @@ TEST_CASE("AT-SPI state set packs into two 32-bit words", "[a11y][atspi]") {
     REQUIRE(has_state(s, kStateEnabled));
     REQUIRE((s.low & (1u << 8)) != 0u);
     REQUIRE(s.high == 0u);
+
+    set_state(s, kStateFocusable);  // 11
+    set_state(s, kStateFocused);    // 12
+    REQUIRE(has_state(s, kStateFocusable));
+    REQUIRE(has_state(s, kStateFocused));
 
     // High-word bit (index >= 32) lands in the high word, offset by 32.
     set_state(s, /*index*/ 40);

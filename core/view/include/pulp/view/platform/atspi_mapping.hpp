@@ -31,10 +31,10 @@ namespace pulp::view::atspi {
 // land as widgets need them.
 inline constexpr uint32_t kRoleImage       = 27;   // ATSPI_ROLE_IMAGE
 inline constexpr uint32_t kRoleLabel       = 29;   // ATSPI_ROLE_LABEL
-inline constexpr uint32_t kRolePanel       = 54;   // ATSPI_ROLE_PANEL
-inline constexpr uint32_t kRoleProgressBar = 51;   // ATSPI_ROLE_PROGRESS_BAR
-inline constexpr uint32_t kRoleSlider      = 71;   // ATSPI_ROLE_SLIDER
-inline constexpr uint32_t kRoleToggleButton = 79;  // ATSPI_ROLE_TOGGLE_BUTTON
+inline constexpr uint32_t kRolePanel       = 39;   // ATSPI_ROLE_PANEL
+inline constexpr uint32_t kRoleProgressBar = 42;   // ATSPI_ROLE_PROGRESS_BAR
+inline constexpr uint32_t kRoleSlider      = 51;   // ATSPI_ROLE_SLIDER
+inline constexpr uint32_t kRoleToggleButton = 62;  // ATSPI_ROLE_TOGGLE_BUTTON
 inline constexpr uint32_t kRoleApplication = 75;   // ATSPI_ROLE_APPLICATION
 inline constexpr uint32_t kRoleInvalid     = 0;    // ATSPI_ROLE_INVALID
 

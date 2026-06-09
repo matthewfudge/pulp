@@ -166,8 +166,14 @@ struct AtspiProvider {
     // ── State ────────────────────────────────────────────────────────────────
 
     // GetState returns au (array of two uint32 = the 64-bit state bitfield).
-    void append_state(DBus::Writer& w) {
-        const atspi::StateSet st = atspi::default_states();
+    void append_state(DBus::Writer& w, int index) {
+        atspi::StateSet st = atspi::default_states();
+        if (index > 0 && index < static_cast<int>(nodes_.size())) {
+            if (View* v = nodes_[static_cast<size_t>(index)].view) {
+                if (v->focusable()) atspi::set_state(st, atspi::kStateFocusable);
+                if (v->has_focus()) atspi::set_state(st, atspi::kStateFocused);
+            }
+        }
         auto a = w.open_array("u");
         DBus::Writer aw = w.sub(a);
         aw.append_uint32(st.low);
@@ -274,7 +280,7 @@ struct AtspiProvider {
         }
         if (m == "GetState") {
             DBus::Writer w = ctx.reply();
-            append_state(w);
+            append_state(w, index);
             return true;
         }
         if (m == "GetInterfaces") {
@@ -357,27 +363,21 @@ struct AtspiProvider {
             return true;
         }
         if (m == "GetPosition") {
-            // (u coord_type) -> (ii x,y)
+            // (u coord_type) -> ii x,y
             int x, y, w, h;
             compute_extents(v, x, y, w, h);
             DBus::Writer rw = ctx.reply();
-            auto s = rw.open_struct();
-            DBus::Writer sw = rw.sub(s);
-            sw.append_int32(x);
-            sw.append_int32(y);
-            rw.close_container(s);
+            rw.append_int32(x);
+            rw.append_int32(y);
             return true;
         }
         if (m == "GetSize") {
-            // () -> (ii w,h)
+            // () -> ii w,h
             int x, y, w, h;
             compute_extents(v, x, y, w, h);
             DBus::Writer rw = ctx.reply();
-            auto s = rw.open_struct();
-            DBus::Writer sw = rw.sub(s);
-            sw.append_int32(w);
-            sw.append_int32(h);
-            rw.close_container(s);
+            rw.append_int32(w);
+            rw.append_int32(h);
             return true;
         }
         if (m == "Contains") {
@@ -388,8 +388,7 @@ struct AtspiProvider {
             int x, y, w, h;
             compute_extents(v, x, y, w, h);
             const bool inside = px >= x && px < x + w && py >= y && py < y + h;
-            // AT-SPI marshals the bool as a uint32 on the wire (0/1).
-            ctx.reply().append_uint32(inside ? 1u : 0u);
+            ctx.reply().append_bool(inside);
             return true;
         }
         if (m == "GetLayer") {
@@ -400,7 +399,7 @@ struct AtspiProvider {
         if (m == "GrabFocus") {
             // () -> b. Request focus on the View; report success.
             if (v) v->set_focus(true);
-            ctx.reply().append_uint32(1u);
+            ctx.reply().append_bool(true);
             return true;
         }
         return false;

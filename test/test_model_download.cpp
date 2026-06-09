@@ -16,6 +16,7 @@
 #include <fstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 using namespace pulp::runtime;
 namespace fs = std::filesystem;
@@ -302,6 +303,60 @@ TEST_CASE("model store: install_model downloads + records, then remove_model del
     REQUIRE_FALSE(fs::exists(inst.metadata_path));
     REQUIRE(read_active_model_id("magenta", home).empty());
 
+    fs::remove_all(root);
+}
+
+TEST_CASE("model store: install_model reports no-length progress as indeterminate, then complete",
+          "[runtime][model][download]") {
+    const fs::path root = fs::temp_directory_path() / "pulp-mm-no-length-progress";
+    fs::remove_all(root);
+    fs::create_directories(root / "home");
+    const std::string body(64'000, 'm');
+
+    httplib::Server svr;
+    svr.Get("/weights.bin", [body](const httplib::Request&, httplib::Response& res) {
+        res.set_chunked_content_provider(
+            "application/octet-stream",
+            [body](size_t offset, httplib::DataSink& sink) {
+                if (offset >= body.size()) {
+                    sink.done();
+                    return true;
+                }
+                const size_t remaining = body.size() - offset;
+                const size_t chunk = remaining < 4096 ? remaining : 4096;
+                return sink.write(body.data() + offset, chunk);
+            });
+    });
+    int port = svr.bind_to_any_port("127.0.0.1");
+    std::thread th([&] { svr.listen_after_bind(); });
+    svr.wait_until_ready();
+
+    ModelEntry model{.model_id = "m-no-length", .display_name = "No Length", .backend = "mlx"};
+    model.download_url = "http://127.0.0.1:" + std::to_string(port) + "/weights.bin";
+
+    std::vector<DownloadProgress> progress;
+    auto inst = install_model(
+        model, "magenta",
+        [&](const DownloadProgress& p) {
+            progress.push_back(p);
+            return true;
+        },
+        /*cancel=*/nullptr, /*headers=*/{}, root / "home");
+
+    INFO("install error: " << inst.error);
+    REQUIRE(inst.ok);
+    REQUIRE_FALSE(progress.empty());
+
+    bool saw_indeterminate_bytes = false;
+    for (const auto& p : progress) {
+        if (p.total == 0 && p.downloaded > 0) saw_indeterminate_bytes = true;
+    }
+    REQUIRE(saw_indeterminate_bytes);
+    REQUIRE(progress.back().total == 1'000'000);
+    REQUIRE(progress.back().downloaded == 1'000'000);
+
+    svr.stop();
+    if (th.joinable()) th.join();
     fs::remove_all(root);
 }
 

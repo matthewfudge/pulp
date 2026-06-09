@@ -20,7 +20,7 @@ WasapiDevice::WasapiDevice(IMMDevice* device, EDataFlow flow)
 }
 
 WasapiDevice::~WasapiDevice() {
-    if (is_running_.load()) stop();
+    stop();
     if (is_open_) close();
     if (device_) { device_->Release(); device_ = nullptr; }
 }
@@ -329,15 +329,22 @@ bool WasapiDevice::start(AudioCallback callback) {
 }
 
 void WasapiDevice::stop() {
-    if (!is_running_.load(std::memory_order_acquire)) return;
+    const bool was_running = is_running_.exchange(false, std::memory_order_acq_rel);
+    bool had_thread = false;
 
     // Signal the I/O thread to stop
-    is_running_.store(false, std::memory_order_release);
     if (stop_event_) SetEvent(stop_event_);
 
-    if (io_thread_.joinable()) io_thread_.join();
+    if (io_thread_.joinable()) {
+        had_thread = true;
+        if (io_thread_.get_id() == std::this_thread::get_id()) {
+            io_thread_.detach();
+        } else {
+            io_thread_.join();
+        }
+    }
 
-    if (audio_client_) {
+    if (audio_client_ && (was_running || had_thread)) {
         audio_client_->Stop();
         audio_client_->Reset();
     }
@@ -373,13 +380,16 @@ void WasapiDevice::render_thread_func() {
             break;
         }
 
-        // How many frames are available in the buffer?
-        UINT32 padding = 0;
-        HRESULT hr = audio_client_->GetCurrentPadding(&padding);
-        if (hr == AUDCLNT_E_DEVICE_INVALIDATED) { on_device_invalidated_(); break; }
-        if (FAILED(hr)) continue;
-
-        UINT32 available = buffer_frames_ - padding;
+        UINT32 available = buffer_frames_;
+        HRESULT hr = S_OK;
+        if (config_.share_mode != ShareMode::exclusive) {
+            // How many frames are available in the shared render buffer?
+            UINT32 padding = 0;
+            hr = audio_client_->GetCurrentPadding(&padding);
+            if (hr == AUDCLNT_E_DEVICE_INVALIDATED) { on_device_invalidated_(); break; }
+            if (FAILED(hr)) continue;
+            available = buffer_frames_ - padding;
+        }
         if (available == 0) continue;
 
         // Get the output buffer from WASAPI
