@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v03821"></a>
+## [0.382.1] - 2026-06-08
+
+- ci(audio): compile the JACK backend in Linux CI + open/start/stop smoke (L5b) ([#3657](https://github.com/danielraffel/pulp/pull/3657))
+
 <a id="v03820"></a>
 ## [0.382.0] - 2026-06-08
 
@@ -3932,6 +3937,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.382.1]: https://github.com/danielraffel/pulp/releases/tag/v0.382.1
 [0.382.0]: https://github.com/danielraffel/pulp/releases/tag/v0.382.0
 [0.381.0]: https://github.com/danielraffel/pulp/releases/tag/v0.381.0
 [0.380.0]: https://github.com/danielraffel/pulp/releases/tag/v0.380.0
