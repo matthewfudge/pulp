@@ -103,9 +103,14 @@ Slice 6 (#551).
   pass on real hardware — that blocked Releases AFTER the Xcode-pin let the build
   through. Principle: tests gate at PR on representative hardware; the release
   builds + signs + notarizes + packages the validated commit (the Build step is
-  the release-config compile smoke; `validate.yml` gates format validators). If a
-  release smoke is wanted, smoke the built ARTIFACT (dlopen the signed `.clap` /
-  load a plugin) — headless-safe — never re-run the hardware-dependent suite.
+  the release-config compile smoke; `validate.yml` gates format validators). The
+  replacement gate is a built-ARTIFACT smoke (the "Smoke built plugins" step):
+  it `nm`-reads each built `build/CLAP/*.clap` and FAILS only if a Mach-O was
+  produced without its `clap_entry` C-ABI export (a real linkage regression),
+  warning-and-passing when no artifact is found (a path/setup miss must never
+  re-block the release). Static symbol read = NO execution, so it's headless-safe
+  — never use dlopen+init (loads GPU/Skia libs the headless runner lacks) or
+  re-run the hardware-dependent ctest suite.
 - `.github/workflows/header-self-contained.yml` (pulp #2576) is a BLOCKING gate
   for the "compiles on Apple Clang, breaks on Linux" transitive-include class
   (e.g. `uint32_t` without `#include <cstdint>` — broke the v0.197.4 release).
