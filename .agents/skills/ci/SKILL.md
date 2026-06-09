@@ -81,6 +81,19 @@ Slice 6 (#551).
   build/packaging/appcast-generation regression surfaces BEFORE a real tag.
   Keep it credential-free (notarize/sign stay in the real path) so it can run
   on a schedule without secrets.
+- **Release-runner Xcode must be pinned (C++20 parity).** `sign-and-release.yml`
+  runs on GitHub-hosted `macos-14`, whose DEFAULT Xcode is 15.4 — its Apple clang
+  lacks C++20 **P0960** (parenthesized aggregate init, `Type p(arg)` for a
+  ctor-less aggregate). The self-hosted PR `macos` lane uses a much newer clang
+  that accepts it, so a CLI/import TU compiled on every PR but FAILED only in the
+  release build — silently breaking GitHub Releases v0.372–v0.391 (tags kept
+  being cut; only the release-cadence watchdog noticed). The job now selects the
+  newest installed Xcode 16.x via `xcode-select` (shell, no third-party action so
+  an actions-allowlist can't hold the release hostage), restoring C++20 parity
+  with the PR lane. **When a release/packaging workflow builds C++ on a GitHub-
+  hosted macOS runner, pin a modern Xcode** — the default lags and silently
+  diverges from the PR toolchain. (Code-side defense: always brace aggregate init
+  `Type p{arg}` in CLI/import code — see the import-design skill.)
 - `.github/workflows/header-self-contained.yml` (pulp #2576) is a BLOCKING gate
   for the "compiles on Apple Clang, breaks on Linux" transitive-include class
   (e.g. `uint32_t` without `#include <cstdint>` — broke the v0.197.4 release).
