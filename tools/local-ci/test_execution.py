@@ -147,6 +147,18 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(passing["overall"], "pass")
         self.assertEqual(failing["overall"], "fail")
 
+    def test_sorted_target_results_orders_by_target(self) -> None:
+        results = [
+            {"target": "windows", "status": "pass"},
+            {"target": "mac", "status": "pass"},
+            {"target": "ubuntu", "status": "fail"},
+        ]
+
+        sorted_results = self.mod.sorted_target_results(results)
+
+        self.assertEqual([item["target"] for item in sorted_results], ["mac", "ubuntu", "windows"])
+        self.assertEqual([item["target"] for item in results], ["windows", "mac", "ubuntu"])
+
     def test_local_validation_command_builds_full_and_smoke_commands(self) -> None:
         full_cmd, full_validation = self.mod.local_validation_command(
             {"sha": "a" * 40, "targets": ["mac"], "validation": "full"},
