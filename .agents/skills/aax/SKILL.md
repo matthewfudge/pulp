@@ -138,6 +138,9 @@ int32_t sysex_start_offset = 0;
 This matches the shape used for CLAP/VST3/AU/CoreMIDI/ALSA sysex (#239).
 See `core/format/src/aax_runtime.cpp::decode_midi_node` for the canonical
 implementation landed in #408.
+The AAX bypass MIDI-thru helper must copy sidecar payloads with
+`MidiBuffer::add_sysex_copy()`; `MidiBuffer::SysexPayload` is deliberately
+not a movable raw `std::vector`.
 
 When adding or changing any AAX MIDI input path, exercise this against a
 multi-packet sysex vector (at least one packet across the 4-byte boundary

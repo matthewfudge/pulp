@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <vector>
 #include <algorithm>
+#include <initializer_list>
 #include <limits>
 
 namespace pulp::midi {
@@ -23,6 +24,64 @@ namespace pulp::midi {
 class MidiBuffer {
 public:
     MidiBuffer() = default;
+    MidiBuffer(const MidiBuffer& other)
+        : ump_(other.ump_),
+          sysex_copy_payload_capacity_(other.sysex_copy_payload_capacity_),
+          limit_to_reserved_capacity_(other.limit_to_reserved_capacity_),
+          dropped_events_(other.dropped_events_),
+          dropped_sysex_events_(other.dropped_sysex_events_) {
+        copy_event_storage(other);
+        reserve_copied_sysex_payloads(other);
+    }
+    MidiBuffer& operator=(const MidiBuffer& other) {
+        if (this != &other) {
+            sysex_.clear();
+            ump_ = other.ump_;
+            sysex_copy_payload_capacity_ = other.sysex_copy_payload_capacity_;
+            limit_to_reserved_capacity_ = other.limit_to_reserved_capacity_;
+            dropped_events_ = other.dropped_events_;
+            dropped_sysex_events_ = other.dropped_sysex_events_;
+            copy_event_storage(other);
+            reserve_copied_sysex_payloads(other);
+        }
+        return *this;
+    }
+    MidiBuffer(MidiBuffer&& other) noexcept
+        : events_(std::move(other.events_)),
+          sysex_copy_payload_pool_(std::move(other.sysex_copy_payload_pool_)),
+          sysex_(std::move(other.sysex_)),
+          ump_(other.ump_),
+          sysex_copy_payload_capacity_(other.sysex_copy_payload_capacity_),
+          limit_to_reserved_capacity_(other.limit_to_reserved_capacity_),
+          dropped_events_(other.dropped_events_),
+          dropped_sysex_events_(other.dropped_sysex_events_) {
+        rebind_sysex_payloads_to_pool();
+        other.ump_ = nullptr;
+        other.sysex_copy_payload_capacity_ = 0;
+        other.limit_to_reserved_capacity_ = false;
+        other.dropped_events_ = 0;
+        other.dropped_sysex_events_ = 0;
+    }
+    MidiBuffer& operator=(MidiBuffer&& other) noexcept {
+        if (this != &other) {
+            sysex_.clear();
+            events_ = std::move(other.events_);
+            sysex_copy_payload_pool_ = std::move(other.sysex_copy_payload_pool_);
+            sysex_ = std::move(other.sysex_);
+            ump_ = other.ump_;
+            sysex_copy_payload_capacity_ = other.sysex_copy_payload_capacity_;
+            limit_to_reserved_capacity_ = other.limit_to_reserved_capacity_;
+            dropped_events_ = other.dropped_events_;
+            dropped_sysex_events_ = other.dropped_sysex_events_;
+            rebind_sysex_payloads_to_pool();
+            other.ump_ = nullptr;
+            other.sysex_copy_payload_capacity_ = 0;
+            other.limit_to_reserved_capacity_ = false;
+            other.dropped_events_ = 0;
+            other.dropped_sysex_events_ = 0;
+        }
+        return *this;
+    }
 
     /// Append a MIDI event to the buffer.
     bool add(const MidiEvent& event) {
@@ -53,21 +112,31 @@ public:
     std::size_t size() const { return events_.size(); }
 
     /// Preallocate storage for realtime callers that append during process().
-    void reserve(std::size_t event_capacity, std::size_t sysex_capacity = 0) {
+    void reserve(std::size_t event_capacity,
+                 std::size_t sysex_capacity = 0,
+                 std::size_t sysex_copy_payload_capacity = 0) {
         events_.reserve(event_capacity);
         sysex_.reserve(sysex_capacity);
+        if (sysex_copy_payload_capacity > 0) {
+            reserve_sysex_copy_payloads(sysex_capacity,
+                                        sysex_copy_payload_capacity);
+        }
     }
 
     /// When enabled, add() and move-based add_sysex() drop once reserved
-    /// capacity is full instead of growing vectors. add_sysex_copy() always
-    /// drops in this mode because copying host-owned payload bytes would
-    /// allocate on the realtime path. Intended for adapter-owned buffers.
+    /// capacity is full instead of growing vectors. add_sysex_copy() uses
+    /// reserve_sysex_copy_payloads() storage in this mode and drops when no
+    /// reserved payload slot can hold the event. Intended for adapter-owned
+    /// buffers.
     void set_realtime_capacity_limit(bool enabled = true) {
         limit_to_reserved_capacity_ = enabled;
     }
     bool realtime_capacity_limited() const { return limit_to_reserved_capacity_; }
     std::size_t event_capacity() const { return events_.capacity(); }
     std::size_t sysex_capacity() const { return sysex_.capacity(); }
+    std::size_t sysex_copy_payload_capacity() const {
+        return sysex_copy_payload_capacity_;
+    }
     std::uint32_t dropped_event_count() const { return dropped_events_; }
     std::uint32_t dropped_sysex_count() const { return dropped_sysex_events_; }
 
@@ -114,8 +183,125 @@ public:
     // list with kData type, CLAP CLAP_EVENT_MIDI_SYSEX) populate this
     // alongside the short-message stream; plugins that don't care can
     // ignore it.
+    class SysexPayload {
+    public:
+        SysexPayload() = default;
+        SysexPayload(std::initializer_list<uint8_t> values) : bytes_(values) {}
+        SysexPayload(std::vector<uint8_t> bytes)
+            : bytes_(std::move(bytes)) {}
+
+        SysexPayload(const SysexPayload& other)
+            : bytes_(other.bytes_),
+              realtime_pool_backed_(other.realtime_pool_backed_) {}
+        SysexPayload& operator=(const SysexPayload& other) {
+            if (this != &other) {
+                recycle_now();
+                bytes_ = other.bytes_;
+                realtime_pool_backed_ = other.realtime_pool_backed_;
+                recycle_pool_ = nullptr;
+                recycle_capacity_ = 0;
+            }
+            return *this;
+        }
+
+        ~SysexPayload() { recycle_now(); }
+
+        SysexPayload(SysexPayload&&) = delete;
+        SysexPayload& operator=(SysexPayload&&) = delete;
+
+        SysexPayload& operator=(std::initializer_list<uint8_t> values) {
+            mutable_bytes().assign(values.begin(), values.end());
+            return *this;
+        }
+        SysexPayload& operator=(std::vector<uint8_t> bytes) {
+            recycle_now();
+            bytes_ = std::move(bytes);
+            realtime_pool_backed_ = false;
+            return *this;
+        }
+
+        std::size_t size() const { return view().size(); }
+        bool empty() const { return view().empty(); }
+        std::size_t capacity() const { return view().capacity(); }
+        const uint8_t* data() const { return view().data(); }
+        uint8_t* data() { return mutable_bytes().data(); }
+        const uint8_t& front() const { return view().front(); }
+        uint8_t& front() { return mutable_bytes().front(); }
+        const uint8_t& back() const { return view().back(); }
+        uint8_t& back() { return mutable_bytes().back(); }
+        const uint8_t& operator[](std::size_t index) const {
+            return view()[index];
+        }
+        uint8_t& operator[](std::size_t index) {
+            return mutable_bytes()[index];
+        }
+        auto begin() const { return view().begin(); }
+        auto end() const { return view().end(); }
+        auto begin() { return mutable_bytes().begin(); }
+        auto end() { return mutable_bytes().end(); }
+        void reserve(std::size_t capacity) { mutable_bytes().reserve(capacity); }
+        void resize(std::size_t size) { mutable_bytes().resize(size); }
+        void clear() { mutable_bytes().clear(); }
+        void push_back(uint8_t byte) { mutable_bytes().push_back(byte); }
+
+        std::vector<uint8_t> to_vector() const { return view(); }
+
+        friend bool operator==(const SysexPayload& lhs,
+                               const std::vector<uint8_t>& rhs) {
+            return lhs.view() == rhs;
+        }
+        friend bool operator==(const std::vector<uint8_t>& lhs,
+                               const SysexPayload& rhs) {
+            return lhs == rhs.view();
+        }
+        friend bool operator!=(const SysexPayload& lhs,
+                               const std::vector<uint8_t>& rhs) {
+            return !(lhs == rhs);
+        }
+        friend bool operator!=(const std::vector<uint8_t>& lhs,
+                               const SysexPayload& rhs) {
+            return !(lhs == rhs);
+        }
+
+    private:
+        friend class MidiBuffer;
+
+        const std::vector<uint8_t>& view() const { return bytes_; }
+        std::vector<uint8_t>& mutable_bytes() { return bytes_; }
+        std::vector<uint8_t> release_owned_vector() {
+            recycle_pool_ = nullptr;
+            realtime_pool_backed_ = false;
+            return std::move(bytes_);
+        }
+        bool realtime_pool_backed() const { return realtime_pool_backed_; }
+        void set_realtime_pool_backed(
+            bool backed,
+            std::vector<std::vector<uint8_t>>* recycle_pool = nullptr,
+            std::size_t recycle_capacity = 0) {
+            realtime_pool_backed_ = backed;
+            recycle_pool_ = backed ? recycle_pool : nullptr;
+            recycle_capacity_ = backed ? recycle_capacity : 0;
+        }
+        void recycle_now() {
+            if (recycle_pool_ != nullptr && recycle_capacity_ > 0
+                && bytes_.capacity() >= recycle_capacity_
+                && recycle_pool_->size() < recycle_pool_->capacity()) {
+                bytes_.clear();
+                recycle_pool_->push_back(std::move(bytes_));
+            }
+            recycle_pool_ = nullptr;
+            recycle_capacity_ = 0;
+            realtime_pool_backed_ = false;
+        }
+
+        std::vector<uint8_t> bytes_;
+        std::vector<std::vector<uint8_t>>* recycle_pool_ = nullptr;
+        std::size_t recycle_capacity_ = 0;
+        bool realtime_pool_backed_ = false;
+    };
+
     struct SysexEvent {
-        std::vector<uint8_t> data;   ///< full F0 .. F7 payload
+        SysexPayload data;           ///< full F0 .. F7 payload
         int32_t sample_offset = 0;   ///< sample position within the block
         double  timestamp = 0.0;     ///< absolute time in seconds
     };
@@ -125,15 +311,29 @@ public:
             record_sysex_drop();
             return false;
         }
-        sysex_.push_back({std::move(data), sample_offset, ts});
+        sysex_.emplace_back();
+        auto& event = sysex_.back();
+        event.data = std::move(data);
+        event.sample_offset = sample_offset;
+        event.timestamp = ts;
         return true;
     }
     bool add_sysex(SysexEvent&& event) {
+        if (event.data.realtime_pool_backed()) {
+            return add_sysex_copy(event.data.data(),
+                                  event.data.size(),
+                                  event.sample_offset,
+                                  event.timestamp);
+        }
         if (!can_append_sysex()) {
             record_sysex_drop();
             return false;
         }
-        sysex_.push_back(std::move(event));
+        sysex_.emplace_back();
+        auto& dst = sysex_.back();
+        dst.data = event.data.release_owned_vector();
+        dst.sample_offset = event.sample_offset;
+        dst.timestamp = event.timestamp;
         return true;
     }
     bool add_sysex_copy(const uint8_t* data,
@@ -141,21 +341,31 @@ public:
                         int32_t sample_offset = 0,
                         double ts = 0.0) {
         if (limit_to_reserved_capacity_) {
-            record_sysex_drop();
-            return false;
+            return add_sysex_copy_realtime(data, size, sample_offset, ts);
         }
         if (!can_append_sysex()) {
             record_sysex_drop();
             return false;
         }
-        sysex_.push_back({
-            std::vector<uint8_t>(data, data + size),
-            sample_offset,
-            ts,
-        });
-        return true;
+        return add_sysex(std::vector<uint8_t>(data, data + size),
+                         sample_offset,
+                         ts);
+    }
+    void reserve_sysex_copy_payloads(std::size_t payload_count,
+                                     std::size_t payload_capacity) {
+        sysex_copy_payload_capacity_ = payload_capacity;
+        sysex_copy_payload_pool_.clear();
+        sysex_copy_payload_pool_.reserve(payload_count);
+        for (std::size_t i = 0; i < payload_count; ++i) {
+            std::vector<uint8_t> payload;
+            payload.reserve(payload_capacity);
+            sysex_copy_payload_pool_.push_back(std::move(payload));
+        }
     }
     void clear_sysex() {
+        for (auto& event : sysex_) {
+            recycle_sysex_payload(event.data.release_owned_vector());
+        }
         sysex_.clear();
         dropped_sysex_events_ = 0;
     }
@@ -170,6 +380,82 @@ private:
     bool can_append_sysex() const {
         return !limit_to_reserved_capacity_ || sysex_.size() < sysex_.capacity();
     }
+    bool add_sysex_copy_realtime(const uint8_t* data,
+                                 std::size_t size,
+                                 int32_t sample_offset,
+                                 double ts) {
+        if (!can_append_sysex() || sysex_copy_payload_pool_.empty()
+            || size > sysex_copy_payload_capacity_) {
+            record_sysex_drop();
+            return false;
+        }
+        auto payload = std::move(sysex_copy_payload_pool_.back());
+        sysex_copy_payload_pool_.pop_back();
+        payload.resize(size);
+        std::copy(data, data + size, payload.begin());
+        sysex_.emplace_back();
+        auto& event = sysex_.back();
+        event.data = std::move(payload);
+        event.data.set_realtime_pool_backed(true,
+                                            &sysex_copy_payload_pool_,
+                                            sysex_copy_payload_capacity_);
+        event.sample_offset = sample_offset;
+        event.timestamp = ts;
+        return true;
+    }
+    void recycle_sysex_payload(std::vector<uint8_t>&& payload) {
+        if (sysex_copy_payload_capacity_ == 0
+            || payload.capacity() < sysex_copy_payload_capacity_
+            || sysex_copy_payload_pool_.size()
+                   >= sysex_copy_payload_pool_.capacity()) {
+            return;
+        }
+        payload.clear();
+        sysex_copy_payload_pool_.push_back(std::move(payload));
+    }
+    void copy_event_storage(const MidiBuffer& other) {
+        events_.clear();
+        events_.reserve(other.events_.capacity());
+        events_ = other.events_;
+        sysex_.clear();
+        sysex_.reserve(other.sysex_.capacity());
+        sysex_ = other.sysex_;
+    }
+    void reserve_copied_sysex_payloads(const MidiBuffer& other) {
+        sysex_copy_payload_pool_.clear();
+        if (sysex_copy_payload_capacity_ == 0) {
+            return;
+        }
+        for (auto& event : sysex_) {
+            if (event.data.size() <= sysex_copy_payload_capacity_) {
+                event.data.reserve(sysex_copy_payload_capacity_);
+                event.data.set_realtime_pool_backed(
+                    event.data.realtime_pool_backed(),
+                    event.data.realtime_pool_backed()
+                        ? &sysex_copy_payload_pool_
+                        : nullptr,
+                    event.data.realtime_pool_backed()
+                        ? sysex_copy_payload_capacity_
+                        : 0);
+            }
+        }
+        sysex_copy_payload_pool_.reserve(
+            other.sysex_copy_payload_pool_.capacity());
+        for (std::size_t i = 0; i < other.sysex_copy_payload_pool_.size(); ++i) {
+            std::vector<uint8_t> payload;
+            payload.reserve(sysex_copy_payload_capacity_);
+            sysex_copy_payload_pool_.push_back(std::move(payload));
+        }
+    }
+    void rebind_sysex_payloads_to_pool() {
+        for (auto& event : sysex_) {
+            if (event.data.realtime_pool_backed()) {
+                event.data.set_realtime_pool_backed(true,
+                                                    &sysex_copy_payload_pool_,
+                                                    sysex_copy_payload_capacity_);
+            }
+        }
+    }
     static void saturating_increment(std::uint32_t& value) {
         if (value < std::numeric_limits<std::uint32_t>::max()) {
             ++value;
@@ -179,8 +465,10 @@ private:
     void record_sysex_drop() { saturating_increment(dropped_sysex_events_); }
 
     std::vector<MidiEvent> events_;
+    std::vector<std::vector<uint8_t>> sysex_copy_payload_pool_;
     std::vector<SysexEvent> sysex_;
     class UmpBuffer* ump_ = nullptr;
+    std::size_t sysex_copy_payload_capacity_ = 0;
     bool limit_to_reserved_capacity_ = false;
     std::uint32_t dropped_events_ = 0;
     std::uint32_t dropped_sysex_events_ = 0;

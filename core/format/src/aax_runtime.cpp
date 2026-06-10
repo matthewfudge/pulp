@@ -190,7 +190,10 @@ void copy_midi(const midi::MidiBuffer& in, midi::MidiBuffer& out) {
     // bulk dumps and MIDI-CI workflows in bypass mode specifically.
     // See #438 P2 Codex review on #408.
     for (const auto& sx : in.sysex()) {
-        out.add_sysex(sx.data, sx.sample_offset, sx.timestamp);
+        out.add_sysex_copy(sx.data.data(),
+                           sx.data.size(),
+                           sx.sample_offset,
+                           sx.timestamp);
     }
 }
 
