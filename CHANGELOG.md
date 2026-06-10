@@ -8,6 +8,18 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v04030"></a>
+## [0.403.0] - 2026-06-09
+
+- fix(signal): make oversampler processing allocation-free ([#3804](https://github.com/danielraffel/pulp/pull/3804))
+- test(audio): offline Audio Doctor analyzers — magnitude response + THD ([#3862](https://github.com/danielraffel/pulp/pull/3862))
+- ci/release cli rust path ([#3861](https://github.com/danielraffel/pulp/pull/3861))
+- feature/refactor local ci status recent jobs ([#3860](https://github.com/danielraffel/pulp/pull/3860))
+- feature/refactor local ci status active targets ([#3859](https://github.com/danielraffel/pulp/pull/3859))
+- test(audio): named contract coverage for PulpGain/PulpEffect/PulpTone (harness PR 3) ([#3854](https://github.com/danielraffel/pulp/pull/3854))
+- feature/refactor local ci status groups ([#3855](https://github.com/danielraffel/pulp/pull/3855))
+- feature/refactor local ci target state formatting ([#3853](https://github.com/danielraffel/pulp/pull/3853))
+
 <a id="v04020"></a>
 ## [0.402.0] - 2026-06-09
 
@@ -4150,6 +4162,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.403.0]: https://github.com/danielraffel/pulp/releases/tag/v0.403.0
 [0.402.0]: https://github.com/danielraffel/pulp/releases/tag/v0.402.0
 [0.401.0]: https://github.com/danielraffel/pulp/releases/tag/v0.401.0
 [0.400.0]: https://github.com/danielraffel/pulp/releases/tag/v0.400.0
