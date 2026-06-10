@@ -30,6 +30,17 @@ on:
     branches: [main, develop]
   push:
     branches: [main]
+  schedule:
+    # Supersession-immune main-dashboard refresh. Push-triggered coverage on a
+    # high-churn main gets superseded while QUEUED (cancel-in-progress:false +
+    # GitHub's queue-depth-1, compounded by hosted-runner backlog) and never
+    # completes — so the C++ os-linux/os-macos/os-windows flags stop uploading
+    # and the Codecov tree collapses to the fast pulp-react Vitest lane (the
+    # 2026-05-25 → 2026-06-10 regression: 0 successful main coverage runs).
+    # A scheduled run lives in its own concurrency group (see `concurrency:`
+    # below) so pushes cannot supersede it, and forces the full native matrix
+    # (see the `classify` job), guaranteeing a periodic full cross-OS upload.
+    - cron: '17 */8 * * *'  # 00:17, 08:17, 16:17 UTC — 3×/day, offset off the hour
   workflow_dispatch:
     inputs:
       linux_runner_selector_json:
@@ -82,7 +93,13 @@ concurrency:
   # stuck-upload bug (cancel mid-`after_n_builds: 4` → no coverage signal
   # on ~70% of merges). The timeout backstop is the correct fix; staying
   # `false` preserves the coverage signal.
-  group: coverage-${{ github.ref }}
+  # Scheduled dashboard-refresh runs get their OWN group so push churn on a
+  # busy main cannot supersede them — the failure mode that left Codecov
+  # showing only packages/pulp-react/src for ~2 weeks (every push-triggered
+  # main run was cancelled while queued, never uploading the C++ flags).
+  # Push/PR runs keep the per-ref group + the queue-depth-1 semantics
+  # documented above.
+  group: coverage-${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'scheduled-refresh' || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -231,7 +248,12 @@ jobs:
   classify:
     runs-on: ubuntu-latest
     outputs:
-      native_build_required: ${{ steps.classify.outputs.native_build_required }}
+      # Force the full native matrix on `schedule` AND `workflow_dispatch`:
+      # both build main HEAD with no diff vs origin/main, so the diff-mode
+      # classifier would report no native change and skip the C++ coverage
+      # matrix — defeating a periodic OR manual dashboard refresh. Push/PR keep
+      # diff-mode so docs-only changes still skip the expensive native build.
+      native_build_required: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || steps.classify.outputs.native_build_required }}
     steps:
       - uses: actions/checkout@v5
         with:

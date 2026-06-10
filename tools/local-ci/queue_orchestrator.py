@@ -9,8 +9,8 @@ queue-command result line fragments, queue and result status line fragments,
 runner status line fragments, recent-completed result summaries,
 stale-running job selection/replacement/requeue state, stale-running
 reconciliation action selection, runner-info active-target mutation,
-completed-job state mutation, queue status grouping, and completed-queue
-retention. Higher-level queue mutation, locking, runner
+initial/progress/completed target-state payloads, target-state snapshots,
+completed-job state mutation, queue status grouping, and completed-queue retention. Higher-level queue mutation, locking, runner
 liveness, result persistence, and drain orchestration remain in local_ci.py
 until later extraction slices.
 """
@@ -458,6 +458,53 @@ def update_runner_info_active_targets(
     return True
 
 
+def initial_target_state(*, started_at: str, log_path: str) -> dict:
+    return {
+        "status": "running",
+        "started_at": started_at,
+        "phase": "starting",
+        "log_path": log_path,
+    }
+
+
+def updated_target_state(previous_state: dict | None, fields: dict) -> dict:
+    state = dict(previous_state or {})
+    for key, value in fields.items():
+        if value is None:
+            state.pop(key, None)
+        else:
+            state[key] = value
+    return state
+
+
+def completed_target_state(
+    result: dict,
+    previous_state: dict | None,
+    *,
+    completed_at: str,
+    default_log_path: str,
+) -> dict:
+    previous_state = previous_state or {}
+    return {
+        "status": result.get("status", "?"),
+        "exit_code": result.get("exit_code"),
+        "duration_secs": result.get("duration_secs"),
+        "completed_at": completed_at,
+        "phase": "done" if result.get("status") == "pass" else previous_state.get("phase", "done"),
+        "log_path": result.get("log_file", default_log_path),
+        "last_output_at": previous_state.get("last_output_at"),
+        "last_line": previous_state.get("last_line"),
+        "host": previous_state.get("host"),
+        "transport_mode": result.get("transport_mode", previous_state.get("transport_mode")),
+        "wait_reason": previous_state.get("wait_reason"),
+    }
+
+
+def target_state_snapshot(target_states: dict[str, dict]) -> dict | None:
+    snapshot = {name: dict(state) for name, state in target_states.items()}
+    return snapshot or None
+
+
 def find_stale_running_replacement_unlocked(queue: list[dict], job: dict) -> tuple[dict | None, str | None]:
     replacement = None
     replacement_reason = None
@@ -547,12 +594,7 @@ def update_job_target_state_unlocked(
         return False
 
     active_targets = dict(job.get("active_targets") or {})
-    state = dict(active_targets.get(target_name) or {})
-    for key, value in fields.items():
-        if value is None:
-            state.pop(key, None)
-        else:
-            state[key] = value
+    state = updated_target_state(active_targets.get(target_name), fields)
 
     if state:
         active_targets[target_name] = state
