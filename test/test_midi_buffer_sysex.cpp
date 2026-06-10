@@ -4,6 +4,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 #include <pulp/midi/buffer.hpp>
+#include <type_traits>
 
 using namespace pulp::midi;
 
@@ -67,6 +68,96 @@ TEST_CASE("realtime capacity limit drops copy-based sysex without allocating",
     REQUIRE(buf.sysex_size() == 0);
     REQUIRE(buf.sysex_capacity() == 1);
     REQUIRE(buf.dropped_sysex_count() == 1);
+}
+
+static_assert(!std::is_move_constructible_v<MidiBuffer::SysexPayload>);
+static_assert(!std::is_move_assignable_v<MidiBuffer::SysexPayload>);
+
+TEST_CASE("realtime copy-based sysex can be copied into prepared storage",
+          "[midi][buffer][sysex][realtime]") {
+    MidiBuffer buf;
+    buf.reserve(1, 1, 8);
+    buf.set_realtime_capacity_limit(true);
+    MidiBuffer captured;
+    captured.reserve(1, 1, 8);
+    captured.set_realtime_capacity_limit(true);
+
+    const uint8_t first[] = {0xF0, 0x7D, 0x01, 0xF7};
+    REQUIRE(buf.add_sysex_copy(first, sizeof(first), 12, 0.25));
+    REQUIRE(buf.sysex_size() == 1);
+
+    REQUIRE(captured.add_sysex_copy(
+        buf.sysex()[0].data.data(),
+        buf.sysex()[0].data.size(),
+        buf.sysex()[0].sample_offset,
+        buf.sysex()[0].timestamp));
+    REQUIRE(captured.sysex()[0].data
+            == std::vector<uint8_t>{0xF0, 0x7D, 0x01, 0xF7});
+    REQUIRE(buf.sysex()[0].data
+            == std::vector<uint8_t>{0xF0, 0x7D, 0x01, 0xF7});
+
+    buf.clear_sysex();
+    REQUIRE(buf.dropped_sysex_count() == 0);
+    REQUIRE(captured.sysex()[0].data
+            == std::vector<uint8_t>{0xF0, 0x7D, 0x01, 0xF7});
+
+    const uint8_t second[] = {0xF0, 0x7D, 0x02, 0xF7};
+    REQUIRE(buf.add_sysex_copy(second, sizeof(second), 24, 0.5));
+    REQUIRE(buf.sysex_size() == 1);
+    REQUIRE(buf.sysex()[0].data
+            == std::vector<uint8_t>{0xF0, 0x7D, 0x02, 0xF7});
+    REQUIRE(buf.dropped_sysex_count() == 0);
+}
+
+TEST_CASE("failed rvalue sysex append leaves caller payload intact",
+          "[midi][buffer][sysex][realtime]") {
+    MidiBuffer buf;
+    buf.reserve(1, 0);
+    buf.set_realtime_capacity_limit(true);
+
+    MidiBuffer::SysexEvent event;
+    event.data = {0xF0, 0x7D, 0x03, 0xF7};
+    event.sample_offset = 32;
+
+    REQUIRE_FALSE(buf.add_sysex(std::move(event)));
+    REQUIRE(event.data == std::vector<uint8_t>{0xF0, 0x7D, 0x03, 0xF7});
+    REQUIRE(event.sample_offset == 32);
+    REQUIRE(buf.dropped_sysex_count() == 1);
+}
+
+TEST_CASE("copied realtime sysex payload pool preserves reserved capacity",
+          "[midi][buffer][sysex][realtime]") {
+    MidiBuffer prepared;
+    prepared.reserve(1, 1, 8);
+    prepared.set_realtime_capacity_limit(true);
+
+    MidiBuffer copy = prepared;
+    const uint8_t payload[] = {0xF0, 0x7D, 0x04, 0xF7};
+    REQUIRE(copy.add_sysex_copy(payload, sizeof(payload), 48, 0.75));
+    REQUIRE(copy.sysex_size() == 1);
+    REQUIRE(copy.sysex()[0].data == std::vector<uint8_t>{0xF0, 0x7D, 0x04, 0xF7});
+    REQUIRE(copy.sysex()[0].data.capacity() >= 8);
+}
+
+TEST_CASE("direct sysex vector clear recycles realtime payloads",
+          "[midi][buffer][sysex][realtime]") {
+    MidiBuffer buf;
+    buf.reserve(1, 1, 8);
+    buf.set_realtime_capacity_limit(true);
+
+    const uint8_t first[] = {0xF0, 0x7D, 0x05, 0xF7};
+    REQUIRE(buf.add_sysex_copy(first, sizeof(first), 12, 0.25));
+    REQUIRE(buf.sysex_size() == 1);
+
+    buf.sysex().clear();
+    REQUIRE(buf.sysex_size() == 0);
+
+    const uint8_t second[] = {0xF0, 0x7D, 0x06, 0xF7};
+    REQUIRE(buf.add_sysex_copy(second, sizeof(second), 24, 0.5));
+    REQUIRE(buf.sysex_size() == 1);
+    REQUIRE(buf.sysex()[0].data
+            == std::vector<uint8_t>{0xF0, 0x7D, 0x06, 0xF7});
+    REQUIRE(buf.dropped_sysex_count() == 0);
 }
 
 TEST_CASE("clear_sysex removes sidecar events but leaves short messages alone",

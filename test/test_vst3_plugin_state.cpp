@@ -185,7 +185,7 @@ void TestVst3Processor::process(
     last_midi_in_size = midi_in.size();
     last_sysex_size = midi_in.sysex_size();
     if (last_sysex_size > 0) {
-        last_sysex_payload = midi_in.sysex()[0].data;
+        last_sysex_payload = midi_in.sysex()[0].data.to_vector();
     }
     had_param_events = (param_events() != nullptr);
     last_param_events.clear();

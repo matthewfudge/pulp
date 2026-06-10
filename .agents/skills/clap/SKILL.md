@@ -169,8 +169,8 @@ CLAP_EVENT_NOTE_ON / _NOTE_OFF → MidiEvent::note_on / note_off
 CLAP_EVENT_MIDI                → MidiEvent::from_bytes(data[0..2])
                                  — CC, pitch bend, channel AT,
                                    poly AT, program change
-CLAP_EVENT_MIDI_SYSEX          → dropped on the realtime-limited path
-                                 until a preallocated payload arena exists
+CLAP_EVENT_MIDI_SYSEX          → midi_in.add_sysex_copy(bytes, time, 0.0)
+                                 backed by a preallocated payload pool
 CLAP_EVENT_NOTE_EXPRESSION     → synthesised MIDI 1.0 (see table)
 CLAP_EVENT_NOTE_CHOKE          → note_off(channel, key, velocity=0)
 CLAP_EVENT_MIDI2               → self->ump_buffer.add(packet)
@@ -211,20 +211,24 @@ the reserved capacity, appends must drop and increment the relevant drop
 counters; they must not grow vectors under the process no-allocation
 guard.
 
-Inbound CLAP SysEx is the exception: the host gives the adapter a
-non-owning payload pointer, so accepting it requires copying bytes into
-owned storage. In the current realtime-limited path,
-`MidiBuffer::add_sysex_copy()` drops and increments the sysex drop count
-instead. Move-based, prebuilt outbound SysEx remains supported. If you
-add a preallocated inbound payload arena later, cover that path and its
-overflow case in `test_clap_midi_events.cpp`.
+Inbound CLAP SysEx is the exception to the move-based adapter pattern:
+the host gives the adapter a non-owning payload pointer, so accepting it
+requires copying bytes into owned storage. `clap_activate()` reserves a
+bounded payload pool on `midi_in`; `MidiBuffer::add_sysex_copy()` copies
+into that pool on the realtime-limited process path and drops only when
+the sidecar count or per-payload capacity is exceeded. Keep the happy
+path and overflow case covered in `test_clap_midi_events.cpp`.
 
 If you add a new inbound/outbound MIDI path, cover the overflow case in
 `test_clap_midi_events.cpp`. If you add a test processor that
 captures/forwards sysex while behind the CLAP no-alloc guard, preallocate
-in `prepare()` and move prebuilt sysex events into `MidiBuffer`; copying
-a vector payload inside `process()` will trip the RT allocation trap
-under ASan/TSan/debug test builds.
+destination SysEx payload storage in `prepare()` and call
+`MidiBuffer::add_sysex_copy()` for explicit captures. Whole-event
+forwarding with `midi_out.add_sysex(std::move(sx))` is supported because
+pool-backed input events copy into the destination's prepared payload
+pool; moving only `sx.data` out of `midi_in` is intentionally not
+supported. Copying a vector payload inside `process()` will trip the RT
+allocation trap under ASan/TSan/debug test builds.
 
 ### State save / restore
 
