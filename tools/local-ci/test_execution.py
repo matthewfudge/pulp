@@ -85,6 +85,61 @@ class ExecutionTests(unittest.TestCase):
         self.assertIn("--smoke", smoke_cmd)
         self.assertIn("--no-tests", smoke_cmd)
 
+    def test_posix_ssh_validation_command_builds_full_command(self) -> None:
+        job = {
+            "id": "job701",
+            "branch": "feature/posix",
+            "sha": "c" * 40,
+            "targets": ["ubuntu"],
+            "validation": "full",
+        }
+
+        cmd, validation = self.mod.posix_ssh_validation_command(
+            "ubuntu",
+            "ubuntu.example.com",
+            "/tmp/pulp repo",
+            job,
+            bundle_name="bundle name.bundle",
+            bundle_ref="refs/pulp-ci/job701",
+            exclude_tests="slow test",
+        )
+        remote_cmd = self.mod.shlex.split(cmd[-1])[0]
+
+        self.assertEqual(validation, "full")
+        self.assertEqual(cmd[:3], ["ssh", "ubuntu.example.com", "bash"])
+        self.assertIn('export PATH="$HOME/.local/bin:$PATH"; set -euo pipefail', remote_cmd)
+        self.assertIn("branch=feature/posix", remote_cmd)
+        self.assertIn("sha=" + "c" * 40, remote_cmd)
+        self.assertIn("git fetch \"$bundle\" \"$bundle_ref:refs/remotes/origin/$branch\"", remote_cmd)
+        self.assertIn("PULP_EXPECT_SMOKE=0", remote_cmd)
+        self.assertIn("bash \"$script\" --quiet --keep-worktree --ref \"$sha\"", remote_cmd)
+        self.assertIn("--exclude-regex 'slow test'", remote_cmd)
+        self.assertIn("ubuntu cannot validate cccccccccccc on ubuntu.example.com", remote_cmd)
+
+    def test_posix_ssh_validation_command_builds_smoke_command(self) -> None:
+        job = {
+            "id": "job702",
+            "branch": "feature/smoke",
+            "sha": "d" * 40,
+            "targets": ["ubuntu"],
+            "validation": "smoke",
+        }
+
+        cmd, validation = self.mod.posix_ssh_validation_command(
+            "ubuntu",
+            "ubuntu.example.com",
+            "/tmp/pulp",
+            job,
+            bundle_name="bundle.bundle",
+            bundle_ref="refs/pulp-ci/job702",
+        )
+        remote_cmd = self.mod.shlex.split(cmd[-1])[0]
+
+        self.assertEqual(validation, "smoke")
+        self.assertIn("prepared/ubuntu/smoke", remote_cmd)
+        self.assertIn("PULP_EXPECT_SMOKE=1", remote_cmd)
+        self.assertIn("--smoke --no-tests", remote_cmd)
+
     def test_validation_result_from_run_reports_timeout(self) -> None:
         result = self.mod.validation_result_from_run(
             "mac",
