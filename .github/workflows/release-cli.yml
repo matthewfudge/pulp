@@ -197,6 +197,8 @@ jobs:
         #   - tools/deps/manifest.json: release asset inventory must
         #     include all require_gpu release Skia binaries, including
         #     linux-arm64, when backfilling older tags.
+        #   - tools/scripts/package_cli.py: release packaging/rpath fixes,
+        #     including macOS ad-hoc re-signing after install_name_tool rewrites.
         #
         # Do NOT wholesale-overlay tools/cli/CMakeLists.txt. That file's
         # source list drifts as CLI features land on main, and an older tag may
@@ -207,6 +209,7 @@ jobs:
           repo='${{ github.repository }}'
           for path in \
               tools/scripts/fetch_skia_for_release.py \
+              tools/scripts/package_cli.py \
               core/canvas/CMakeLists.txt \
               tools/deps/manifest.json \
               ; do
