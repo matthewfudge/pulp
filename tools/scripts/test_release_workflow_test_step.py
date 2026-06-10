@@ -51,6 +51,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SIGN_AND_RELEASE = REPO_ROOT / ".github" / "workflows" / "sign-and-release.yml"
 RELEASE_CLI = REPO_ROOT / ".github" / "workflows" / "release-cli.yml"
+RELEASE_PATH_PR_GATE = REPO_ROOT / ".github" / "workflows" / "release-path-pr-gate.yml"
 BUILD_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "build.yml"
 
 
@@ -201,6 +202,26 @@ class BuildWorkflowReleaseGate(unittest.TestCase):
         self.assertNotIn(
             "Path(r'sdk-staging/lib/pulp-view.lib').read_bytes(); "
             "assert b'WebViewPanel'",
+            self.text,
+        )
+
+
+class ReleasePathPrGateMacosRouting(unittest.TestCase):
+    """release-path-pr-gate.yml must route darwin via the release macOS var."""
+
+    def setUp(self) -> None:
+        self.assertTrue(
+            RELEASE_PATH_PR_GATE.exists(),
+            f"missing workflow file: {RELEASE_PATH_PR_GATE}",
+        )
+        self.text = RELEASE_PATH_PR_GATE.read_text()
+
+    def test_darwin_leg_uses_release_macos_runner_resolver(self) -> None:
+        self.assertIn("resolve-macos-runner:", self.text)
+        self.assertIn("PULP_RELEASE_MACOS_RUNS_ON_JSON", self.text)
+        self.assertIn("needs: resolve-macos-runner", self.text)
+        self.assertIn(
+            "matrix.os == 'macos-15' && fromJSON(needs.resolve-macos-runner.outputs.runs_on_json) || matrix.os",
             self.text,
         )
 
