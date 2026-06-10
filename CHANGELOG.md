@@ -8,6 +8,13 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v04020"></a>
+## [0.402.0] - 2026-06-09
+
+- feature/audio harness 2 render scenario ([#3852](https://github.com/danielraffel/pulp/pull/3852))
+- feature/refactor local ci log selection ([#3851](https://github.com/danielraffel/pulp/pull/3851))
+- feature/refactor local ci completion actions ([#3849](https://github.com/danielraffel/pulp/pull/3849))
+
 <a id="v04010"></a>
 ## [0.401.0] - 2026-06-09
 
@@ -4143,6 +4150,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.402.0]: https://github.com/danielraffel/pulp/releases/tag/v0.402.0
 [0.401.0]: https://github.com/danielraffel/pulp/releases/tag/v0.401.0
 [0.400.0]: https://github.com/danielraffel/pulp/releases/tag/v0.400.0
 [0.399.0]: https://github.com/danielraffel/pulp/releases/tag/v0.399.0
