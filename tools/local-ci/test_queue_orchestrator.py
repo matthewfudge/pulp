@@ -199,6 +199,19 @@ class QueueOrchestratorTests(unittest.TestCase):
                 "  cleanup: terminated pid 123",
             ],
         )
+        self.assertEqual(
+            self.mod.initial_target_state(
+                started_at="2026-06-09T00:01:00Z",
+                log_path="/tmp/pulp/logs/windows.log",
+            ),
+            {
+                "status": "running",
+                "started_at": "2026-06-09T00:01:00Z",
+                "phase": "starting",
+                "log_path": "/tmp/pulp/logs/windows.log",
+            },
+        )
+
         pass_state = self.mod.completed_target_state(
             {
                 "status": "pass",

@@ -9,8 +9,8 @@ queue-command result line fragments, queue and result status line fragments,
 runner status line fragments, recent-completed result summaries,
 stale-running job selection/replacement/requeue state, stale-running
 reconciliation action selection, runner-info active-target mutation,
-completed target-state payloads, completed-job state mutation, queue status
-grouping, and completed-queue retention. Higher-level queue mutation, locking, runner
+initial/completed target-state payloads, completed-job state mutation, queue
+status grouping, and completed-queue retention. Higher-level queue mutation, locking, runner
 liveness, result persistence, and drain orchestration remain in local_ci.py
 until later extraction slices.
 """
@@ -456,6 +456,15 @@ def update_runner_info_active_targets(
         info.pop("active_targets", None)
     info["updated_at"] = now_iso_fn()
     return True
+
+
+def initial_target_state(*, started_at: str, log_path: str) -> dict:
+    return {
+        "status": "running",
+        "started_at": started_at,
+        "phase": "starting",
+        "log_path": log_path,
+    }
 
 
 def completed_target_state(
