@@ -3484,81 +3484,31 @@ def run_windows_ssh_validation(
     config: dict | None = None,
     report_progress=None,
 ) -> dict:
-    log_path = prepare_target_log(job["id"], target_name)
-    try:
-        bundle_name, bundle_ref = sync_job_bundle_to_ssh_host(
-            host,
-            job,
-            report_progress=report_progress,
-            config=config,
-        )
-    except RuntimeError as exc:
-        return validation_error_result(target_name, str(exc), log_path=log_path, transport_mode="bundle")
-    try:
-        repo_probe = ensure_windows_remote_repo_checkout(
-            host,
-            repo_path,
-            remote_url=git_origin_clone_url(ROOT),
-            bundle_name=bundle_name,
-            bundle_ref=bundle_ref,
-        )
-    except RuntimeError as exc:
-        return validation_error_result(target_name, str(exc), log_path=log_path, transport_mode="bundle")
-
-    if not isinstance(repo_probe, dict):
-        return validation_error_result(
-            target_name,
-            "Windows repo checkout probe returned no structured payload",
-            log_path=log_path,
-            transport_mode="bundle",
-        )
-
-    effective_repo_path = repo_probe.get("repo_path") or repo_path
-    print(f"  [{target_name}] Running validation on {host}:{effective_repo_path} @ {short_sha(job['sha'])}...")
-    if report_progress:
-        report_progress(
-            phase="connect",
-            host=host,
-            log_path=str(log_path),
-            last_output_at=now_iso(),
-            transport_mode="bundle",
-        )
-
-    resolved_platform, resolved_generator_instance = probe_windows_ssh_cmake_settings(
+    return _execution.run_windows_ssh_validation(
+        target_name,
         host,
+        repo_path,
+        job,
+        exclude_tests,
         cmake_generator,
         cmake_platform,
         cmake_generator_instance,
-    )
-
-    ps_script, validation = windows_validation_script(
-        target_name,
-        host,
-        effective_repo_path,
-        job,
-        bundle_name=bundle_name,
-        bundle_ref=bundle_ref,
-        exclude_tests=exclude_tests,
-        cmake_generator=cmake_generator,
-        resolved_platform=resolved_platform,
-        resolved_generator_instance=resolved_generator_instance,
-    )
-
-    cmd = windows_ssh_powershell_command(host)
-
-    run = run_logged_command(
-        cmd,
-        input_text=ps_script,
-        timeout=3600,
-        log_path=log_path,
-        report_progress=report_progress,
-    )
-    return validation_result_from_run(
-        target_name,
-        run,
-        log_path=log_path,
-        validation=validation,
-        transport_mode="bundle",
+        config,
+        report_progress,
+        root=ROOT,
+        prepare_target_log_fn=prepare_target_log,
+        sync_job_bundle_to_ssh_host_fn=sync_job_bundle_to_ssh_host,
+        validation_error_result_fn=validation_error_result,
+        ensure_windows_remote_repo_checkout_fn=ensure_windows_remote_repo_checkout,
+        git_origin_clone_url_fn=git_origin_clone_url,
+        print_fn=print,
+        short_sha_fn=short_sha,
+        now_iso_fn=now_iso,
+        probe_windows_ssh_cmake_settings_fn=probe_windows_ssh_cmake_settings,
+        windows_validation_script_fn=windows_validation_script,
+        windows_ssh_powershell_command_fn=windows_ssh_powershell_command,
+        run_logged_command_fn=run_logged_command,
+        validation_result_from_run_fn=validation_result_from_run,
     )
 
 
