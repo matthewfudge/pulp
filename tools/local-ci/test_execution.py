@@ -15,13 +15,14 @@ from pathlib import Path
 
 
 MODULE_PATH = Path(__file__).with_name("execution.py")
+QUEUE_MODULE_PATH = Path(__file__).with_name("queue_orchestrator.py")
 MODULE_DIR = MODULE_PATH.parent
 
 
-def load_module():
+def load_module(path: Path = MODULE_PATH, name: str = "pulp_local_ci_execution"):
     sys.path.insert(0, str(MODULE_DIR))
     try:
-        spec = importlib.util.spec_from_file_location("pulp_local_ci_execution", MODULE_PATH)
+        spec = importlib.util.spec_from_file_location(name, path)
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None
         spec.loader.exec_module(module)
@@ -33,6 +34,7 @@ def load_module():
 class ExecutionTests(unittest.TestCase):
     def setUp(self) -> None:
         self.mod = load_module()
+        self.queue = load_module(QUEUE_MODULE_PATH, "pulp_local_ci_queue_orchestrator")
 
     def test_parse_progress_marker_detects_progress_contract(self) -> None:
         self.assertEqual(self.mod.parse_progress_marker("__PULP_PHASE__:build\n"), {"phase": "build"})
@@ -419,6 +421,290 @@ class ExecutionTests(unittest.TestCase):
             ),
             [],
         )
+
+    def test_process_job_returns_empty_result_without_target_tasks(self) -> None:
+        job = {
+            "id": "job-empty",
+            "branch": "feature/empty",
+            "sha": "a" * 40,
+            "priority": "low",
+        }
+        messages = []
+        completed = {}
+
+        result = self.mod.process_job(
+            job,
+            {"targets": {}},
+            print_fn=messages.append,
+            short_sha_fn=lambda sha: sha[:12],
+            config_for_job_execution_fn=lambda queued_job, config: {"resolved": config, "job": queued_job["id"]},
+            build_target_tasks_fn=lambda queued_job, config, progress_factory=None: [],
+            target_state_snapshot_fn=lambda states: dict(states),
+            update_runner_active_targets_fn=lambda *_args: self.fail("unexpected runner active-target update"),
+            update_job_active_targets_fn=lambda *_args: self.fail("unexpected job active-target update"),
+            updated_target_state_fn=self.queue.updated_target_state,
+            initial_target_state_fn=lambda job_id, target_name, *, started_at: {
+                "status": "running",
+                "started_at": started_at,
+                "phase": "starting",
+                "log_path": f"{job_id}-{target_name}.log",
+            },
+            completed_target_state_fn=lambda job_id, target_name, result, previous_state, *, completed_at: {
+                **dict(previous_state or {}),
+                "status": result["status"],
+                "exit_code": result["exit_code"],
+                "duration_secs": result["duration_secs"],
+                "completed_at": completed_at,
+                "phase": "done",
+                "log_path": result.get("log_file", f"{job_id}-{target_name}.log"),
+            },
+            now_iso_fn=lambda: "2026-06-10T00:00:00Z",
+            run_target_tasks_fn=lambda *_args, **_kwargs: self.fail("unexpected target runner"),
+            completed_job_result_fn=lambda queued_job, results: completed.setdefault(
+                "result",
+                {"job_id": queued_job["id"], "results": results, "overall": "pass"},
+            ),
+            sorted_target_results_fn=self.mod.sorted_target_results,
+        )
+
+        self.assertEqual(result, {"job_id": "job-empty", "results": [], "overall": "pass"})
+        self.assertEqual(
+            messages,
+            ["\n=== Validating [job-empty] feature/empty @ aaaaaaaaaaaa priority=low ===\n"],
+        )
+        self.assertEqual(completed["result"]["results"], [])
+
+    def test_process_job_tracks_target_progress_and_completion(self) -> None:
+        job = {
+            "id": "job-process",
+            "branch": "feature/process",
+            "sha": "b" * 40,
+            "priority": "normal",
+        }
+        snapshots = []
+        messages = []
+        build_seen = {}
+        now_values = iter(
+            [
+                "2026-06-10T00:00:00Z",
+                "2026-06-10T00:00:01Z",
+            ]
+        )
+
+        def snapshot(states: dict[str, dict]) -> dict[str, dict]:
+            return {target: dict(state) for target, state in states.items()}
+
+        def build_tasks(queued_job: dict, config: dict, progress_factory=None):
+            build_seen["job_id"] = queued_job["id"]
+            build_seen["config"] = config
+            reporter = progress_factory("mac")
+
+            def run_mac() -> dict:
+                reporter(phase="validate", log_path="mac.log", transport_mode="local")
+                return {
+                    "target": "mac",
+                    "status": "pass",
+                    "exit_code": 0,
+                    "duration_secs": 1.0,
+                }
+
+            return [("mac", run_mac)]
+
+        def run_tasks(tasks, *, on_target_complete):
+            results = []
+            for name, task in tasks:
+                result = task()
+                on_target_complete(name, result)
+                results.append(result)
+            return results
+
+        result = self.mod.process_job(
+            job,
+            {"targets": {"mac": {}}},
+            print_fn=messages.append,
+            short_sha_fn=lambda sha: sha[:12],
+            config_for_job_execution_fn=lambda queued_job, config: {"resolved_for": queued_job["id"], **config},
+            build_target_tasks_fn=build_tasks,
+            target_state_snapshot_fn=snapshot,
+            update_runner_active_targets_fn=lambda job_id, states: snapshots.append(("runner", job_id, states)),
+            update_job_active_targets_fn=lambda job_id, states: snapshots.append(("job", job_id, states)),
+            updated_target_state_fn=self.queue.updated_target_state,
+            initial_target_state_fn=lambda job_id, target_name, *, started_at: {
+                "status": "running",
+                "started_at": started_at,
+                "phase": "starting",
+                "log_path": f"{job_id}-{target_name}.log",
+            },
+            completed_target_state_fn=lambda job_id, target_name, result, previous_state, *, completed_at: {
+                **dict(previous_state or {}),
+                "status": result["status"],
+                "exit_code": result["exit_code"],
+                "duration_secs": result["duration_secs"],
+                "completed_at": completed_at,
+                "phase": "done",
+                "log_path": result.get("log_file", f"{job_id}-{target_name}.log"),
+            },
+            now_iso_fn=lambda: next(now_values),
+            run_target_tasks_fn=run_tasks,
+            completed_job_result_fn=lambda queued_job, results: {
+                "job_id": queued_job["id"],
+                "results": results,
+                "overall": "pass" if all(result["status"] == "pass" for result in results) else "fail",
+            },
+            sorted_target_results_fn=self.mod.sorted_target_results,
+        )
+
+        self.assertEqual(build_seen["job_id"], "job-process")
+        self.assertEqual(build_seen["config"]["resolved_for"], "job-process")
+        self.assertEqual(result["overall"], "pass")
+        self.assertEqual(result["results"], [{"target": "mac", "status": "pass", "exit_code": 0, "duration_secs": 1.0}])
+        self.assertEqual(len(snapshots), 6)
+        initial_state = snapshots[0][2]["mac"]
+        progress_state = snapshots[2][2]["mac"]
+        completed_state = snapshots[4][2]["mac"]
+        self.assertEqual(snapshots[0][0], "runner")
+        self.assertEqual(snapshots[1][0], "job")
+        self.assertEqual(initial_state["status"], "running")
+        self.assertEqual(initial_state["started_at"], "2026-06-10T00:00:00Z")
+        self.assertEqual(progress_state["phase"], "validate")
+        self.assertEqual(progress_state["log_path"], "mac.log")
+        self.assertEqual(completed_state["status"], "pass")
+        self.assertEqual(completed_state["completed_at"], "2026-06-10T00:00:01Z")
+
+    def test_process_job_keeps_multi_target_snapshots_consistent_when_completion_order_varies(self) -> None:
+        job = {
+            "id": "job-multi",
+            "branch": "feature/multi",
+            "sha": "c" * 40,
+            "priority": "normal",
+        }
+        snapshots = []
+        now_values = iter(
+            [
+                "2026-06-10T00:00:00Z",
+                "2026-06-10T00:00:01Z",
+                "2026-06-10T00:00:02Z",
+                "2026-06-10T00:00:03Z",
+                "2026-06-10T00:00:04Z",
+                "2026-06-10T00:00:05Z",
+            ]
+        )
+
+        def initial_state(job_id: str, target_name: str, *, started_at: str) -> dict:
+            return {
+                "status": "running",
+                "started_at": started_at,
+                "phase": "starting",
+                "log_path": f"{job_id}-{target_name}.log",
+            }
+
+        def completed_state(
+            job_id: str,
+            target_name: str,
+            result: dict,
+            previous_state: dict | None,
+            *,
+            completed_at: str,
+        ) -> dict:
+            return {
+                **dict(previous_state or {}),
+                "status": result["status"],
+                "exit_code": result["exit_code"],
+                "duration_secs": result["duration_secs"],
+                "completed_at": completed_at,
+                "phase": "done",
+                "log_path": result.get("log_file", f"{job_id}-{target_name}.log"),
+                "transport_mode": result.get("transport_mode", (previous_state or {}).get("transport_mode")),
+            }
+
+        def snapshot(states: dict[str, dict]) -> dict[str, dict]:
+            return {target: dict(state) for target, state in states.items()}
+
+        def record_snapshot(kind: str, job_id: str, states: dict[str, dict]) -> None:
+            snapshots.append((kind, job_id, snapshot(states)))
+
+        reporters = {}
+
+        def build_tasks(_queued_job: dict, _config: dict, progress_factory=None):
+            def make_task(target: str, status: str, transport_mode: str):
+                reporter = progress_factory(target)
+                reporters[target] = reporter
+
+                def run_target() -> dict:
+                    reporter(phase=f"validate-{target}", log_path=f"{target}.log", transport_mode=transport_mode)
+                    return {
+                        "target": target,
+                        "status": status,
+                        "exit_code": 0 if status == "pass" else 1,
+                        "duration_secs": {"mac": 1.0, "ubuntu": 2.0, "windows": 3.0}[target],
+                        "log_file": f"{target}.log",
+                        "transport_mode": transport_mode,
+                    }
+
+                return run_target
+
+            return [
+                ("mac", make_task("mac", "pass", "local")),
+                ("ubuntu", make_task("ubuntu", "fail", "bundle")),
+                ("windows", make_task("windows", "pass", "bundle")),
+            ]
+
+        def run_tasks(tasks, *, on_target_complete):
+            by_name = dict(tasks)
+            results = []
+            for name in ["windows", "mac", "ubuntu"]:
+                result = by_name[name]()
+                on_target_complete(name, result)
+                results.append(result)
+            return results
+
+        result = self.mod.process_job(
+            job,
+            {"targets": {"mac": {}, "ubuntu": {}, "windows": {}}},
+            print_fn=lambda _message: None,
+            short_sha_fn=lambda sha: sha[:12],
+            config_for_job_execution_fn=lambda _queued_job, config: config,
+            build_target_tasks_fn=build_tasks,
+            target_state_snapshot_fn=snapshot,
+            update_runner_active_targets_fn=lambda job_id, states: record_snapshot("runner", job_id, states),
+            update_job_active_targets_fn=lambda job_id, states: record_snapshot("job", job_id, states),
+            updated_target_state_fn=self.queue.updated_target_state,
+            initial_target_state_fn=initial_state,
+            completed_target_state_fn=completed_state,
+            now_iso_fn=lambda: next(now_values),
+            run_target_tasks_fn=run_tasks,
+            completed_job_result_fn=lambda queued_job, results: {
+                "job_id": queued_job["id"],
+                "results": results,
+                "overall": "pass" if all(item["status"] == "pass" for item in results) else "fail",
+            },
+            sorted_target_results_fn=self.mod.sorted_target_results,
+        )
+
+        self.assertEqual([item["target"] for item in result["results"]], ["mac", "ubuntu", "windows"])
+        self.assertEqual(result["overall"], "fail")
+        self.assertEqual(len(snapshots), 14)
+        for index in range(0, len(snapshots), 2):
+            runner = snapshots[index]
+            queued_job = snapshots[index + 1]
+            self.assertEqual(runner[0], "runner")
+            self.assertEqual(queued_job[0], "job")
+            self.assertEqual(runner[1], "job-multi")
+            self.assertEqual(queued_job[1], "job-multi")
+            self.assertEqual(runner[2], queued_job[2])
+
+        initial_snapshot = snapshots[0][2]
+        self.assertEqual(set(initial_snapshot), {"mac", "ubuntu", "windows"})
+        self.assertTrue(all(state["status"] == "running" for state in initial_snapshot.values()))
+        windows_done_snapshot = snapshots[4][2]
+        self.assertEqual(windows_done_snapshot["windows"]["status"], "pass")
+        self.assertEqual(windows_done_snapshot["mac"]["status"], "running")
+        self.assertEqual(windows_done_snapshot["ubuntu"]["status"], "running")
+        final_snapshot = snapshots[-2][2]
+        self.assertEqual(final_snapshot["mac"]["status"], "pass")
+        self.assertEqual(final_snapshot["ubuntu"]["status"], "fail")
+        self.assertEqual(final_snapshot["windows"]["status"], "pass")
+        self.assertEqual(final_snapshot["ubuntu"]["completed_at"], "2026-06-10T00:00:05Z")
 
     def test_local_validation_command_builds_full_and_smoke_commands(self) -> None:
         full_cmd, full_validation = self.mod.local_validation_command(
