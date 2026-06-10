@@ -2567,6 +2567,10 @@ def initial_target_state(job_id: str, target_name: str, *, started_at: str) -> d
     )
 
 
+def updated_target_state(previous_state: dict | None, fields: dict) -> dict:
+    return _queue_orchestrator.updated_target_state(previous_state, fields)
+
+
 def completed_target_state(
     job_id: str,
     target_name: str,
@@ -3688,13 +3692,7 @@ def process_job(job: dict, config: dict) -> dict:
     def progress_factory(name: str):
         def report(**fields) -> None:
             with state_lock:
-                state = dict(target_states.get(name, {}))
-                for key, value in fields.items():
-                    if value is None:
-                        state.pop(key, None)
-                    else:
-                        state[key] = value
-                target_states[name] = state
+                target_states[name] = updated_target_state(target_states.get(name), fields)
             flush_target_states()
 
         return report
