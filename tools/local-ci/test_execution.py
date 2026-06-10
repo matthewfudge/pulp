@@ -140,6 +140,78 @@ class ExecutionTests(unittest.TestCase):
         self.assertIn("PULP_EXPECT_SMOKE=1", remote_cmd)
         self.assertIn("--smoke --no-tests", remote_cmd)
 
+    def test_windows_validation_script_builds_full_script(self) -> None:
+        job = {
+            "id": "job801",
+            "branch": "feature/windows",
+            "sha": "e" * 40,
+            "targets": ["windows"],
+            "validation": "full",
+        }
+
+        script, validation = self.mod.windows_validation_script(
+            "windows",
+            "win.example.com",
+            r"C:\Pulp's Repo",
+            job,
+            bundle_name="pulp-ci-job801.bundle",
+            bundle_ref="refs/pulp-ci-bundles/job801",
+            exclude_tests="slow windows",
+            cmake_generator="Visual Studio 17 2022",
+            resolved_platform="ARM64",
+            resolved_generator_instance=r"C:\VS\2022",
+            ps_literal_fn=lambda value: value.replace("'", "''"),
+        )
+
+        self.assertEqual(validation, "full")
+        self.assertIn(r"$Repo = 'C:\Pulp''s Repo'", script)
+        self.assertIn("$Branch = 'feature/windows'", script)
+        self.assertIn("$Sha = '" + "e" * 40 + "'", script)
+        self.assertIn("$BundleName = 'pulp-ci-job801.bundle'", script)
+        self.assertIn("$BundleRef`:refs/pulp-ci-bundles/job801", script)
+        self.assertIn("$ExcludeRegex = 'slow windows'", script)
+        self.assertIn("$Generator = 'Visual Studio 17 2022'", script)
+        self.assertIn("$Platform = 'ARM64'", script)
+        self.assertIn(r"$GeneratorInstance = 'C:\VS\2022'", script)
+        self.assertIn("$ValidationMode = 'full'", script)
+        self.assertIn("$PreparedRoot = Join-Path $CiRoot 'prepared\\windows'", script)
+        self.assertIn("$ReusePrepared = $true", script)
+        self.assertIn('Write-Host "__PULP_TEST_POLICY__:run"', script)
+        self.assertIn("windows cannot validate eeeeeeeeeeee on win.example.com", script)
+
+    def test_windows_validation_script_builds_smoke_script(self) -> None:
+        job = {
+            "id": "job802",
+            "branch": "feature/smoke",
+            "sha": "f" * 40,
+            "targets": ["mac", "windows"],
+            "validation": "smoke",
+        }
+
+        script, validation = self.mod.windows_validation_script(
+            "windows",
+            "win.example.com",
+            r"C:\Pulp",
+            job,
+            bundle_name="pulp-ci-job802.bundle",
+            bundle_ref="refs/pulp-ci-bundles/job802",
+            exclude_tests="",
+            cmake_generator="Visual Studio 17 2022",
+            resolved_platform="",
+            resolved_generator_instance="",
+            ps_literal_fn=lambda value: value.replace("'", "''"),
+        )
+
+        self.assertEqual(validation, "smoke")
+        self.assertIn("$ValidationMode = 'smoke'", script)
+        self.assertIn("$ReusePrepared = $false", script)
+        self.assertIn('Write-Host "__PULP_TEST_POLICY__:skip"', script)
+        self.assertIn("-DPULP_BUILD_TESTS=OFF", script)
+        self.assertIn("-DPULP_BUILD_EXAMPLES=OFF", script)
+        self.assertIn("-DPULP_ENABLE_GPU=OFF", script)
+        self.assertIn("Invoke-Native cmake @('--install', $Build, '--prefix', $Install, '--config', 'Release')", script)
+        self.assertIn('Write-Host "__PULP_PHASE__:smoke"', script)
+
     def test_validation_result_from_run_reports_timeout(self) -> None:
         result = self.mod.validation_result_from_run(
             "mac",
