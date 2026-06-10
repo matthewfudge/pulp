@@ -9,6 +9,7 @@ execution slices.
 from __future__ import annotations
 
 import queue as queue_module
+import shlex
 import subprocess
 import threading
 import time
@@ -87,6 +88,70 @@ def local_validation_command(job: dict, exclude_tests: str = "") -> tuple[list[s
     if exclude_tests:
         cmd += ["--exclude-regex", exclude_tests]
     return cmd, validation
+
+
+def posix_ssh_validation_command(
+    target_name: str,
+    host: str,
+    repo_path: str,
+    job: dict,
+    *,
+    bundle_name: str,
+    bundle_ref: str,
+    exclude_tests: str = "",
+) -> tuple[list[str], str]:
+    branch_q = shlex.quote(job["branch"])
+    sha_q = shlex.quote(job["sha"])
+    repo_q = shlex.quote(repo_path)
+    bundle_name_q = shlex.quote(bundle_name)
+    bundle_ref_q = shlex.quote(bundle_ref)
+    script_name_q = shlex.quote(f".pulp-ci-validate-{job['id']}.sh")
+    validation = normalize_validation_mode(job.get("validation", "full"))
+    reuse_prepared_q = shlex.quote("1" if should_reuse_prepared_state(job) else "0")
+    remote_cmd = (
+        "set -euo pipefail; "
+        f"branch={branch_q}; "
+        f"sha={sha_q}; "
+        f"bundle_name={bundle_name_q}; "
+        f"bundle_ref={bundle_ref_q}; "
+        f"script_name={script_name_q}; "
+        f"reuse_prepared={reuse_prepared_q}; "
+        "bundle=\"$HOME/$bundle_name\"; "
+        f"prepared_root=\"$HOME/.local/state/pulp/local-ci/prepared/{target_name}/{validation}\"; "
+        "script=''; "
+        "trap 'rm -f \"$bundle\" \"$script\"' EXIT; "
+        "export GIT_LFS_SKIP_SMUDGE=1; "
+        f"cd {repo_q}; "
+        "script=\"$PWD/$script_name\"; "
+        "if [ -f \"$bundle\" ]; then "
+        "printf '__PULP_PHASE__:bundle-sync\n'; "
+        "git fetch \"$bundle\" \"$bundle_ref:refs/remotes/origin/$branch\" >/dev/null 2>&1 || true; "
+        "fi; "
+        "printf '__PULP_PHASE__:fetch\n'; "
+        "git fetch origin >/dev/null 2>&1 || true; "
+        "if ! git cat-file -e \"$sha^{commit}\" 2>/dev/null; then "
+        "git fetch origin \"refs/heads/$branch:refs/remotes/origin/$branch\" >/dev/null 2>&1 || true; "
+        "fi; "
+        "if ! git cat-file -e \"$sha^{commit}\" 2>/dev/null; then "
+        f"echo {shlex.quote(remote_commit_error(target_name, host, job))} >&2; "
+        "exit 2; "
+        "fi; "
+        "printf '__PULP_PHASE__:validate\n'; "
+        "git show \"$sha:validate-build.sh\" > \"$script\"; "
+        "chmod +x \"$script\"; "
+        "PULP_VALIDATE_ROOT_OVERRIDE=\"$prepared_root\" "
+        "PULP_VALIDATE_REUSE_PREPARED=\"$reuse_prepared\" "
+        "PULP_EXPECT_SMOKE=0 "
+        "bash \"$script\" --quiet --keep-worktree --ref \"$sha\""
+    )
+    if validation == "smoke":
+        remote_cmd = remote_cmd.replace("PULP_EXPECT_SMOKE=0", "PULP_EXPECT_SMOKE=1", 1)
+        remote_cmd += " --smoke --no-tests"
+    if exclude_tests:
+        remote_cmd += f" --exclude-regex {shlex.quote(exclude_tests)}"
+
+    remote_cmd = 'export PATH="$HOME/.local/bin:$PATH"; ' + remote_cmd
+    return ["ssh", host, "bash", "-lc", shlex.quote(remote_cmd)], validation
 
 
 def validation_result_from_run(
