@@ -29,19 +29,13 @@ void AudioProbe::prepare(int max_channels,
     sequence_number_ = 0;
     clip_count_ = 0;
     nan_inf_count_ = 0;
+    clipped_blocks_ = 0;
+    nan_blocks_ = 0;
     callbacks_ = 0;
     silence_run_blocks_ = 0;
     dropped_capture_frames_ = 0;
 
-    // Publish an initial empty snapshot so a reader before the first callback
-    // sees coherent identity fields instead of a default-constructed sequence 0
-    // that looks like live data.
-    AudioProbeSnapshot init{};
-    init.sample_rate = sample_rate_;
-    init.channel_count = 0;
-    init.stage_id = stage_;
-    init.sequence_number = 0;
-    summary_buf_.write(init);
+    publish_empty_snapshot();
 }
 
 void AudioProbe::analyze_output(const BufferView<const float>& output) noexcept {
@@ -166,10 +160,25 @@ void AudioProbe::reset() noexcept {
     sequence_number_ = 0;
     clip_count_ = 0;
     nan_inf_count_ = 0;
+    clipped_blocks_ = 0;
+    nan_blocks_ = 0;
     callbacks_ = 0;
     silence_run_blocks_ = 0;
     dropped_capture_frames_ = 0;
     if (capture_fifo_) capture_fifo_->reset();
+    publish_empty_snapshot();
+}
+
+void AudioProbe::publish_empty_snapshot() noexcept {
+    // Publish an empty snapshot so a reader before the first callback, or
+    // immediately after reset(), sees coherent identity fields and cleared
+    // counters instead of stale triple-buffer data.
+    AudioProbeSnapshot snap{};
+    snap.sample_rate = sample_rate_;
+    snap.channel_count = 0;
+    snap.stage_id = stage_;
+    snap.sequence_number = 0;
+    summary_buf_.write(snap);
 }
 
 }  // namespace pulp::audio

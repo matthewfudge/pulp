@@ -320,12 +320,42 @@ TEST_CASE("AudioProbe reset clears cumulative counters",
     probe.prepare(1, 32, 48000.0);
     StereoBlock block(32);
     block.fill(2.0f, 2.0f);  // clips every sample
+    block.left[0] = std::numeric_limits<float>::quiet_NaN();
     probe.analyze_output(block.view());
     REQUIRE(probe.latest().clip_count > 0);
+    REQUIRE(probe.latest().nan_inf_count > 0);
+    REQUIRE(probe.latest().clipped_blocks > 0);
+    REQUIRE(probe.latest().nan_blocks > 0);
+
     probe.reset();
-    probe.analyze_output(StereoBlock(32).view());  // silence
-    const auto snap = probe.latest();
+    auto snap = probe.latest();
     REQUIRE(snap.clip_count == 0);
+    REQUIRE(snap.nan_inf_count == 0);
+    REQUIRE(snap.clipped_blocks == 0);
+    REQUIRE(snap.nan_blocks == 0);
+    REQUIRE(snap.callbacks == 0);
+    REQUIRE(probe.stats().clipped_blocks == 0);
+    REQUIRE(probe.stats().nan_blocks == 0);
+
+    probe.analyze_output(StereoBlock(32).view());  // silence
+    snap = probe.latest();
+    REQUIRE(snap.clip_count == 0);
+    REQUIRE(snap.nan_inf_count == 0);
+    REQUIRE(snap.clipped_blocks == 0);
+    REQUIRE(snap.nan_blocks == 0);
+    REQUIRE(snap.callbacks == 1);
+
+    probe.analyze_output(block.view());
+    REQUIRE(probe.latest().clipped_blocks > 0);
+    REQUIRE(probe.latest().nan_blocks > 0);
+
+    probe.prepare(1, 32, 48000.0);
+    probe.analyze_output(StereoBlock(32).view());  // silence after re-prepare
+    snap = probe.latest();
+    REQUIRE(snap.clip_count == 0);
+    REQUIRE(snap.nan_inf_count == 0);
+    REQUIRE(snap.clipped_blocks == 0);
+    REQUIRE(snap.nan_blocks == 0);
     REQUIRE(snap.callbacks == 1);
 }
 
