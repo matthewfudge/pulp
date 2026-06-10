@@ -149,7 +149,7 @@ fs::path build_mock_package(const fs::path& staging, const fs::path& out,
 }
 
 // A registry fixture with a single importer descriptor pointing at a local
-// package via importer_artifacts (url_template carries a file:// path so the
+// package via importer_artifacts (url_template carries a local path so the
 // non --from path also works in the alias test).
 ToolDescriptor make_importer(const std::string& sha,
                              const std::string& sdk_min = "0.0.0",
@@ -371,7 +371,7 @@ TEST_CASE("uninstall removes the skill, record, and install tree",
 namespace {
 
 // Materialize a tool-registry.json under a repo dir whose importer artifact
-// url_template points at the mock package via a file:// URL, then chdir there
+// url_template points at the mock package via a local path, then chdir there
 // so find_tool_registry_path() locates it.
 fs::path write_repo_registry(const fs::path& repo, const std::string& sha,
                              const fs::path& pkg) {

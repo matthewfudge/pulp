@@ -91,13 +91,14 @@ std::string json_escape(std::string_view text) {
 // file, and (optionally) a copied-user-file pointing at `copy_from`.
 std::string mock_manifest(const std::string& copy_from = {},
                           const std::string& generated_content =
-                              "#pragma once\\nstruct X {};\\n") {
+                              "#pragma once\nstruct X {};\n") {
     std::string j =
         "{\"schema\":\"pulp.import.emission_manifest.v0\","
         "\"importer_id\":\"mock-importer\",\"framework\":\"example-framework\","
         "\"files\":[";
     j += "{\"path\":\"src/PluginProcessor.hpp\",\"provenance\":\"generated\","
-         "\"classification\":\"source\",\"content\":\"" + generated_content + "\"},";
+         "\"classification\":\"source\",\"content\":\"" +
+         json_escape(generated_content) + "\"},";
     j += "{\"path\":\"CMakeLists.txt\",\"provenance\":\"generated\","
          "\"classification\":\"build\",\"content\":\"project(Imported)\\n\"}";
     if (!copy_from.empty()) {
@@ -256,7 +257,7 @@ TEST_CASE("import emit scan REJECTS framework source in a generated file",
     // A generated file that smuggles a framework umbrella include.
     std::string m_json = mock_manifest(
         /*copy_from=*/{},
-        /*generated_content=*/"#include <FrameworkHeader.h>\\nstruct X {};\\n");
+        /*generated_content=*/"#include <FrameworkHeader.h>\nstruct X {};\n");
     auto m = ie::parse_manifest(m_json);
     REQUIRE(m.ok);
 
@@ -390,7 +391,7 @@ TEST_CASE("import emit end-to-end fails closed when the importer smuggles "
     // emit returns a manifest whose generated file embeds a denylist token.
     std::string bad_manifest = mock_manifest(
         /*copy_from=*/{},
-        /*generated_content=*/"#include <FrameworkHeader.h>\\nstruct X {};\\n");
+        /*generated_content=*/"#include <FrameworkHeader.h>\nstruct X {};\n");
     write_file(mock,
         "#!/bin/sh\n"
         "while read line; do\n"

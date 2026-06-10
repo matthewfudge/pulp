@@ -378,6 +378,10 @@ target_sources(pulp-view-core PRIVATE
     src/widgets/svg_rect.cpp
     src/widgets/svg_line.cpp
     src/visualization_bridge.cpp
+    src/waveform_editor_primitives.cpp
+    src/waveform_gpu_primitives.cpp
+    src/waveform_gpu_render_controller.cpp
+    src/waveform_headless_render_backend.cpp
     src/frame_clock.cpp
     src/motion.cpp
     src/motion_geometry.cpp
@@ -388,6 +392,7 @@ target_sources(pulp-view-core PRIVATE
     src/color_picker.cpp
     src/theme_editor.cpp
     src/file_drop_zone.cpp
+    src/sample_asset_drop_target.cpp
     src/drag_drop.cpp
     src/split_view.cpp
     src/property_list.cpp

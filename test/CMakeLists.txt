@@ -2,7 +2,6 @@
 
 include(${CMAKE_SOURCE_DIR}/tools/cmake/PulpTestSuite.cmake)
 find_package(Python3 COMPONENTS Interpreter QUIET)
-
 # Build check (no Catch2 dependency)
 add_executable(pulp-test-build-check test_build_check.cpp)
 target_link_libraries(pulp-test-build-check PRIVATE pulp::platform pulp::runtime)
@@ -785,7 +784,7 @@ target_link_libraries(pulp-test-cli-package-registry PRIVATE
     pulp::platform
     Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-cli-package-registry)
-
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/package_analyzer_tests.cmake")
 # CLI versioned import-design detection (#1031): unit + fixture-driven
 # tests for the three-layer (parser-version, format-version,
 # compat-schema-version) detector behind `pulp import-design
@@ -1143,6 +1142,7 @@ pulp_add_test_suite(pulp-test-validation-harness LIBRARIES pulp::format)
 pulp_add_test_suite(pulp-test-settings-sections LIBRARIES pulp::standalone)
 
 pulp_add_test_suite(pulp-test-plugin-state-io LIBRARIES pulp::format)
+pulp_add_test_suite(pulp-test-plugin-state-restore-diagnostics LIBRARIES pulp::format)
 
 # AAX metadata/model tests
 pulp_add_test_suite(pulp-test-aax-model LIBRARIES pulp::format)
@@ -2013,7 +2013,7 @@ pulp_add_test_suite(pulp-test-audio-file LIBRARIES pulp::audio)
 # AudioThumbnail + AudioThumbnailCache (item 6.12).
 # Links pulp::view so the WaveformView integration smoke compiles.
 pulp_add_test_suite(pulp-test-audio-thumbnail LIBRARIES pulp::audio pulp::view)
-
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/sampler_runtime_tests.cmake")
 # WAV metadata round-trip tests (BWAV / iXML / ASWG / ACID — item 6.11)
 pulp_add_test_suite(pulp-test-wav-metadata LIBRARIES pulp::audio)
 

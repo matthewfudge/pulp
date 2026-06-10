@@ -286,6 +286,22 @@ device->start([](const auto& input, auto& output, const auto& ctx) {
 
 *\*Write via optional `pulp add` packages. Permissive (libflac, ALAC) install freely. Copyleft (LAME, fdk-aac) require `--accept-license`.*
 
+### Sampler, looper, and analysis primitives
+
+Reusable low-level pieces for building samplers, generated-audio freeze/loop workflows, waveform displays, and offline/background sample analysis. These are primitives, not a full sampler UI. Callback-safe operations are documented in `rt_safety_contract.hpp`; import/export, analysis, waveform thumbnail build, publication writes, and materialization stay off the audio callback.
+
+| Feature | Headers | Description |
+|---------|---------|-------------|
+| Stream handoff and rolling capture | `audio_stream_handoff.hpp`, `planar_audio_ring_buffer.hpp`, `rolling_audio_capture_buffer.hpp`, `realtime_sample_recorder.hpp` | Bridge generated/live/model audio into host-paced processing, keep bounded rolling history, freeze stable windows, and materialize captures off the audio thread |
+| Sample publication and storage | `published_sample_store.hpp`, `sample_slot_bank.hpp`, `sample_slot_materializer.hpp`, `sample_pool.hpp`, `sample_stream_window.hpp` | Publish captured/imported/rendered samples through generation-safe views, fixed slot banks, stable sample IDs, and resident streaming pages |
+| Looping and playback | `loop_types.hpp`, `loop_reader.hpp`, `loop_renderer.hpp`, `loop_point_analyzer.hpp`, `sample_voice_renderer.hpp`, `voice_sum_mixer.hpp` | Render one-shots, forward/reverse loops, fades/crossfades, loop-point assistance, scalar sample voices, and summed voice scratch buffers |
+| Mapping and instrument policy | `sample_zone_map.hpp`, `sample_key_map.hpp`, `instrument_runtime.hpp`, `instrument_voice_allocator.hpp`, `instrument_envelope.hpp`, `voice_modulation_buffer.hpp` | Represent key/velocity zones, chromatic/fixed-pitch/slice mappings, pool-backed trigger resolution, voice allocation, AHDSR envelopes, and per-voice modulation lanes |
+| Editing, import/export, and bounce metadata | `sample_edit_document.hpp`, `sample_asset_io.hpp`, `wav_metadata.hpp` | Track non-destructive edit intent, import/export policy, drop classification, and WAV metadata/interchange outside realtime paths |
+| Onset, slice, key/tempo, and transient analysis | `onset_detector.hpp`, `slice_point_analyzer.hpp`, `slice_map.hpp`, `analyzer_provider.hpp`, `built_in_key_tempo_analyzer.hpp`, `built_in_transient_classifier.hpp` | Provide package-free fallback analysis plus neutral provider/provenance metadata for future package-backed MIR adapters |
+| Time/pitch extension point | `analyzer_provider.hpp`, `signalsmith_time_pitch_processor.hpp` | Optional package-backed time-stretch/pitch-shift processor contract; availability and licensing stay explicit |
+| Waveform summaries and render backends | `audio_thumbnail.hpp`, `waveform_gpu_primitives.hpp`, `waveform_gpu_render_controller.hpp`, `waveform_headless_render_backend.hpp` | Build/cache serialized CPU waveform summaries, plan generation-keyed static layer uploads, exercise backend resource lifecycle in CPU/headless paths, and keep future GPU-assisted analysis/rendering off live audio-thread waits |
+| Realtime contract labels | `rt_safety_contract.hpp` | Machine-checkable sampler/looper RT-safety labels for representative hot paths and off-thread helpers |
+
 ### Other audio features
 
 | Feature | Header | Description |
@@ -439,7 +455,7 @@ conv.process(input, output, block_size);
 | Ballistics Filter | `ballistics_filter.hpp` | Envelope follower with configurable attack/release for meter and dynamics |
 | Compressor | `compressor.hpp` | Soft-knee downward compressor with threshold, ratio, attack, release |
 | DryWetMixer | `dry_wet_mixer.hpp` | Parallel mix with latency compensation — equal-power or linear crossfade |
-| Gain | `gain.hpp` | Smoothed gain stage that ramps between values to avoid clicks |
+| Gain | `gain.hpp` | Scalar gain stage; pair with `smoothed_value.hpp`, `log_ramped_value.hpp`, or audio `apply_gain_ramp()` when transitions need de-clicking |
 | Noise Gate | `noise_gate.hpp` | Silence signals below threshold with hysteresis to avoid chatter |
 
 #### Generators and analysis
@@ -468,7 +484,7 @@ conv.process(input, output, block_size);
 | Polynomial Math | `poly_math.hpp` | Polynomial evaluation and Horner's method for waveshaper transfer functions |
 | Processor Chain | `processor_chain.hpp` | Connect multiple processors in series — automatic prepare/process forwarding |
 | SIMD Buffer | `simd_buffer.hpp` | Aligned memory buffer for SIMD-safe block processing |
-| Smoothed Value | `smoothed_value.hpp` | Linear or exponential parameter smoothing to prevent zipper noise |
+| Smoothed Value | `smoothed_value.hpp` | Linear parameter ramps for zipper-noise reduction; use `log_ramped_value.hpp` for multiplicative/log smoothing |
 | Special Functions | `special_functions.hpp` | sinc, Bessel, dB↔linear, MIDI note↔frequency conversions |
 
 ---

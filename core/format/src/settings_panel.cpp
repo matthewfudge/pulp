@@ -1,11 +1,79 @@
 #include <pulp/format/settings_panel.hpp>
 #include <pulp/runtime/log.hpp>
+#include <pulp/signal/multi_channel_meter.hpp>
 #include <pulp/view/buttons.hpp>  // TextButton (momentary Done)
 #include <algorithm>
 #include <cmath>
 #include <sstream>
 
 namespace pulp::format {
+
+namespace {
+
+constexpr const char* kInputNotUsedText = "(Not used by this instrument)";
+
+bool rate_matches(double a, double b) {
+    return std::abs(a - b) < 1.0;
+}
+
+void constrain_rates(std::vector<double>& rates, const std::vector<double>& allowed) {
+    if (allowed.empty()) return;
+
+    std::vector<double> filtered;
+    for (double rate : rates) {
+        for (double allowed_rate : allowed) {
+            if (rate_matches(rate, allowed_rate)) {
+                filtered.push_back(allowed_rate);
+                break;
+            }
+        }
+    }
+    if (filtered.empty()) filtered = allowed;
+    std::sort(filtered.begin(), filtered.end());
+    filtered.erase(std::unique(filtered.begin(), filtered.end(),
+                               [](double a, double b) { return rate_matches(a, b); }),
+                   filtered.end());
+    rates = std::move(filtered);
+}
+
+void constrain_buffers(std::vector<int>& buffers, const std::vector<int>& allowed) {
+    if (allowed.empty()) return;
+
+    std::vector<int> filtered;
+    for (int buffer : buffers) {
+        if (std::find(allowed.begin(), allowed.end(), buffer) != allowed.end())
+            filtered.push_back(buffer);
+    }
+    if (filtered.empty()) filtered = allowed;
+    std::sort(filtered.begin(), filtered.end());
+    filtered.erase(std::unique(filtered.begin(), filtered.end()), filtered.end());
+    buffers = std::move(filtered);
+}
+
+signal::MultiChannelMeterData to_multi_channel_meter(const view::MeterData& data) {
+    signal::MultiChannelMeterData out;
+    out.num_channels = std::clamp(data.num_channels, 0, signal::kMaxMeterChannels);
+    for (int ch = 0; ch < out.num_channels; ++ch) {
+        out.channels[static_cast<size_t>(ch)].peak = data.peak[ch];
+        out.channels[static_cast<size_t>(ch)].rms = data.rms[ch];
+        out.channels[static_cast<size_t>(ch)].clipped = data.peak[ch] >= 1.0f;
+    }
+    return out;
+}
+
+void update_meter_from_bridge(view::AudioBridge* bridge, view::MultiMeter* meter) {
+    if (!bridge || !meter) return;
+
+    view::MeterData data;
+    if (!bridge->pop_latest_meter(data)) return;
+
+    auto converted = to_multi_channel_meter(data);
+    meter->set_channel_count(converted.num_channels);
+    meter->update(converted, 1.0f / 30.0f);
+    meter->request_repaint();
+}
+
+}  // namespace
 
 // ── Helper: create a styled label ──────────────────────────────────────────
 
@@ -86,7 +154,9 @@ void SettingsPanel::build_audio_tab() {
     audio_tab->add_child(std::move(out_combo));
 
     // Input device
-    audio_tab->add_child(make_section_label("Input Device"));
+    auto input_label = make_section_label("Input Device");
+    input_device_label_ = input_label.get();
+    audio_tab->add_child(std::move(input_label));
     auto in_combo = std::make_unique<view::ComboBox>();
     input_device_combo_ = in_combo.get();
     in_combo->flex().preferred_height = 28.0f;
@@ -125,8 +195,19 @@ void SettingsPanel::build_audio_tab() {
     auto meter = std::make_unique<view::MultiMeter>();
     input_meter_ = meter.get();
     meter->set_channel_count(2);
-    meter->flex().preferred_height = 24.0f;
+    meter->set_layout(view::MultiMeter::Layout::horizontal);
+    meter->set_display_style(view::MultiMeter::DisplayStyle::segmented);
+    meter->flex().preferred_height = 48.0f;
     audio_tab->add_child(std::move(meter));
+
+    audio_tab->add_child(make_section_label("Output Level"));
+    auto out_meter = std::make_unique<view::MultiMeter>();
+    output_meter_ = out_meter.get();
+    out_meter->set_channel_count(2);
+    out_meter->set_layout(view::MultiMeter::Layout::horizontal);
+    out_meter->set_display_style(view::MultiMeter::DisplayStyle::segmented);
+    out_meter->flex().preferred_height = 48.0f;
+    audio_tab->add_child(std::move(out_meter));
 
     // Test tone section. Header line: "Test Signal" on the left, the "Sine Tone" switch on
     // the right; the frequency dropdown sits full-width on its own line below so it never
@@ -239,39 +320,21 @@ void SettingsPanel::bind_systems(audio::AudioSystem* audio_sys, midi::MidiSystem
 void SettingsPanel::set_current_config(const StandaloneConfig& cfg) {
     current_config_ = cfg;
 
-    int output_index = -1;
-    for (size_t i = 0; i < output_devices_.size(); ++i) {
-        if (output_devices_[i].id == cfg.audio_device_id) {
-            output_index = static_cast<int>(i);
-            break;
-        }
-    }
-    if (output_index < 0) {
-        for (size_t i = 0; i < output_devices_.size(); ++i) {
-            if (output_devices_[i].is_default_output) {
-                output_index = static_cast<int>(i);
-                break;
-            }
-        }
-    }
+    if (audio_sys_) rebuild_device_lists();
+
+    int output_index = current_output_device_index();
     if (output_index >= 0 && output_device_combo_)
         output_device_combo_->set_selected_silent(output_index);
 
     rebuild_rate_and_buffer_lists();
 
-    for (size_t i = 0; i < available_rates_.size(); ++i) {
-        if (std::abs(available_rates_[i] - cfg.sample_rate) < 1.0) {
-            if (sample_rate_combo_) sample_rate_combo_->set_selected_silent(static_cast<int>(i));
-            break;
-        }
-    }
+    int rate_index = current_sample_rate_index();
+    if (rate_index >= 0 && sample_rate_combo_)
+        sample_rate_combo_->set_selected_silent(rate_index);
 
-    for (size_t i = 0; i < available_buffers_.size(); ++i) {
-        if (available_buffers_[i] == cfg.buffer_size) {
-            if (buffer_size_combo_) buffer_size_combo_->set_selected_silent(static_cast<int>(i));
-            break;
-        }
-    }
+    int buffer_index = current_buffer_size_index();
+    if (buffer_index >= 0 && buffer_size_combo_)
+        buffer_size_combo_->set_selected_silent(buffer_index);
 
     for (size_t i = 0; i < midi_ports_.size(); ++i) {
         if (midi_ports_[i].id == cfg.midi_input_id) {
@@ -300,17 +363,34 @@ void SettingsPanel::rebuild_device_lists() {
         for (auto& d : output_devices_)
             names.push_back(d.name + (d.is_default_output ? " (Default)" : ""));
         output_device_combo_->set_items(std::move(names));
-        if (!output_devices_.empty())
-            output_device_combo_->set_selected_silent(0);
+        int output_index = current_output_device_index();
+        if (output_index >= 0)
+            output_device_combo_->set_selected_silent(output_index);
     }
 
     if (input_device_combo_) {
         std::vector<std::string> names;
-        names.push_back("(None)");
-        for (auto& d : input_devices_)
-            names.push_back(d.name + (d.is_default_input ? " (Default)" : ""));
+        if (current_config_.supports_audio_input) {
+            if (input_device_label_) input_device_label_->set_text("Input Device");
+            names.push_back("(None)");
+            for (auto& d : input_devices_)
+                names.push_back(d.name + (d.is_default_input ? " (Default)" : ""));
+        } else {
+            if (input_device_label_) input_device_label_->set_text("Input Device");
+            names.push_back(kInputNotUsedText);
+        }
         input_device_combo_->set_items(std::move(names));
-        input_device_combo_->set_selected_silent(0);
+        int input_index = 0;
+        if (current_config_.supports_audio_input && current_config_.input_channels > 0) {
+            for (size_t i = 0; i < input_devices_.size(); ++i) {
+                if (input_devices_[i].is_default_input) {
+                    input_index = static_cast<int>(i + 1);
+                    break;
+                }
+            }
+            if (input_index == 0 && !input_devices_.empty()) input_index = 1;
+        }
+        input_device_combo_->set_selected_silent(input_index);
     }
 }
 
@@ -341,6 +421,8 @@ void SettingsPanel::rebuild_rate_and_buffer_lists() {
         available_rates_ = { 44100, 48000, 88200, 96000, 176400, 192000 };
     if (available_buffers_.empty())
         available_buffers_ = { 64, 128, 256, 512, 1024, 2048, 4096 };
+    constrain_rates(available_rates_, current_config_.allowed_sample_rates);
+    constrain_buffers(available_buffers_, current_config_.allowed_buffer_sizes);
 
     if (sample_rate_combo_) {
         std::vector<std::string> items;
@@ -350,7 +432,8 @@ void SettingsPanel::rebuild_rate_and_buffer_lists() {
             items.push_back(ss.str());
         }
         sample_rate_combo_->set_items(std::move(items));
-        if (!available_rates_.empty()) sample_rate_combo_->set_selected_silent(0);
+        int rate_index = current_sample_rate_index();
+        if (rate_index >= 0) sample_rate_combo_->set_selected_silent(rate_index);
     }
 
     if (buffer_size_combo_) {
@@ -372,8 +455,49 @@ void SettingsPanel::rebuild_rate_and_buffer_lists() {
             items.push_back(ss.str());
         }
         buffer_size_combo_->set_items(std::move(items));
-        if (!available_buffers_.empty()) buffer_size_combo_->set_selected_silent(0);
+        int buffer_index = current_buffer_size_index();
+        if (buffer_index >= 0) buffer_size_combo_->set_selected_silent(buffer_index);
     }
+}
+
+int SettingsPanel::current_output_device_index() const {
+    if (output_devices_.empty()) return -1;
+
+    if (!current_config_.audio_device_id.empty()) {
+        for (size_t i = 0; i < output_devices_.size(); ++i) {
+            if (output_devices_[i].id == current_config_.audio_device_id)
+                return static_cast<int>(i);
+        }
+    }
+
+    for (size_t i = 0; i < output_devices_.size(); ++i) {
+        if (output_devices_[i].is_default_output)
+            return static_cast<int>(i);
+    }
+
+    return 0;
+}
+
+int SettingsPanel::current_sample_rate_index() const {
+    if (available_rates_.empty()) return -1;
+
+    for (size_t i = 0; i < available_rates_.size(); ++i) {
+        if (rate_matches(available_rates_[i], current_config_.sample_rate))
+            return static_cast<int>(i);
+    }
+
+    return 0;
+}
+
+int SettingsPanel::current_buffer_size_index() const {
+    if (available_buffers_.empty()) return -1;
+
+    for (size_t i = 0; i < available_buffers_.size(); ++i) {
+        if (available_buffers_[i] == current_config_.buffer_size)
+            return static_cast<int>(i);
+    }
+
+    return 0;
 }
 
 void SettingsPanel::update_latency_label() {
@@ -407,10 +531,13 @@ void SettingsPanel::apply_config() {
         cfg.audio_device_id = output_devices_[static_cast<size_t>(out_idx)].id;
 
     int in_idx = input_device_combo_ ? input_device_combo_->selected() : 0;
-    if (in_idx > 0 && (in_idx - 1) < static_cast<int>(input_devices_.size()))
-        cfg.input_channels = std::min(2, input_devices_[static_cast<size_t>(in_idx - 1)].max_input_channels);
-    else
+    if (!cfg.supports_audio_input) {
         cfg.input_channels = 0;
+    } else if (in_idx > 0 && (in_idx - 1) < static_cast<int>(input_devices_.size())) {
+        cfg.input_channels = std::min(2, input_devices_[static_cast<size_t>(in_idx - 1)].max_input_channels);
+    } else {
+        cfg.input_channels = 0;
+    }
 
     int rate_idx = sample_rate_combo_ ? sample_rate_combo_->selected() : -1;
     if (rate_idx >= 0 && rate_idx < static_cast<int>(available_rates_.size()))
@@ -429,20 +556,16 @@ void SettingsPanel::apply_config() {
 }
 
 void SettingsPanel::poll() {
-    if (devices_changed_.exchange(false, std::memory_order_relaxed))
+    if (devices_changed_.exchange(false, std::memory_order_relaxed)) {
         rebuild_device_lists();
+        rebuild_rate_and_buffer_lists();
+        update_latency_label();
+    }
     if (midi_changed_.exchange(false, std::memory_order_relaxed))
         rebuild_midi_list();
 
-    // Update input meters
-    if (input_bridge_ && input_meter_) {
-        view::MeterData data;
-        if (input_bridge_->pop_latest_meter(data)) {
-            // Convert to MultiChannelMeterData for MultiMeter::update()
-            // For now, just trigger a repaint — the meter draws from its own ballistics
-            // A future enhancement could feed raw peak/rms into the meter
-        }
-    }
+    update_meter_from_bridge(input_bridge_, input_meter_);
+    update_meter_from_bridge(output_bridge_, output_meter_);
 }
 
 } // namespace pulp::format

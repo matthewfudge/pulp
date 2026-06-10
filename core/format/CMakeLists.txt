@@ -11,7 +11,12 @@ target_sources(pulp-format PRIVATE
     src/format.cpp
     src/registry.cpp
     src/headless.cpp
+    src/offline_render_host.cpp
+    src/offline_sample_bounce.cpp
+    src/offline_sample_slot_bounce.cpp
+    src/graph_runtime_executor.cpp
     src/plugin_state_io.cpp
+    src/processor_block_adapter.cpp
     src/validation_harness.cpp
     src/aax_model.cpp
     src/host_type.cpp
@@ -35,12 +40,14 @@ target_sources(pulp-format PRIVATE
     src/view_bridge.cpp
     src/remote_view_session.cpp
     src/native_core_processor.cpp
+    src/transport_quantizer.cpp
 )
 
 target_link_libraries(pulp-format
     PUBLIC
         pulp::audio
         pulp::events
+        pulp::graph
         pulp::midi
         pulp::state
         pulp::view

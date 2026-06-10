@@ -19,7 +19,7 @@ target_sources(pulp-host PRIVATE
     src/node_pack.cpp
 )
 
-target_link_libraries(pulp-host PUBLIC pulp::audio pulp::midi pulp::runtime pulp::state)
+target_link_libraries(pulp-host PUBLIC pulp::audio pulp::graph pulp::midi pulp::runtime pulp::state)
 target_link_libraries(pulp-host PUBLIC pulp::native-components)
 target_link_libraries(pulp-host PRIVATE pulp::platform)
 # node_pack.cpp dlopen()s signed node packs (desktop + Android). iOS never builds

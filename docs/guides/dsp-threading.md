@@ -114,12 +114,147 @@ instead of polling atomics inside the loop:
 * `format::ControlRateParamSmoother` follows the parameter's configured
   `smoothing_ramp_seconds` for control-rate smoothing.
 
+## Block-scoped runtime contracts
+
+`pulp::format::ProcessBlock` is the additive runtime contract for
+new graph, offline-render, sampler, and generated-audio paths. It does
+not replace `Processor::process()` yet. It packages the existing
+`ProcessContext` with fixed-capacity `BusBufferSet`, non-owning
+`EventBlock`, caller-owned `BlockScratch`, explicit `ProcessMode`,
+render speed, and reset/bypass/tail/transport-jump flags.
+
+The contract is deliberately non-owning: bus audio is borrowed from the
+host or renderer, event containers are owned by adapters, and scratch
+memory is provided before the callback. This keeps the same hard
+real-time rule as `Processor::process()`: no hidden allocation, locks,
+file I/O, logging, package work, or host calls in the audio callback.
+
+`pulp::format::OfflineRenderHost` is the control-thread companion for
+multi-block renders, bounces, freeze-to-sample tests, and generated-audio
+materialization. It owns result/staging buffers and may allocate outside the
+audio callback, but each processor invocation is still a bounded
+`HeadlessHost` block with explicit `ProcessContext`, MIDI, and parameter-event
+slices. Use `HeadlessHost` when a test needs one block; use
+`OfflineRenderHost` when it needs a fixed-duration render with final-block
+handling, silence padding, and absolute-frame event slicing.
+
+`pulp::graph::GraphRuntimeQueues` is the fixed-capacity control/realtime
+handoff for graph-runtime work. Control code enqueues graph commands; the
+realtime graph drains and sorts them by block offset at the start of a block.
+The realtime graph publishes bounded control events and MIDI output events
+through separate RT-to-control queues with explicit drop counters. The queue
+primitive does not mutate `SignalGraph` directly; graph v2 and adapter
+migration code consume these commands against their active snapshot policy.
+
+`pulp::graph::GraphRuntimePlan` is the control-thread topology compiler for
+graph v2 work. It turns sparse node IDs into dense node/connection arrays,
+precomputes inbound/outbound connection ranges, rejects over-limit graphs,
+validates ports, and refuses cycles unless a connection is explicitly marked as
+feedback. Build or rebuild plans off the audio thread, then publish immutable
+snapshots to realtime code. The old `pulp::host` graph-runtime headers remain
+compatibility aliases, but the platform-neutral `pulp::graph` module is the
+canonical owner.
+
+`pulp::format::GraphRuntimeSnapshot` and `GraphRuntimeExecutor` are the first
+`ProcessBlock`-based graph execution seam. Build immutable snapshots off the
+audio thread by binding one process callback per dense graph node, then pass the
+active snapshot into each executor call. Do not reset or clear a snapshot while
+any realtime call may still reference it. The executor validates the block,
+drains graph queues without heap allocation, emits bounded command
+accepted/rejected events, and visits nodes in plan order. Snapshot
+publication/lifetime policy, audio-buffer routing, feedback delay storage, and
+`SignalGraph` mutation belong to later graph-runtime migration slices.
+
+`pulp::format::process_processor_block()` is the additive bridge from
+`ProcessBlock` back to the legacy `Processor::process()` ABI. It requires an
+active main output bus, allows output-only instrument blocks, publishes
+EventBlock sidecars for the duration of the call, restores any previous
+Processor sidecar pointers, and preserves the distinction between no EventBlock
+and an EventBlock with an empty parameter queue. It does not change the
+Processor vtable.
+
+`pulp::audio::rt_safety_contract.hpp` is the machine-checkable sampler/looper
+RT-safety label table. It classifies representative public DSP helpers as
+audio-callback safe, safe only after `prepare()`, safe only with immutable or
+generation-pinned inputs, telemetry-only, control-thread only, background-thread
+only, or offline-only. Treat the table as a callback boundary contract: anything
+marked audio-callback allowed must not allocate, lock, block, call hosts, do file
+I/O, or run package analysis. Import/export, waveform thumbnails, onset/slice
+analysis, loop search, publication writes, and materialization stay outside the
+audio callback even when their low-level copying helpers are allocation-free.
+When adding sampler/looper DSP helpers, add or update a contract row and prefer
+conservative `may_allocate`, `may_lock`, and `may_block` flags unless the
+implementation and its callees have been audited.
+
+`pulp::audio::SampleZoneMap` is the prepared sampler mapping primitive for
+key zones, velocity zones, fixed-pitch triggers, chromatic keytracking,
+round-robin groups, slices, and loop metadata. Build or rebuild maps off the
+audio thread, then publish immutable snapshots to realtime code. The hot
+`ZoneSelector` path is allocation-free and owns no sample storage. Zones may
+carry direct `PublishedSampleView` metadata for simple selection paths, or a
+stable sample ID for pool-backed instrument runtime paths.
+
+`pulp::audio::SamplePool` is the prepared lookup layer for instruments that
+need more than one published sample. It maps stable sample IDs to borrowed
+`PublishedSampleStore` views and resolves channel pointers without allocation.
+Build the pool off the audio thread, keep the borrowed stores alive while
+realtime code can read from it, and publish whole-pool snapshots rather than
+mutating an active pool in place.
+
+`pulp::audio::InstrumentRuntime` is currently the RT trigger-resolution join
+between `SampleZoneMap` and `SamplePool`: it chooses a pool-backed zone,
+resolves the zone's stable sample ID, and computes the playback rate from pitch
+policy plus the resolved sample rate. It intentionally does not allocate
+voices, enforce choke groups, stream sample tails, apply modulation, or render
+audio.
+
+`pulp::audio::InstrumentVoiceAllocator` is the prepared voice-slot policy layer
+for trigger allocation, release, deterministic stealing, voice groups, and
+choke groups. Call `prepare()` off the audio thread, then trigger/release
+against the fixed voice array in realtime code. Note-off moves a voice to
+`Released`; the future envelope/render layer should call `finish_voice()` when
+the tail is done. Choke and steal are force-termination events and can be
+reported through caller-owned spans. The allocator does not own sample data, run
+envelopes, apply modulation, or render voices.
+
+`pulp::audio::AhdsrEnvelope` is the per-voice AHDSR/ADSR gain primitive. Call
+`prepare()` off the audio thread, then drive `note_on()`, `note_off()`,
+`next_sample()`, or `render()` from realtime voice code. `render()` writes gain
+values into caller-owned buffers; it does not multiply audio or own voice
+storage.
+
+`pulp::audio::SampleVoiceRenderer` is the first scalar sample-reader voice
+primitive. It renders one-shot forward playback from a `SamplePoolResolution`
+into a caller-owned `BufferView`, using caller-owned source-channel scratch and
+an optional per-voice `AhdsrEnvelope`. It can accumulate into an output buffer
+or clear/overwrite the requested span. Looping, streaming, interpolation policy,
+modulation, and SIMD voice summing remain separate slices.
+
 ## See also
 
 * [`core/state/include/pulp/state/store.hpp`](../../core/state/include/pulp/state/store.hpp)
   — `snapshot()`, `snapshot_modulated()`, `set_value_rt()`,
   `pump_listeners()`.
 * [`core/runtime/include/pulp/runtime/scoped_no_alloc.hpp`](../../core/runtime/include/pulp/runtime/scoped_no_alloc.hpp)
+* [`core/format/include/pulp/format/process_block.hpp`](../../core/format/include/pulp/format/process_block.hpp)
+* [`core/audio/include/pulp/audio/instrument_envelope.hpp`](../../core/audio/include/pulp/audio/instrument_envelope.hpp)
+* [`core/audio/include/pulp/audio/instrument_runtime.hpp`](../../core/audio/include/pulp/audio/instrument_runtime.hpp)
+* [`core/audio/include/pulp/audio/instrument_voice_allocator.hpp`](../../core/audio/include/pulp/audio/instrument_voice_allocator.hpp)
+* [`core/audio/include/pulp/audio/rt_safety_contract.hpp`](../../core/audio/include/pulp/audio/rt_safety_contract.hpp)
+  — machine-checkable sampler/looper callback-boundary labels.
+* [`core/audio/include/pulp/audio/sample_pool.hpp`](../../core/audio/include/pulp/audio/sample_pool.hpp)
+* [`core/audio/include/pulp/audio/sample_voice_renderer.hpp`](../../core/audio/include/pulp/audio/sample_voice_renderer.hpp)
+* [`core/audio/include/pulp/audio/sample_zone_map.hpp`](../../core/audio/include/pulp/audio/sample_zone_map.hpp)
   — the no-allocation contract.
+* [`core/format/include/pulp/format/offline_render_host.hpp`](../../core/format/include/pulp/format/offline_render_host.hpp)
+  — the deterministic multi-block render harness.
+* [`core/graph/include/pulp/graph/graph_runtime_queue.hpp`](../../core/graph/include/pulp/graph/graph_runtime_queue.hpp)
+  — the graph command/event/MIDI handoff queues.
+* [`core/graph/include/pulp/graph/graph_runtime_plan.hpp`](../../core/graph/include/pulp/graph/graph_runtime_plan.hpp)
+  — dense graph topology plans and bounded validation.
+* [`core/format/include/pulp/format/graph_runtime_executor.hpp`](../../core/format/include/pulp/format/graph_runtime_executor.hpp)
+  — `ProcessBlock` graph snapshot/executor seam.
+* [`core/format/include/pulp/format/processor_block_adapter.hpp`](../../core/format/include/pulp/format/processor_block_adapter.hpp)
+  — `ProcessBlock` to `Processor::process()` bridge.
 * sudara, *"Big List of JUCE Tips and Tricks"* #28 (paint = audio)
   and #29 (don't deref atomics per sample).
