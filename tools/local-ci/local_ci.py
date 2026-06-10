@@ -3552,49 +3552,24 @@ def _build_target_tasks(job: dict, config: dict, progress_factory=None) -> list[
 
 
 def process_job(job: dict, config: dict) -> dict:
-    print(
-        f"\n=== Validating [{job['id']}] {job['branch']} @ {short_sha(job['sha'])} "
-        f"priority={job['priority']} ===\n"
+    return _execution.process_job(
+        job,
+        config,
+        print_fn=print,
+        short_sha_fn=short_sha,
+        config_for_job_execution_fn=config_for_job_execution,
+        build_target_tasks_fn=_build_target_tasks,
+        target_state_snapshot_fn=target_state_snapshot,
+        update_runner_active_targets_fn=update_runner_active_targets,
+        update_job_active_targets_fn=update_job_active_targets,
+        updated_target_state_fn=updated_target_state,
+        initial_target_state_fn=initial_target_state,
+        completed_target_state_fn=completed_target_state,
+        now_iso_fn=now_iso,
+        run_target_tasks_fn=run_target_tasks,
+        completed_job_result_fn=completed_job_result,
+        sorted_target_results_fn=sorted_target_results,
     )
-    config = config_for_job_execution(job, config)
-
-    target_states: dict[str, dict] = {}
-    state_lock = threading.Lock()
-
-    def flush_target_states() -> None:
-        with state_lock:
-            snapshot = target_state_snapshot(target_states)
-        update_runner_active_targets(job["id"], snapshot)
-        update_job_active_targets(job["id"], snapshot)
-
-    def progress_factory(name: str):
-        def report(**fields) -> None:
-            with state_lock:
-                target_states[name] = updated_target_state(target_states.get(name), fields)
-            flush_target_states()
-
-        return report
-
-    tasks = _build_target_tasks(job, config, progress_factory=progress_factory)
-    if not tasks:
-        return completed_job_result(job, [])
-
-    for name, _fn in tasks:
-        target_states[name] = initial_target_state(job["id"], name, started_at=now_iso())
-    flush_target_states()
-
-    def record_target_completion(name: str, result: dict) -> None:
-        target_states[name] = completed_target_state(
-            job["id"],
-            name,
-            result,
-            target_states.get(name, {}),
-            completed_at=now_iso(),
-        )
-        flush_target_states()
-
-    results = run_target_tasks(tasks, on_target_complete=record_target_completion)
-    return completed_job_result(job, sorted_target_results(results))
 
 
 def save_result(result: dict) -> Path:
