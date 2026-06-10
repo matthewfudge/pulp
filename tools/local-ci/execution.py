@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import json
 import queue as queue_module
 import shlex
 import subprocess
@@ -636,6 +637,59 @@ def completed_job_result(
 
 def sorted_target_results(results: list[dict]) -> list[dict]:
     return sorted(results, key=lambda item: item["target"])
+
+
+def config_for_job_execution(
+    job: dict,
+    config: dict,
+    *,
+    load_config_file_fn: Callable[[str], dict],
+    warn_fn: Callable[[str], None],
+) -> dict:
+    submission = job.get("submission") or {}
+    config_file = submission.get("config_path")
+    if not config_file:
+        return config
+    try:
+        return load_config_file_fn(config_file)
+    except (FileNotFoundError, json.JSONDecodeError) as exc:
+        warn_fn(f"  [scheduler] Warning: failed to load submission config {config_file}: {exc}")
+        return config
+
+
+def submission_target_state(job: dict, target_name: str) -> dict:
+    submission = job.get("submission") or {}
+    target_hosts = submission.get("target_hosts") or {}
+    state = target_hosts.get(target_name)
+    return state if isinstance(state, dict) else {}
+
+
+def resolve_ssh_target_execution(
+    job: dict,
+    target_name: str,
+    target_cfg: dict,
+    defaults: dict,
+    *,
+    ensure_host_reachable_fn: Callable[[str, dict, dict], str | None],
+) -> tuple[str | None, str | None]:
+    state = submission_target_state(job, target_name)
+    repo_path = state.get("repo_path") or target_cfg.get("repo_path")
+    status = state.get("status")
+    resolved_host = (state.get("resolved_host") or "").strip()
+    configured_host = (state.get("configured_host") or target_cfg.get("host") or "").strip()
+
+    if status in {"primary-up", "fallback-up"} and resolved_host:
+        return resolved_host, repo_path
+
+    if status == "unreachable":
+        return None, repo_path
+
+    if status == "utm-fallback-pending" and configured_host:
+        queued_cfg = dict(target_cfg)
+        queued_cfg["host"] = configured_host
+        return ensure_host_reachable_fn(target_name, queued_cfg, defaults), repo_path
+
+    return ensure_host_reachable_fn(target_name, target_cfg, defaults), repo_path
 
 
 def run_target_tasks(
