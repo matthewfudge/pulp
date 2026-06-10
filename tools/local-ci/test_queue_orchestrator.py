@@ -388,6 +388,21 @@ class QueueOrchestratorTests(unittest.TestCase):
             self.mod.cancel_queue_command_result_line({"status": "canceled", "summary": "summary"}, "job"),
             (0, "Canceled: summary"),
         )
+        job = {
+            "id": "job123",
+            "branch": "feature/q",
+            "sha": "abcdef1234567890",
+            "priority": "normal",
+            "targets": ["mac"],
+        }
+        self.assertEqual(
+            self.mod.enqueue_command_result_line(job, created=True),
+            "Enqueued: [job123] feature/q @ abcdef123456 priority=normal targets=mac",
+        )
+        self.assertEqual(
+            self.mod.enqueue_command_result_line(job, created=False),
+            "Already queued/running: [job123] feature/q @ abcdef123456 priority=normal targets=mac",
+        )
 
     def test_runner_info_active_target_update_matches_active_job_only(self) -> None:
         info = {
