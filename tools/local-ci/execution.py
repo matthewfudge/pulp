@@ -62,6 +62,33 @@ def should_reuse_prepared_state(job: dict) -> bool:
     return len(job.get("targets", [])) == 1
 
 
+def local_validation_command(job: dict, exclude_tests: str = "") -> tuple[list[str], str]:
+    validation = job.get("validation", "full")
+    prepared_root = prepared_state_root("mac", validation)
+    reuse_prepared = should_reuse_prepared_state(job)
+    env_args = [
+        f"PULP_VALIDATE_ROOT_OVERRIDE={prepared_root}",
+        f"PULP_VALIDATE_REUSE_PREPARED={'1' if reuse_prepared else '0'}",
+    ]
+    cmd = ["env", *env_args, "./validate-build.sh", "--quiet", "--keep-worktree", "--ref", job["sha"]]
+    if validation == "smoke":
+        cmd = [
+            "env",
+            *env_args,
+            "PULP_EXPECT_SMOKE=1",
+            "./validate-build.sh",
+            "--quiet",
+            "--keep-worktree",
+            "--ref",
+            job["sha"],
+            "--smoke",
+            "--no-tests",
+        ]
+    if exclude_tests:
+        cmd += ["--exclude-regex", exclude_tests]
+    return cmd, validation
+
+
 def validation_result_from_run(
     target_name: str,
     run: dict,
