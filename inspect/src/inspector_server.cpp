@@ -40,10 +40,10 @@ public:
         server.on_client_connected = [this](std::unique_ptr<events::InterprocessConnection> conn) {
             prune_disconnected_clients();
             auto* raw = conn.get();
-            raw->on_text_message = [this, raw](std::string_view msg) {
+            raw->set_on_text_message([this, raw](std::string_view msg) {
                 on_message(std::string(msg), raw);
-            };
-            raw->on_disconnected = [this, raw]() {
+            });
+            raw->set_on_disconnected([this, raw]() {
                 std::lock_guard lock(clients_mutex);
                 client_ptrs.erase(std::remove(client_ptrs.begin(), client_ptrs.end(), raw), client_ptrs.end());
                 auto it = std::find_if(disconnected_at.begin(), disconnected_at.end(),
@@ -53,7 +53,7 @@ public:
                 else
                     it->second = std::chrono::steady_clock::now();
                 cleanup_cv.notify_one();
-            };
+            });
             {
                 std::lock_guard lock(clients_mutex);
                 client_ptrs.push_back(raw);
