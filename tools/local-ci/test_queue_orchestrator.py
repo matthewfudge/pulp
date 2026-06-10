@@ -211,6 +211,13 @@ class QueueOrchestratorTests(unittest.TestCase):
                 "log_path": "/tmp/pulp/logs/windows.log",
             },
         )
+        self.assertEqual(
+            self.mod.updated_target_state(
+                {"phase": "build", "pid": 42, "last_line": "old"},
+                {"phase": "test", "pid": None, "last_line": "ok"},
+            ),
+            {"phase": "test", "last_line": "ok"},
+        )
 
         pass_state = self.mod.completed_target_state(
             {

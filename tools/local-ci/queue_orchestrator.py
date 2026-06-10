@@ -9,8 +9,8 @@ queue-command result line fragments, queue and result status line fragments,
 runner status line fragments, recent-completed result summaries,
 stale-running job selection/replacement/requeue state, stale-running
 reconciliation action selection, runner-info active-target mutation,
-initial/completed target-state payloads, completed-job state mutation, queue
-status grouping, and completed-queue retention. Higher-level queue mutation, locking, runner
+initial/progress/completed target-state payloads, completed-job state mutation,
+queue status grouping, and completed-queue retention. Higher-level queue mutation, locking, runner
 liveness, result persistence, and drain orchestration remain in local_ci.py
 until later extraction slices.
 """
@@ -467,6 +467,16 @@ def initial_target_state(*, started_at: str, log_path: str) -> dict:
     }
 
 
+def updated_target_state(previous_state: dict | None, fields: dict) -> dict:
+    state = dict(previous_state or {})
+    for key, value in fields.items():
+        if value is None:
+            state.pop(key, None)
+        else:
+            state[key] = value
+    return state
+
+
 def completed_target_state(
     result: dict,
     previous_state: dict | None,
@@ -579,12 +589,7 @@ def update_job_target_state_unlocked(
         return False
 
     active_targets = dict(job.get("active_targets") or {})
-    state = dict(active_targets.get(target_name) or {})
-    for key, value in fields.items():
-        if value is None:
-            state.pop(key, None)
-        else:
-            state[key] = value
+    state = updated_target_state(active_targets.get(target_name), fields)
 
     if state:
         active_targets[target_name] = state
