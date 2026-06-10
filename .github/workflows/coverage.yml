@@ -99,7 +99,7 @@ concurrency:
   # main run was cancelled while queued, never uploading the C++ flags).
   # Push/PR runs keep the per-ref group + the queue-depth-1 semantics
   # documented above.
-  group: coverage-${{ github.event_name == 'schedule' && 'scheduled-refresh' || github.ref }}
+  group: coverage-${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'scheduled-refresh' || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -248,12 +248,12 @@ jobs:
   classify:
     runs-on: ubuntu-latest
     outputs:
-      # Force the full native matrix on `schedule`: a scheduled run has no diff
-      # vs origin/main (it builds main HEAD), so the diff-mode classifier would
-      # report no native change and skip the C++ coverage matrix — defeating the
-      # whole point of the periodic dashboard refresh. Push/PR keep diff-mode so
-      # docs-only changes still skip the expensive native build.
-      native_build_required: ${{ github.event_name == 'schedule' || steps.classify.outputs.native_build_required }}
+      # Force the full native matrix on `schedule` AND `workflow_dispatch`:
+      # both build main HEAD with no diff vs origin/main, so the diff-mode
+      # classifier would report no native change and skip the C++ coverage
+      # matrix — defeating a periodic OR manual dashboard refresh. Push/PR keep
+      # diff-mode so docs-only changes still skip the expensive native build.
+      native_build_required: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || steps.classify.outputs.native_build_required }}
     steps:
       - uses: actions/checkout@v5
         with:
