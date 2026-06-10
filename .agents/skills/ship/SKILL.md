@@ -244,6 +244,13 @@ regression guard) plus `test_linux_packaging.cpp` (the
 real-build case runs only where `appimagetool` is installed — e.g. the
 tartci VM with libfuse2 — and verifies honest-fail otherwise).
 
+The plugin-bundle Linux path must also fail when no actual `.vst3`, `.clap`,
+or `.lv2` bundles exist under the build directory. Do not reuse the macOS
+"Created 0 .pkg and 0 .dmg" empty-artifact summary on Linux; report missing
+plugins and return a non-zero exit instead. The regression guard is
+`test_cli_ship_shellout.cpp`'s "pulp ship package on Linux with no plugin
+bundles reports missing plugins" case.
+
 **Architecture field:** `create_deb` stamps the `.deb` `Architecture:` from
 the compile-time `debian_architecture()` helper in `installer.hpp`, so a
 native build labels the package for its own arch (arm64/amd64/…) rather
