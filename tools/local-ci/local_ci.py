@@ -141,6 +141,7 @@ from footprint import (  # noqa: E402  -- re-exported for in-file consumers
     format_size_bytes,
     path_size_bytes,
     local_ci_state_footprint,
+    state_footprint_lines,
     describe_path_for_cleanup,
 )
 
@@ -4335,14 +4336,8 @@ def drain_pending_jobs(config: dict, *, blocking: bool) -> tuple[bool, bool]:
 
 
 def print_local_ci_state_footprint(*, indent: str = "") -> None:
-    footprint = local_ci_state_footprint()
-    print(f"{indent}Local CI footprint: total={format_size_bytes(footprint.get('total_bytes', 0))}")
-    for label in ("bundles", "prepared", "logs", "results", "cloud-runs"):
-        entry = (footprint.get("entries") or {}).get(label) or {}
-        print(
-            f"{indent}  {label}: {format_size_bytes(entry.get('size_bytes', 0))} "
-            f"({describe_path_for_cleanup(entry.get('path', state_dir()))})"
-        )
+    for line in state_footprint_lines(local_ci_state_footprint(), indent=indent):
+        print(line)
 
 
 def print_local_ci_cleanup_plan(plan: dict, *, dry_run: bool) -> None:

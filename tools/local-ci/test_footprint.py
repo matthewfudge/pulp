@@ -142,6 +142,17 @@ class FootprintTests(unittest.TestCase):
         footprint = self.mod.local_ci_state_footprint()
         self.assertEqual(footprint["entries"]["bundles"]["size_bytes"], 7)
         self.assertEqual(footprint["total_bytes"], 7)
+        self.assertEqual(
+            self.mod.state_footprint_lines(footprint, indent="  "),
+            [
+                "  Local CI footprint: total=7 B",
+                "    bundles: 7 B (bundles)",
+                "    prepared: 0 B (prepared)",
+                "    logs: 0 B (logs)",
+                "    results: 0 B (results)",
+                "    cloud-runs: 0 B (cloud-runs)",
+            ],
+        )
         self.assertEqual(self.mod.describe_path_for_cleanup(bundle_dir), "bundles")
         outside = Path(self.tmpdir.name) / "outside"
         self.assertEqual(self.mod.describe_path_for_cleanup(outside), str(outside))

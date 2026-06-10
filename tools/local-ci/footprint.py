@@ -80,6 +80,19 @@ def local_ci_state_footprint() -> dict:
     }
 
 
+def state_footprint_lines(footprint: dict, *, indent: str = "") -> list[str]:
+    lines = [
+        f"{indent}Local CI footprint: total={format_size_bytes(footprint.get('total_bytes', 0))}",
+    ]
+    for label in ("bundles", "prepared", "logs", "results", "cloud-runs"):
+        entry = (footprint.get("entries") or {}).get(label) or {}
+        lines.append(
+            f"{indent}  {label}: {format_size_bytes(entry.get('size_bytes', 0))} "
+            f"({describe_path_for_cleanup(entry.get('path', state_dir()))})"
+        )
+    return lines
+
+
 def describe_path_for_cleanup(path: Path) -> str:
     try:
         return str(path.relative_to(state_dir()))
