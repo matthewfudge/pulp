@@ -142,6 +142,10 @@ predictable output, no MIDI.
   Use `connect_audio_rate_modulation()` only for continuous, automatable
   `HostParamInfo::rate == AudioRate` params; do not route dense CV into
   stepped/read-only/control-rate parameters.
+- Keep plugin automation scratch preallocated by `SignalGraph::prepare()`.
+  The audio-thread `process()` path must not create per-block containers for
+  input pointer casts, sparse automation accumulation, or dense audio-rate
+  modulation accumulation.
 - Custom graph nodes are registered per `SignalGraph` with `CustomNodeType`
   (`type_id`, `version`, port counts, default name, optional process
   callback), then instantiated with `add_custom_node(type_id)` or

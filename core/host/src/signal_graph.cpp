@@ -47,6 +47,13 @@ bool push_parameter_event(ParameterEventQueue& queue,
     });
 }
 
+template <typename T, typename GetId>
+T* find_by_id(std::vector<T>& entries, uint32_t id, GetId get_id) {
+    auto it = std::find_if(entries.begin(), entries.end(),
+                           [&](const T& entry) { return get_id(entry) == id; });
+    return it == entries.end() ? nullptr : &*it;
+}
+
 bool is_valid_custom_node_type(const CustomNodeType& type) {
     return !type.type_id.empty()
         && type.version > 0
@@ -682,14 +689,30 @@ SignalGraph::compile_(double sample_rate, int max_block_size) {
     }
 
     for (const auto& c : cg->connections) {
-        if (!c.audio_rate_modulation) continue;
         auto rt_it = cg->runtime.find(c.dest_node);
         if (rt_it == cg->runtime.end()) continue;
-        auto& ids = rt_it->second.audio_rate_param_ids;
-        if (std::find(ids.begin(), ids.end(), c.automation_param_id) == ids.end()) {
-            ids.push_back(c.automation_param_id);
-            rt_it->second.audio_rate_param_data.resize(
-                ids.size() * static_cast<size_t>(max_block_size), 0.0f);
+        auto& rt = rt_it->second;
+        if (c.automation) {
+            auto* existing = find_by_id(
+                rt.sparse_automation_accum,
+                c.automation_param_id,
+                [](const NodeRuntime::SparseAutomationAccum& entry) {
+                    return entry.id;
+                });
+            if (!existing) {
+                rt.sparse_automation_accum.push_back({
+                    c.automation_param_id,
+                });
+            }
+        }
+        if (c.audio_rate_modulation) {
+            auto& ids = rt.audio_rate_param_ids;
+            if (std::find(ids.begin(), ids.end(), c.automation_param_id) == ids.end()) {
+                ids.push_back(c.automation_param_id);
+                rt.audio_rate_param_data.resize(
+                    ids.size() * static_cast<size_t>(max_block_size), 0.0f);
+                rt.audio_rate_accum.resize(ids.size());
+            }
         }
     }
 
@@ -958,9 +981,8 @@ void SignalGraph::process(audio::BufferView<float>& output,
                 audio::BufferView<float> out_view(
                     rt.output_ptrs.data(), rt.output_ptrs.size(),
                     static_cast<std::size_t>(num_samples));
-                std::vector<const float*> in_const(rt.input_ptrs.begin(), rt.input_ptrs.end());
                 audio::BufferView<const float> in_c(
-                    in_const.data(), in_const.size(),
+                    rt.input_const_ptrs.data(), rt.input_const_ptrs.size(),
                     static_cast<std::size_t>(num_samples));
                 rt.midi_out.clear();
 
@@ -989,12 +1011,14 @@ void SignalGraph::process(audio::BufferView<float>& output,
                         };
                     };
 
-                    struct Accum {
-                        float v0 = 0.f, vN = 0.f;
-                        float lo = 0.f, hi = 1.f;
-                        bool has_add = false;
-                    };
-                    std::unordered_map<uint32_t, Accum> acc;
+                    for (auto& a : rt.sparse_automation_accum) {
+                        a.v0 = 0.0f;
+                        a.vN = 0.0f;
+                        a.lo = 0.0f;
+                        a.hi = 1.0f;
+                        a.has_add = false;
+                        a.active = false;
+                    }
                     const int last = num_samples - 1;
                     for (size_t ci = 0; ci < cg->connections.size(); ++ci) {
                         const auto& c = cg->connections[ci];
@@ -1069,22 +1093,30 @@ void SignalGraph::process(audio::BufferView<float>& output,
                             mN = new_vN;
                         }
 
-                        auto& a = acc[c.automation_param_id];
+                        auto* a = find_by_id(
+                            rt.sparse_automation_accum,
+                            c.automation_param_id,
+                            [](const NodeRuntime::SparseAutomationAccum& entry) {
+                                return entry.id;
+                            });
+                        if (!a) continue;
                         const auto bounds = bounds_for_param(c.automation_param_id,
                                                              c.automation_range_lo,
                                                              c.automation_range_hi);
-                        a.lo = bounds.first;
-                        a.hi = bounds.second;
+                        a->lo = bounds.first;
+                        a->hi = bounds.second;
+                        a->active = true;
                         if (c.automation_mix == AutomationMix::Replace) {
-                            a.v0 = m0;
-                            a.vN = mN;
+                            a->v0 = m0;
+                            a->vN = mN;
                         } else {
-                            a.v0 += m0;
-                            a.vN += mN;
-                            a.has_add = true;
+                            a->v0 += m0;
+                            a->vN += mN;
+                            a->has_add = true;
                         }
                     }
-                    for (auto& [pid, a] : acc) {
+                    for (auto& a : rt.sparse_automation_accum) {
+                        if (!a.active) continue;
                         float v0 = a.v0, vN = a.vN;
                         if (a.has_add) {
                             const float lo = std::min(a.lo, a.hi);
@@ -1092,9 +1124,9 @@ void SignalGraph::process(audio::BufferView<float>& output,
                             v0 = std::clamp(v0, lo, hi);
                             vN = std::clamp(vN, lo, hi);
                         }
-                        if (!push_parameter_event(param_events, pid, 0, v0)) break;
+                        if (!push_parameter_event(param_events, a.id, 0, v0)) break;
                         if (last > 0
-                            && !push_parameter_event(param_events, pid, last, vN)) {
+                            && !push_parameter_event(param_events, a.id, last, vN)) {
                             break;
                         }
                     }
@@ -1105,23 +1137,11 @@ void SignalGraph::process(audio::BufferView<float>& output,
                                   rt.audio_rate_param_data.end(),
                                   0.0f);
 
-                        struct DenseAccum {
-                            float* values = nullptr;
-                            float lo = 0.0f;
-                            float hi = 1.0f;
-                            bool has_replace = false;
-                            bool has_add = false;
-                        };
-                        std::vector<DenseAccum> dense;
-                        dense.reserve(rt.audio_rate_param_ids.size());
-                        for (size_t pi = 0; pi < rt.audio_rate_param_ids.size(); ++pi) {
-                            dense.push_back({
-                                rt.audio_rate_param_data.data() + pi * block,
-                                0.0f,
-                                1.0f,
-                                false,
-                                false,
-                            });
+                        for (auto& d : rt.audio_rate_accum) {
+                            d.lo = 0.0f;
+                            d.hi = 1.0f;
+                            d.has_replace = false;
+                            d.has_add = false;
                         }
 
                         for (size_t ci = 0; ci < cg->connections.size(); ++ci) {
@@ -1139,8 +1159,11 @@ void SignalGraph::process(audio::BufferView<float>& output,
                                                       rt.audio_rate_param_ids.end(),
                                                       c.automation_param_id);
                             if (param_it == rt.audio_rate_param_ids.end()) continue;
-                            auto& dst = dense[static_cast<size_t>(
-                                std::distance(rt.audio_rate_param_ids.begin(), param_it))];
+                            const auto param_index = static_cast<size_t>(
+                                std::distance(rt.audio_rate_param_ids.begin(), param_it));
+                            auto& dst = rt.audio_rate_accum[param_index];
+                            float* dst_values =
+                                rt.audio_rate_param_data.data() + param_index * block;
                             const auto bounds = bounds_for_param(c.automation_param_id,
                                                                  c.automation_range_lo,
                                                                  c.automation_range_hi);
@@ -1153,10 +1176,10 @@ void SignalGraph::process(audio::BufferView<float>& output,
                                 for (int i = 0; i < num_samples; ++i) {
                                     const float value = map_modulation_sample(c, src[i]);
                                     if (c.automation_mix == AutomationMix::Replace) {
-                                        dst.values[static_cast<size_t>(i)] = value;
+                                        dst_values[static_cast<size_t>(i)] = value;
                                         dst.has_replace = true;
                                     } else {
-                                        dst.values[static_cast<size_t>(i)] += value;
+                                        dst_values[static_cast<size_t>(i)] += value;
                                         dst.has_add = true;
                                     }
                                 }
@@ -1171,10 +1194,10 @@ void SignalGraph::process(audio::BufferView<float>& output,
                                     const float value = map_modulation_sample(
                                         c, dl.ring[static_cast<size_t>(rp)]);
                                     if (c.automation_mix == AutomationMix::Replace) {
-                                        dst.values[static_cast<size_t>(i)] = value;
+                                        dst_values[static_cast<size_t>(i)] = value;
                                         dst.has_replace = true;
                                     } else {
-                                        dst.values[static_cast<size_t>(i)] += value;
+                                        dst_values[static_cast<size_t>(i)] += value;
                                         dst.has_add = true;
                                     }
                                     if (++wp == ring_size) wp = 0;
@@ -1184,14 +1207,16 @@ void SignalGraph::process(audio::BufferView<float>& output,
                             }
                         }
 
-                        for (size_t pi = 0; pi < dense.size(); ++pi) {
-                            const auto& d = dense[pi];
+                        for (size_t pi = 0; pi < rt.audio_rate_accum.size(); ++pi) {
+                            const auto& d = rt.audio_rate_accum[pi];
                             if (!d.has_replace && !d.has_add) continue;
                             const uint32_t param_id = rt.audio_rate_param_ids[pi];
                             const float lo = std::min(d.lo, d.hi);
                             const float hi = std::max(d.lo, d.hi);
+                            const float* values =
+                                rt.audio_rate_param_data.data() + pi * block;
                             for (int i = 0; i < num_samples; ++i) {
-                                float value = d.values[static_cast<size_t>(i)];
+                                float value = values[static_cast<size_t>(i)];
                                 if (d.has_add) value = std::clamp(value, lo, hi);
                                 if (!push_parameter_event(param_events, param_id, i, value)) {
                                     break;
