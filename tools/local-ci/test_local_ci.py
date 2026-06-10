@@ -5853,12 +5853,12 @@ class LocalCiTests(unittest.TestCase):
             def kill(self):
                 read_finished.set()
 
-        original_popen = self.mod.subprocess.Popen
-        self.mod.subprocess.Popen = lambda *args, **kwargs: FakeProc()
+        original_popen = self.mod._execution.subprocess.Popen
+        self.mod._execution.subprocess.Popen = lambda *args, **kwargs: FakeProc()
         try:
             result = self.mod.run_logged_command(["ssh", "win2"], input_text="payload", timeout=5)
         finally:
-            self.mod.subprocess.Popen = original_popen
+            self.mod._execution.subprocess.Popen = original_popen
 
         self.assertFalse(result["timed_out"])
         self.assertEqual(result["returncode"], 0)
