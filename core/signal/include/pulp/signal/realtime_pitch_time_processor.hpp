@@ -34,10 +34,12 @@
 ///
 /// No allocation or locks after prepare().
 
+#include <pulp/signal/freeze_hold.hpp>
 #include <pulp/signal/latency_aware_control_smoother.hpp>
 #include <pulp/signal/multichannel_phase_coordinator.hpp>
 #include <pulp/signal/spectral_envelope_shifter.hpp>
 #include <pulp/signal/spectral_frame_engine.hpp>
+#include <pulp/signal/transient_phase_policy.hpp>
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -60,6 +62,9 @@ struct RealtimePitchTimeConfig {
     float pitch_smoothing_seconds = 0.03f; // semitone-domain attack/release
     FormantMode formant_mode = FormantMode::follow;
     int true_envelope_iterations = 3;      // formant-path quality
+    /// Phase reset at detected transients (Röbel DAFx 2003) — keeps
+    /// attacks sharp under shift/stretch.
+    bool transient_preservation = true;
 };
 
 class RealtimePitchTimeProcessor {
@@ -93,6 +98,16 @@ public:
         engine_.prepare(engine_config);
 
         coordinator_.prepare(fft_size_, config.channels);
+
+        TransientPhasePolicy::Config transient_config;
+        transient_config.fft_size = fft_size_;
+        transient_.prepare(transient_config);
+
+        FreezeHold::Config freeze_config;
+        freeze_config.fft_size = fft_size_;
+        freeze_config.channels = config.channels;
+        freeze_config.analysis_hop = analysis_hop_;
+        freeze_.prepare(freeze_config);
 
         SpectralEnvelopeShifterConfig env_config;
         env_config.fft_size = fft_size_;
@@ -138,6 +153,12 @@ public:
     }
 
     void set_formant_mode(FormantMode mode) { config_.formant_mode = mode; }
+
+    /// Freeze (infinite hold) of the current input moment. Held audio
+    /// remains pitch/formant-controllable: the hold replaces analysis
+    /// frames at the head of the chain, upstream of phase propagation.
+    void set_frozen(bool frozen) { freeze_.set_frozen(frozen); }
+    bool is_frozen() const { return freeze_.is_latched(); }
 
     /// time_stretch mode only; > 1 lengthens. Takes effect at the next frame.
     void set_time_ratio(float ratio) {
@@ -228,6 +249,8 @@ public:
     void reset() {
         engine_.reset();
         coordinator_.reset();
+        transient_.reset();
+        freeze_.reset();
         std::fill(stretch_ring_.begin(), stretch_ring_.end(), 0.0f);
         pitch_smoother_.set_immediate(pitch_smoother_.target());
         formant_smoother_.set_immediate(formant_smoother_.target());
@@ -287,7 +310,15 @@ private:
         synth_accum_int_ += hop;
         ++frames_done_;
 
-        coordinator_.process_group(frames, bins, analysis_hop_, hop, 0.0f);
+        // Freeze first: held frames look like live steady-state input, so
+        // pitch/formant control downstream keeps working over the hold.
+        freeze_.process_group(frames, config_.channels, bins);
+
+        const float reset_amount =
+            config_.transient_preservation
+                ? transient_.analyze(frames, config_.channels, bins)
+                : 0.0f;
+        coordinator_.process_group(frames, bins, analysis_hop_, hop, reset_amount);
 
         // Formant path: warp = pitch_ratio / formant_ratio in preserve
         // mode (cancels the resampler's envelope scaling), 1 / formant_ratio
@@ -365,6 +396,8 @@ private:
     SpectralFrameEngine engine_;
     MultichannelPhaseCoordinator coordinator_;
     SpectralEnvelopeShifter envelope_;
+    TransientPhasePolicy transient_;
+    FreezeHold freeze_;
     LatencyAwareControlSmoother pitch_smoother_;
     LatencyAwareControlSmoother formant_smoother_;
 
