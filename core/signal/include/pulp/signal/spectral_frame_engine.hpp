@@ -111,15 +111,10 @@ public:
     template <typename Fn>
     void process(const float* const* in, float* const* out, int num_samples, Fn&& on_frames) {
         assert(num_samples <= config_.max_block);
-        int done = 0;
-        while (done < num_samples) {
-            const int run = std::min(num_samples - done, config_.analysis_hop);
-            analyze_run(in, done, run, [&](std::complex<float>* const* frames, int bins) {
-                on_frames(frames, bins);
-                synthesize_frame(frames, config_.analysis_hop);
-            });
-            done += run;
-        }
+        analyze(in, num_samples, [&](std::complex<float>* const* frames, int bins) {
+            on_frames(frames, bins);
+            synthesize_frame(frames, config_.analysis_hop);
+        });
         // Fixed-latency read: the first latency_samples() outputs are zeros;
         // afterwards every output pops exactly one final ring sample, so the
         // input→output delay is constant regardless of block size or phase.
@@ -135,15 +130,32 @@ public:
     }
 
     /// Split API — analysis only. Pushes `num_samples` per channel from
-    /// `in` (+`offset`), invoking `on_frames` once per completed frame.
-    /// The callback may call `synthesize_frame()` any number of times.
+    /// `in`, invoking `on_frames` once per completed frame. Runs are split
+    /// exactly at frame boundaries, so frames land at fft_size + k * hop
+    /// for ANY feed chunking — the analysis hop the callback observes is
+    /// constant regardless of host block size.
     template <typename Fn>
     void analyze(const float* const* in, int num_samples, Fn&& on_frames) {
+        const int n = config_.fft_size;
         int done = 0;
         while (done < num_samples) {
-            const int run = std::min(num_samples - done, config_.analysis_hop);
-            analyze_run(in, done, run, on_frames);
+            const auto until_frame = static_cast<int>(
+                std::min<std::int64_t>(next_frame_at_ - samples_fed_,
+                                       static_cast<std::int64_t>(num_samples - done)));
+            const int run = std::max(until_frame, 1);
+            for (int ch = 0; ch < config_.channels; ++ch) {
+                float* ring = input_ring_.data() + static_cast<size_t>(ch) * n;
+                for (int i = 0; i < run; ++i)
+                    ring[(input_pos_ + i) % n] = in[ch][done + i];
+            }
+            input_pos_ = (input_pos_ + run) % n;
+            samples_fed_ += run;
             done += run;
+
+            if (samples_fed_ == next_frame_at_) {
+                next_frame_at_ += config_.analysis_hop;
+                emit_frame(on_frames);
+            }
         }
     }
 
@@ -232,36 +244,21 @@ private:
         ++read_pos_;
     }
 
-    // Feed up to one hop's worth of samples, firing the frame callback when
-    // a frame completes. `run` never exceeds analysis_hop, so at most one
-    // frame completes per call.
+    // Window + transform the last fft_size samples of every channel's
+    // input ring and hand the frame group to the callback.
     template <typename Fn>
-    void analyze_run(const float* const* in, int offset, int run, Fn&& on_frames) {
+    void emit_frame(Fn&& on_frames) {
         const int n = config_.fft_size;
         for (int ch = 0; ch < config_.channels; ++ch) {
-            float* ring = input_ring_.data() + static_cast<size_t>(ch) * n;
-            for (int i = 0; i < run; ++i)
-                ring[(input_pos_ + i) % n] = in[ch][offset + i];
+            const float* ring = input_ring_.data() + static_cast<size_t>(ch) * n;
+            for (int i = 0; i < n; ++i)
+                time_buf_[static_cast<size_t>(i)] =
+                    ring[(input_pos_ + i) % n] * window_[static_cast<size_t>(i)];
+            fft_.forward_real(time_buf_.data(), freq_buf_.data());
+            std::copy(freq_buf_.begin(), freq_buf_.begin() + num_bins_,
+                      frames_.begin() + static_cast<size_t>(ch) * num_bins_);
         }
-        input_pos_ = (input_pos_ + run) % n;
-        samples_fed_ += run;
-
-        // First frame once the window is full, then exactly every hop —
-        // no catch-up debt from the fill period (run <= analysis_hop, so
-        // at most one frame completes per call).
-        if (samples_fed_ >= next_frame_at_) {
-            next_frame_at_ += config_.analysis_hop;
-            for (int ch = 0; ch < config_.channels; ++ch) {
-                const float* ring = input_ring_.data() + static_cast<size_t>(ch) * n;
-                for (int i = 0; i < n; ++i)
-                    time_buf_[static_cast<size_t>(i)] =
-                        ring[(input_pos_ + i) % n] * window_[static_cast<size_t>(i)];
-                fft_.forward_real(time_buf_.data(), freq_buf_.data());
-                std::copy(freq_buf_.begin(), freq_buf_.begin() + num_bins_,
-                          frames_.begin() + static_cast<size_t>(ch) * num_bins_);
-            }
-            on_frames(frame_ptrs_.data(), num_bins_);
-        }
+        on_frames(frame_ptrs_.data(), num_bins_);
     }
 
     SpectralFrameEngineConfig config_;

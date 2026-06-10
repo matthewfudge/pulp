@@ -1878,8 +1878,8 @@ pulp_add_test_suite(pulp-test-signal-filters LIBRARIES pulp::signal)
 # Signal spectral tests (P5 test-split — extracted from test_signal.cpp).
 # WindowFunction / FFT / Convolver TEST_CASE clusters moved verbatim.
 pulp_add_test_suite(pulp-test-signal-spectral LIBRARIES pulp::signal)
-# SpectralFrameEngine — DSP STFT/WOLA analysis+synthesis substrate.
-pulp_add_test_suite(pulp-test-spectral-frame-engine LIBRARIES pulp::signal)
+# Spectral primitives: STFT/WOLA engine, pitch/time, formant, smoothing.
+pulp_add_test_suite(pulp-test-spectral-primitives SOURCES test_spectral_frame_engine.cpp test_realtime_pitch_time.cpp LIBRARIES pulp::signal)
 # Multi-backend FFT facade (vdsp / kissfft / fftw3 / mkl). Verifies
 # selector helpers, env-var routing, round-trip on each available
 # backend, and cross-backend numerical equivalence.

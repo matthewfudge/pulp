@@ -21,9 +21,10 @@ using Catch::Matchers::WithinAbs;
 
 // ── allocation sentinel ─────────────────────────────────────────────────────
 // Replaces global operator new/delete for this test binary so realtime-path
-// tests can assert that process() performs no heap allocation.
+// tests can assert that process() performs no heap allocation. External
+// linkage: sibling TUs in this suite reference it via extern declaration.
 
-static std::atomic<long> g_alloc_count{0};
+std::atomic<long> g_alloc_count{0};
 
 void* operator new(std::size_t size) {
     ++g_alloc_count;
@@ -152,18 +153,22 @@ TEST_CASE("SpectralFrameEngine output is block-size invariant",
     config.fft_size = 2048;
     config.analysis_hop = 512;
 
-    SpectralFrameEngine engine_small;
-    engine_small.prepare(config);
-    auto out_small = run_identity(engine_small, in, 32);
+    SpectralFrameEngine reference_engine;
+    reference_engine.prepare(config);
+    auto reference = run_identity(reference_engine, in, 4096);
 
-    SpectralFrameEngine engine_large;
-    engine_large.prepare(config);
-    auto out_large = run_identity(engine_large, in, 4096);
-
-    float max_diff = 0.0f;
-    for (size_t i = 0; i < out_small[0].size(); ++i)
-        max_diff = std::max(max_diff, std::abs(out_small[0][i] - out_large[0][i]));
-    REQUIRE(max_diff == 0.0f);
+    // 480 deliberately not a divisor/multiple of the hop: frames must
+    // still land at fft_size + k * hop for any feed chunking.
+    for (int block : {32, 480, 512, 1000}) {
+        SpectralFrameEngine engine;
+        engine.prepare(config);
+        auto out = run_identity(engine, in, block);
+        float max_diff = 0.0f;
+        for (size_t i = 0; i < out[0].size(); ++i)
+            max_diff = std::max(max_diff, std::abs(out[0][i] - reference[0][i]));
+        INFO("block: " << block);
+        REQUIRE(max_diff == 0.0f);
+    }
 }
 
 TEST_CASE("SpectralFrameEngine keeps identical channels identical for 1..16 channels",

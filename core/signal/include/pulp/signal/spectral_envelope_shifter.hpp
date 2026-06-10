@@ -1,0 +1,163 @@
+#pragma once
+
+/// @file spectral_envelope_shifter.hpp
+/// Spectral-envelope estimation and formant warping for phase-vocoder
+/// frame groups.
+///
+/// Estimates the spectral envelope of a frame group by cepstral
+/// smoothing (homomorphic liftering per Oppenheim & Schafer,
+/// *Discrete-Time Signal Processing*) optionally refined with
+/// true-envelope iterations (Röbel & Rodet, "Efficient Spectral Envelope
+/// Estimation and its Application to Pitch Shifting and Envelope
+/// Preservation," DAFx 2005), then rescales every channel's bins by
+/// `E(k * warp) / E(k)`.
+///
+/// `warp` semantics: features of the envelope at frequency f move to
+/// f / warp. A resample-based pitch shifter that scales the spectrum by
+/// `pitch_ratio` passes `warp = pitch_ratio` to preserve formants, and
+/// `warp = pitch_ratio / formant_ratio` to additionally shift them; a
+/// pure formant shift uses `warp = 1 / formant_ratio`.
+///
+/// The envelope is estimated once per frame from the channel group's
+/// RMS magnitude and the same gain is applied to every channel, so
+/// inter-channel relationships (and identical channels) are preserved.
+///
+/// `warp == 1` is an exact bypass. No allocation after `prepare()`.
+
+#include <pulp/signal/fft.hpp>
+#include <algorithm>
+#include <cassert>
+#include <cmath>
+#include <complex>
+#include <vector>
+
+namespace pulp::signal {
+
+struct SpectralEnvelopeShifterConfig {
+    int fft_size = 2048;
+    /// Cepstral cutoff (quefrency bins kept). Smaller = smoother
+    /// envelope. Defaulted from the frame geometry when <= 0.
+    int order = 0;
+    /// True-envelope refinement passes (0 = plain liftering). Each pass
+    /// costs two FFTs per frame.
+    int true_envelope_iterations = 3;
+    /// Gain clamp for the applied correction, in dB (safety bound for
+    /// degenerate envelopes on sparse spectra).
+    float max_gain_db = 60.0f;
+};
+
+class SpectralEnvelopeShifter {
+public:
+    SpectralEnvelopeShifter() = default;
+
+    void prepare(const SpectralEnvelopeShifterConfig& config) {
+        assert(config.fft_size >= 256 && (config.fft_size & (config.fft_size - 1)) == 0);
+        config_ = config;
+        if (config_.order <= 0)
+            config_.order = config_.fft_size / 16;
+        num_bins_ = config_.fft_size / 2 + 1;
+        fft_ = Fft(config_.fft_size);
+
+        log_mag_.assign(static_cast<size_t>(num_bins_), 0.0f);
+        envelope_.assign(static_cast<size_t>(num_bins_), 0.0f);
+        smooth_in_.assign(static_cast<size_t>(num_bins_), 0.0f);
+        cepstrum_.assign(static_cast<size_t>(config_.fft_size),
+                         std::complex<float>(0.0f, 0.0f));
+        max_gain_ln_ = static_cast<float>(config_.max_gain_db) * 0.1151293f; // dB → ln
+    }
+
+    int num_bins() const { return num_bins_; }
+    int order() const { return config_.order; }
+
+    /// Estimate the group envelope and rescale all channels' bins by
+    /// E(k * warp) / E(k). `frames` holds `channels` pointers to
+    /// `num_bins()` bins (DC..Nyquist) of the same time index.
+    void process_group(std::complex<float>* const* frames, int channels,
+                       int num_bins, float warp) {
+        assert(num_bins == num_bins_);
+        assert(channels >= 1);
+        if (warp == 1.0f)
+            return; // exact bypass — neutral by construction
+
+        // Group RMS magnitude → log domain, floored 40 dB below the frame
+        // peak: without the relative floor, the near-zero bins between
+        // harmonics drag the cepstral envelope far below the harmonic
+        // tops and the true-envelope refinement cannot recover the
+        // contrast within a bounded iteration budget. Envelope detail
+        // more than 40 dB under the frame peak has no audible effect on
+        // the correction.
+        float max_power = 0.0f;
+        for (int k = 0; k < num_bins_; ++k) {
+            float power = 0.0f;
+            for (int ch = 0; ch < channels; ++ch) {
+                const float re = frames[ch][k].real();
+                const float im = frames[ch][k].imag();
+                power += re * re + im * im;
+            }
+            log_mag_[static_cast<size_t>(k)] = power / static_cast<float>(channels);
+            max_power = std::max(max_power, log_mag_[static_cast<size_t>(k)]);
+        }
+        const float floor_power = std::max(max_power * 1e-4f, 1e-24f);
+        for (int k = 0; k < num_bins_; ++k)
+            log_mag_[static_cast<size_t>(k)] =
+                0.5f * std::log(std::max(log_mag_[static_cast<size_t>(k)], floor_power));
+
+        // Plain cepstral lifter, then true-envelope refinement: re-smooth
+        // the pointwise max of spectrum and current envelope so the
+        // envelope rides harmonic peaks instead of averaging through them.
+        cepstral_smooth(log_mag_.data(), envelope_.data());
+        for (int it = 0; it < config_.true_envelope_iterations; ++it) {
+            for (int k = 0; k < num_bins_; ++k)
+                smooth_in_[static_cast<size_t>(k)] =
+                    std::max(log_mag_[static_cast<size_t>(k)], envelope_[static_cast<size_t>(k)]);
+            cepstral_smooth(smooth_in_.data(), envelope_.data());
+        }
+
+        // Apply E(k*warp) / E(k) in the log domain with linear
+        // interpolation, clamped at the spectrum edges and by max gain.
+        for (int k = 0; k < num_bins_; ++k) {
+            const float pos = std::min(static_cast<float>(k) * warp,
+                                       static_cast<float>(num_bins_ - 1));
+            const int i0 = static_cast<int>(pos);
+            const int i1 = std::min(i0 + 1, num_bins_ - 1);
+            const float frac = pos - static_cast<float>(i0);
+            const float warped = envelope_[static_cast<size_t>(i0)] * (1.0f - frac)
+                               + envelope_[static_cast<size_t>(i1)] * frac;
+            float gain_ln = warped - envelope_[static_cast<size_t>(k)];
+            gain_ln = std::clamp(gain_ln, -max_gain_ln_, max_gain_ln_);
+            const float gain = std::exp(gain_ln);
+            for (int ch = 0; ch < channels; ++ch)
+                frames[ch][k] *= gain;
+        }
+    }
+
+private:
+    // log-spectrum (num_bins) → liftered log-envelope (num_bins) via the
+    // real cepstrum: even-symmetric extension, inverse FFT, rectangular
+    // lifter keeping quefrencies |q| <= order, forward FFT.
+    void cepstral_smooth(const float* log_spec, float* env_out) {
+        const int n = config_.fft_size;
+        for (int k = 0; k < num_bins_; ++k)
+            cepstrum_[static_cast<size_t>(k)] = {log_spec[k], 0.0f};
+        for (int k = num_bins_; k < n; ++k)
+            cepstrum_[static_cast<size_t>(k)] = {log_spec[n - k], 0.0f};
+        fft_.inverse(cepstrum_.data());
+        for (int q = config_.order + 1; q < n - config_.order; ++q)
+            cepstrum_[static_cast<size_t>(q)] = {0.0f, 0.0f};
+        fft_.forward(cepstrum_.data());
+        for (int k = 0; k < num_bins_; ++k)
+            env_out[k] = cepstrum_[static_cast<size_t>(k)].real();
+    }
+
+    SpectralEnvelopeShifterConfig config_;
+    Fft fft_{2048};
+    int num_bins_ = 0;
+    float max_gain_ln_ = 6.9f;
+
+    std::vector<float> log_mag_;
+    std::vector<float> envelope_;
+    std::vector<float> smooth_in_;
+    std::vector<std::complex<float>> cepstrum_;
+};
+
+} // namespace pulp::signal
