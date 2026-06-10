@@ -298,6 +298,18 @@ def status_active_targets(job: dict, runner_info: dict | None = None) -> dict | 
     return None
 
 
+def status_target_states(job: dict, active_targets: dict | None) -> list[tuple[str, dict]]:
+    if not active_targets:
+        return []
+
+    states: list[tuple[str, dict]] = []
+    for name in job.get("targets") or []:
+        state = active_targets.get(name)
+        if state:
+            states.append((name, state))
+    return states
+
+
 def target_state_detail_parts(state: dict) -> list[str]:
     details = []
     field_labels = [
