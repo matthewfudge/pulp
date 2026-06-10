@@ -11,6 +11,7 @@ from pathlib import Path
 
 
 MODULE_PATH = Path(__file__).with_name("queue_lifecycle.py")
+ORCHESTRATOR_PATH = Path(__file__).with_name("queue_orchestrator.py")
 
 
 def load_module():
@@ -18,6 +19,17 @@ def load_module():
     if script_dir not in sys.path:
         sys.path.insert(0, script_dir)
     spec = importlib.util.spec_from_file_location("pulp_queue_lifecycle", MODULE_PATH)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_orchestrator_module():
+    script_dir = str(ORCHESTRATOR_PATH.parent)
+    if script_dir not in sys.path:
+        sys.path.insert(0, script_dir)
+    spec = importlib.util.spec_from_file_location("pulp_queue_orchestrator_for_lifecycle_tests", ORCHESTRATOR_PATH)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
@@ -48,17 +60,20 @@ class QueueLifecycleTests(unittest.TestCase):
 
         def actions(loaded_queue, stale):
             self.assertIs(loaded_queue, queue)
-            self.assertEqual(stale, [superseded_job, requeued_job])
             events.append(("actions", [job["id"] for job in stale]))
-            return [
-                {
-                    "action": "supersede",
-                    "job": superseded_job,
-                    "replacement": replacement,
-                    "reason": "newer_sha",
-                },
-                {"action": "requeue", "job": requeued_job},
-            ]
+            if stale == [superseded_job, requeued_job]:
+                return [
+                    {
+                        "action": "supersede",
+                        "job": superseded_job,
+                        "replacement": replacement,
+                        "reason": "newer_sha",
+                    },
+                    {"action": "requeue", "job": requeued_job},
+                ]
+            if stale == [requeued_job]:
+                return [{"action": "requeue", "job": requeued_job}]
+            self.fail(f"unexpected stale jobs: {stale}")
 
         def supersede(job, replacement_id, reason):
             events.append(("supersede", (job["id"], replacement_id, reason)))
@@ -85,7 +100,58 @@ class QueueLifecycleTests(unittest.TestCase):
                 ("stale", ["old", "retry", "new"]),
                 ("actions", ["old", "retry"]),
                 ("supersede", ("old", "new", "newer_sha")),
+                ("actions", ["retry"]),
                 ("requeue", "retry"),
+            ],
+        )
+
+    def test_reconcile_running_jobs_recomputes_against_current_queue(self) -> None:
+        orchestrator = load_orchestrator_module()
+        older = {
+            "id": "older",
+            "branch": "feature/q",
+            "sha": "a" * 40,
+            "fingerprint": "older",
+            "targets": ["mac"],
+            "priority": "normal",
+            "validation": "full",
+            "queued_at": "2026-06-09T00:00:00+00:00",
+            "status": "running",
+        }
+        newer = dict(
+            older,
+            id="newer",
+            sha="b" * 40,
+            fingerprint="newer",
+            queued_at="2026-06-09T00:01:00+00:00",
+        )
+        queue = [older, newer]
+        events: list[tuple[str, object]] = []
+
+        def supersede(job, replacement_id, reason):
+            events.append(("supersede", (job["id"], replacement_id, reason)))
+            job["status"] = "completed"
+
+        def requeue(job):
+            events.append(("requeue", job["id"]))
+            job["status"] = "pending"
+
+        result = self.mod.reconcile_running_jobs_unlocked(
+            queue,
+            stale_running_jobs_unlocked_fn=lambda loaded_queue: list(loaded_queue),
+            stale_running_reconciliation_actions_unlocked_fn=orchestrator.stale_running_reconciliation_actions_unlocked,
+            supersede_job_unlocked_fn=supersede,
+            requeue_stale_running_job_unlocked_fn=requeue,
+        )
+
+        self.assertEqual(result, (queue, True))
+        self.assertEqual(older["status"], "completed")
+        self.assertEqual(newer["status"], "pending")
+        self.assertEqual(
+            events,
+            [
+                ("supersede", ("older", "newer", "newer_sha_queued")),
+                ("requeue", "newer"),
             ],
         )
 
