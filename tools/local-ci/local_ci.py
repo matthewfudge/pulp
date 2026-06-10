@@ -3230,6 +3230,10 @@ def completed_job_result(job: dict, results: list[dict]) -> dict:
     )
 
 
+def sorted_target_results(results: list[dict]) -> list[dict]:
+    return _execution.sorted_target_results(results)
+
+
 def run_logged_command(
     cmd: list[str],
     *,
@@ -3729,8 +3733,7 @@ def process_job(job: dict, config: dict) -> dict:
             )
             flush_target_states()
 
-    results.sort(key=lambda item: item["target"])
-    return completed_job_result(job, results)
+    return completed_job_result(job, sorted_target_results(results))
 
 
 def save_result(result: dict) -> Path:

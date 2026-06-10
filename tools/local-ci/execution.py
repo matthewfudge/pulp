@@ -633,6 +633,10 @@ def completed_job_result(
     return payload
 
 
+def sorted_target_results(results: list[dict]) -> list[dict]:
+    return sorted(results, key=lambda item: item["target"])
+
+
 def run_logged_command(
     cmd: list[str],
     *,
