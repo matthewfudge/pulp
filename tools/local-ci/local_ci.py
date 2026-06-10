@@ -2513,6 +2513,10 @@ def summarize_active_targets(active_targets: dict | None, preferred_order: list[
     return _queue_orchestrator.summarize_active_targets(active_targets, preferred_order)
 
 
+def status_active_targets(job: dict, runner_info: dict | None = None) -> dict | None:
+    return _queue_orchestrator.status_active_targets(job, runner_info)
+
+
 def target_state_detail_parts(state: dict) -> list[str]:
     return _queue_orchestrator.target_state_detail_parts(state)
 
@@ -4726,9 +4730,7 @@ def cmd_status(_args: argparse.Namespace) -> int:
                 )
             if submission.get("provenance"):
                 print(f"    provenance: {provenance_summary(submission.get('provenance'))}")
-            active_targets = job.get("active_targets") or (
-                runner.get("active_targets") if runner and runner.get("active_job_id") == job["id"] else None
-            )
+            active_targets = status_active_targets(job, runner)
             target_summary = summarize_active_targets(active_targets, job.get("targets"))
             if target_summary:
                 print(f"    live targets: {target_summary}")
@@ -4760,7 +4762,7 @@ def cmd_status(_args: argparse.Namespace) -> int:
                 )
             if submission.get("provenance"):
                 print(f"    provenance: {provenance_summary(submission.get('provenance'))}")
-            active_targets = job.get("active_targets")
+            active_targets = status_active_targets(job)
             target_summary = summarize_active_targets(active_targets, job.get("targets"))
             if target_summary:
                 progress_at = job.get("last_progress_at") or job.get("requeued_at") or "?"
