@@ -62,6 +62,29 @@ class ExecutionTests(unittest.TestCase):
         self.assertTrue(self.mod.should_reuse_prepared_state({"targets": ["mac"]}))
         self.assertFalse(self.mod.should_reuse_prepared_state({"targets": ["mac", "ubuntu"]}))
 
+    def test_local_validation_command_builds_full_and_smoke_commands(self) -> None:
+        full_cmd, full_validation = self.mod.local_validation_command(
+            {"sha": "a" * 40, "targets": ["mac"], "validation": "full"},
+            exclude_tests="slow",
+        )
+        smoke_cmd, smoke_validation = self.mod.local_validation_command(
+            {"sha": "b" * 40, "targets": ["mac"], "validation": "smoke"}
+        )
+
+        self.assertEqual(full_validation, "full")
+        self.assertEqual(full_cmd[0], "env")
+        self.assertIn("PULP_VALIDATE_REUSE_PREPARED=1", full_cmd)
+        self.assertIn("./validate-build.sh", full_cmd)
+        self.assertIn("--keep-worktree", full_cmd)
+        self.assertIn("--exclude-regex", full_cmd)
+        self.assertIn("slow", full_cmd)
+        self.assertNotIn("PULP_EXPECT_SMOKE=1", full_cmd)
+
+        self.assertEqual(smoke_validation, "smoke")
+        self.assertIn("PULP_EXPECT_SMOKE=1", smoke_cmd)
+        self.assertIn("--smoke", smoke_cmd)
+        self.assertIn("--no-tests", smoke_cmd)
+
     def test_validation_result_from_run_reports_timeout(self) -> None:
         result = self.mod.validation_result_from_run(
             "mac",

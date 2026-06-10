@@ -32,7 +32,7 @@ and the matching contract tests in the same change.
 | `macos_desktop.py` | macOS app bundle detection, Swift window-probe wrappers, window wait/capture/activation/click helpers, app quit, and process termination. | Desktop action orchestration, artifact manifest writing, source preparation, or queue orchestration. |
 | `windows_target.py` | Windows desktop target contracts, path safety, session-agent request payloads, and probe result formatting/readiness helpers. | SSH/PowerShell execution, desktop action execution, queue orchestration, or artifact layout. |
 | `windows_probe.py` | Windows SSH/PowerShell command execution helpers, remote file transfer/read/remove helpers, repo/session/tooling probes, remote tool installation, session-agent bootstrap/start, and CMake generator probing. | Windows target contract formatting, desktop action orchestration, queue orchestration, or artifact layout. |
-| `execution.py` | Subprocess output capture, progress marker parsing, heartbeat updates, optional command log writing, and target-neutral validation helper policy. | Target-specific validation commands, result assembly, queue mutation, or desktop automation adapters. |
+| `execution.py` | Subprocess output capture, progress marker parsing, heartbeat updates, optional command log writing, local validation command construction, and target-neutral validation helper policy. | SSH/Windows validation commands, queue mutation, or desktop automation adapters. |
 
 ## Remaining `local_ci.py` Clusters
 
