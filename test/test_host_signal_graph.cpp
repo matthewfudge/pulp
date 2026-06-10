@@ -4,12 +4,15 @@
 // carries its own interleaved helper namespaces.
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include "harness/rt_allocation_probe.hpp"
 #include <pulp/host/scanner.hpp>
 #include <pulp/host/plugin_slot.hpp>
 #include <pulp/host/signal_graph.hpp>
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
+#include <cstring>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -1262,6 +1265,64 @@ private:
     float max_value_ = 1.0f;
     std::vector<pulp::host::ParameterEvent> received_;
 };
+
+class FixedStorageAutomatable final : public PluginSlot {
+public:
+    static constexpr uint32_t kParamId = 77;
+
+    const PluginInfo& info() const override { return info_; }
+    bool is_loaded() const override { return true; }
+    bool prepare(double, int) override {
+        received_count_ = 0;
+        return true;
+    }
+    void release() override {}
+
+    void process(pulp::audio::BufferView<float>& out,
+                 const pulp::audio::BufferView<const float>&,
+                 const pulp::midi::MidiBuffer&,
+                 pulp::midi::MidiBuffer&,
+                 const pulp::host::ParameterEventQueue& pe,
+                 int n) override {
+        received_count_ = 0;
+        for (const auto& e : pe) {
+            if (received_count_ < received_.size())
+                received_[received_count_++] = e;
+        }
+        for (size_t c = 0; c < out.num_channels(); ++c)
+            std::memset(out.channel_ptr(c), 0, sizeof(float) * (size_t)n);
+    }
+
+    std::vector<HostParamInfo> parameters() const override {
+        HostParamInfo p;
+        p.id = kParamId;
+        p.name = "audio-rate";
+        p.min_value = -1.0f;
+        p.max_value = 1.0f;
+        p.default_value = 0.0f;
+        p.flags.automatable = true;
+        p.rate = ParamRate::AudioRate;
+        return {p};
+    }
+    float get_parameter(uint32_t) const override { return 0.f; }
+    void set_parameter(uint32_t, float) override {}
+    void set_bypass(bool) override {}
+    bool is_bypassed() const override { return false; }
+    std::vector<uint8_t> save_state() const override { return {}; }
+    bool restore_state(const std::vector<uint8_t>&) override { return false; }
+    bool has_editor() const override { return false; }
+    void* create_editor_view() override { return nullptr; }
+    void destroy_editor_view() override {}
+    int latency_samples() const override { return 0; }
+    int tail_samples() const override { return 0; }
+
+    std::size_t received_count() const { return received_count_; }
+
+private:
+    PluginInfo info_ = make_plugin_info("FixedStorageAuto", 0, 1);
+    std::array<pulp::host::ParameterEvent, 16> received_{};
+    std::size_t received_count_ = 0;
+};
 } // namespace
 
 TEST_CASE("SignalGraph connect_automation delivers two-point events per block",
@@ -1596,6 +1657,41 @@ TEST_CASE("SignalGraph audio-rate replace and add modulation clamp to parameter 
     REQUIRE_THAT(events[0].value, WithinAbs(0.15f, 1e-6f));
     REQUIRE_THAT(events[1].value, WithinAbs(0.4f, 1e-6f));
     REQUIRE_THAT(events[2].value, WithinAbs(0.5f, 1e-6f));
+}
+
+TEST_CASE("SignalGraph plugin automation path is allocation-free after prepare",
+          "[host][graph][automation][rt-safety]") {
+    SignalGraph graph;
+    auto in_node = graph.add_input_node(1, "in");
+    auto slot = std::make_unique<FixedStorageAutomatable>();
+    auto* slot_ptr = slot.get();
+    auto plug = graph.add_plugin_node(std::move(slot), 0, 1, "audio-rate");
+
+    REQUIRE(graph.connect_automation(
+        in_node, 0, plug, FixedStorageAutomatable::kParamId, -1.0f, 1.0f));
+    REQUIRE(graph.connect_automation(
+        in_node, 0, plug, FixedStorageAutomatable::kParamId, 0.1f, 0.2f,
+        0.0f, AutomationMix::Add));
+    REQUIRE(graph.connect_audio_rate_modulation(
+        in_node, 0, plug, FixedStorageAutomatable::kParamId, -0.5f, 0.5f));
+    REQUIRE(graph.connect_audio_rate_modulation(
+        in_node, 0, plug, FixedStorageAutomatable::kParamId, 0.05f, 0.05f,
+        0.0f, AutomationMix::Add));
+    REQUIRE(graph.prepare(48000.0, 4));
+
+    std::array<float, 4> input_samples{0.0f, 0.25f, 0.5f, 1.0f};
+    std::array<float, 4> output_samples{};
+    std::array<const float*, 1> in_ptrs{input_samples.data()};
+    std::array<float*, 1> out_ptrs{output_samples.data()};
+    pulp::audio::BufferView<const float> in_view(in_ptrs.data(), in_ptrs.size(), 4);
+    pulp::audio::BufferView<float> out_view(out_ptrs.data(), out_ptrs.size(), 4);
+
+    pulp::test::RtAllocationProbe probe;
+    graph.process(out_view, in_view, 4);
+
+    REQUIRE(probe.allocation_count() == 0);
+    REQUIRE(probe.allocated_bytes() == 0);
+    REQUIRE(slot_ptr->received_count() == 6);
 }
 
 TEST_CASE("SignalGraph audio-rate modulation composes with PDC",
