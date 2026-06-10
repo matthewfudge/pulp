@@ -62,6 +62,23 @@ class ExecutionTests(unittest.TestCase):
         self.assertTrue(self.mod.should_reuse_prepared_state({"targets": ["mac"]}))
         self.assertFalse(self.mod.should_reuse_prepared_state({"targets": ["mac", "ubuntu"]}))
 
+    def test_unreachable_target_result_matches_queue_contract(self) -> None:
+        self.assertEqual(
+            self.mod.unreachable_target_result("ubuntu"),
+            {
+                "target": "ubuntu",
+                "status": "unreachable",
+                "exit_code": -1,
+                "duration_secs": 0,
+                "stdout_tail": "",
+                "stderr_tail": "Host unreachable",
+            },
+        )
+        self.assertEqual(
+            self.mod.unreachable_target_result("windows", "VM unavailable")["stderr_tail"],
+            "VM unavailable",
+        )
+
     def test_local_validation_command_builds_full_and_smoke_commands(self) -> None:
         full_cmd, full_validation = self.mod.local_validation_command(
             {"sha": "a" * 40, "targets": ["mac"], "validation": "full"},

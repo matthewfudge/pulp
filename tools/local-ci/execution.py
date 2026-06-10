@@ -586,6 +586,17 @@ def validation_error_result(
     }
 
 
+def unreachable_target_result(target_name: str, detail: str = "Host unreachable") -> dict:
+    return {
+        "target": target_name,
+        "status": "unreachable",
+        "exit_code": -1,
+        "duration_secs": 0,
+        "stdout_tail": "",
+        "stderr_tail": detail,
+    }
+
+
 def run_logged_command(
     cmd: list[str],
     *,

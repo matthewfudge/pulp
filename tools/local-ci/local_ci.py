@@ -3182,6 +3182,10 @@ def validation_error_result(
     )
 
 
+def unreachable_target_result(target_name: str, detail: str = "Host unreachable") -> dict:
+    return _execution.unreachable_target_result(target_name, detail)
+
+
 def run_logged_command(
     cmd: list[str],
     *,
@@ -3595,19 +3599,7 @@ def _build_target_tasks(job: dict, config: dict, progress_factory=None) -> list[
                 )
             )
         else:
-            tasks.append(
-                (
-                    "ubuntu",
-                    lambda: {
-                        "target": "ubuntu",
-                        "status": "unreachable",
-                        "exit_code": -1,
-                        "duration_secs": 0,
-                        "stdout_tail": "",
-                        "stderr_tail": "Host unreachable",
-                    },
-                )
-            )
+            tasks.append(("ubuntu", lambda: unreachable_target_result("ubuntu")))
 
     win_cfg = targets.get("windows")
     if "windows" in requested and win_cfg and win_cfg.get("enabled", True):
@@ -3636,19 +3628,7 @@ def _build_target_tasks(job: dict, config: dict, progress_factory=None) -> list[
                 )
             )
         else:
-            tasks.append(
-                (
-                    "windows",
-                    lambda: {
-                        "target": "windows",
-                        "status": "unreachable",
-                        "exit_code": -1,
-                        "duration_secs": 0,
-                        "stdout_tail": "",
-                        "stderr_tail": "Host unreachable",
-                    },
-                )
-            )
+            tasks.append(("windows", lambda: unreachable_target_result("windows")))
 
     return tasks
 
