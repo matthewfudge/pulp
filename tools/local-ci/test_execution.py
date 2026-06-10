@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import subprocess
 import sys
@@ -158,6 +159,114 @@ class ExecutionTests(unittest.TestCase):
 
         self.assertEqual([item["target"] for item in sorted_results], ["mac", "ubuntu", "windows"])
         self.assertEqual([item["target"] for item in results], ["windows", "mac", "ubuntu"])
+
+    def test_config_for_job_execution_uses_submission_config_when_available(self) -> None:
+        fallback = {"targets": {}, "defaults": {}}
+        loaded = {"targets": {"mac": {"enabled": True}}, "defaults": {"targets": "mac"}}
+        warnings = []
+
+        self.assertIs(
+            self.mod.config_for_job_execution(
+                {"submission": {}},
+                fallback,
+                load_config_file_fn=lambda path: self.fail(f"unexpected load {path}"),
+                warn_fn=warnings.append,
+            ),
+            fallback,
+        )
+        self.assertEqual(
+            self.mod.config_for_job_execution(
+                {"submission": {"config_path": "submitted.json"}},
+                fallback,
+                load_config_file_fn=lambda path: loaded,
+                warn_fn=warnings.append,
+            ),
+            loaded,
+        )
+
+        result = self.mod.config_for_job_execution(
+            {"submission": {"config_path": "missing.json"}},
+            fallback,
+            load_config_file_fn=lambda path: (_ for _ in ()).throw(FileNotFoundError(path)),
+            warn_fn=warnings.append,
+        )
+
+        self.assertIs(result, fallback)
+        self.assertIn("failed to load submission config missing.json", warnings[-1])
+
+        invalid_json_result = self.mod.config_for_job_execution(
+            {"submission": {"config_path": "invalid.json"}},
+            fallback,
+            load_config_file_fn=lambda path: (_ for _ in ()).throw(json.JSONDecodeError("bad", "{}", 1)),
+            warn_fn=warnings.append,
+        )
+
+        self.assertIs(invalid_json_result, fallback)
+        self.assertIn("failed to load submission config invalid.json", warnings[-1])
+
+    def test_submission_target_state_and_ssh_execution_resolution(self) -> None:
+        self.assertEqual(self.mod.submission_target_state({"submission": {"target_hosts": {"mac": "bad"}}}, "mac"), {})
+        self.assertEqual(
+            self.mod.submission_target_state(
+                {"submission": {"target_hosts": {"mac": {"status": "primary-up"}}}},
+                "mac",
+            ),
+            {"status": "primary-up"},
+        )
+
+        ensure_calls = []
+
+        def ensure(target_name: str, target_cfg: dict, defaults: dict) -> str:
+            ensure_calls.append((target_name, dict(target_cfg), dict(defaults)))
+            return "live-host"
+
+        self.assertEqual(
+            self.mod.resolve_ssh_target_execution(
+                {"submission": {"target_hosts": {"ubuntu": {"status": "primary-up", "resolved_host": "u1"}}}},
+                "ubuntu",
+                {"host": "u0", "repo_path": "/repo"},
+                {},
+                ensure_host_reachable_fn=ensure,
+            ),
+            ("u1", "/repo"),
+        )
+        self.assertEqual(ensure_calls, [])
+
+        self.assertEqual(
+            self.mod.resolve_ssh_target_execution(
+                {"submission": {"target_hosts": {"ubuntu": {"status": "unreachable", "repo_path": "/submitted"}}}},
+                "ubuntu",
+                {"host": "u0", "repo_path": "/repo"},
+                {},
+                ensure_host_reachable_fn=ensure,
+            ),
+            (None, "/submitted"),
+        )
+        self.assertEqual(ensure_calls, [])
+
+        self.assertEqual(
+            self.mod.resolve_ssh_target_execution(
+                {"submission": {"target_hosts": {"ubuntu": {"status": "utm-fallback-pending", "configured_host": "fallback"}}}},
+                "ubuntu",
+                {"host": "u0", "repo_path": "/repo"},
+                {"ssh_timeout": 3},
+                ensure_host_reachable_fn=ensure,
+            ),
+            ("live-host", "/repo"),
+        )
+        self.assertEqual(ensure_calls[-1][1]["host"], "fallback")
+
+        self.assertEqual(
+            self.mod.resolve_ssh_target_execution(
+                {},
+                "ubuntu",
+                {"host": "u0", "repo_path": "/repo"},
+                {},
+                ensure_host_reachable_fn=ensure,
+            ),
+            ("live-host", "/repo"),
+        )
+        self.assertEqual(ensure_calls[-1][1]["host"], "u0")
 
     def test_run_target_tasks_collects_results_and_reports_completion(self) -> None:
         completed = []
