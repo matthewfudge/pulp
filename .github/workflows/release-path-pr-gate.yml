@@ -99,7 +99,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          lfs: true
+          # Release-path Skia artifacts are fetched explicitly below. Keep LFS
+          # off to match release-cli.yml and avoid requiring git-lfs on the
+          # persistent Studio release runners.
+          lfs: false
 
       # Mirror release-cli.yml's Linux deps step verbatim. If this list
       # ever drifts from release-cli.yml, the gate is lying — keep them

@@ -225,6 +225,10 @@ class ReleasePathPrGateMacosRouting(unittest.TestCase):
             self.text,
         )
 
+    def test_checkout_does_not_require_git_lfs(self) -> None:
+        self.assertIn("lfs: false", self.text)
+        self.assertNotIn("lfs: true", self.text)
+
 
 class ReleaseCliDualBinaryPackaging(unittest.TestCase):
     """release-cli.yml must keep `pulp` and `pulp-cpp` bundled and smoked.
