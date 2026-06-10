@@ -2560,6 +2560,13 @@ def status_target_detail_lines(job: dict, active_targets: dict | None) -> list[s
     return _queue_orchestrator.status_target_detail_lines(job, active_targets)
 
 
+def initial_target_state(job_id: str, target_name: str, *, started_at: str) -> dict:
+    return _queue_orchestrator.initial_target_state(
+        started_at=started_at,
+        log_path=str(target_log_path(job_id, target_name)),
+    )
+
+
 def completed_target_state(
     job_id: str,
     target_name: str,
@@ -3697,12 +3704,7 @@ def process_job(job: dict, config: dict) -> dict:
         return completed_job_result(job, [])
 
     for name, _fn in tasks:
-        target_states[name] = {
-            "status": "running",
-            "started_at": now_iso(),
-            "phase": "starting",
-            "log_path": str(target_log_path(job["id"], name)),
-        }
+        target_states[name] = initial_target_state(job["id"], name, started_at=now_iso())
     flush_target_states()
 
     results = []
