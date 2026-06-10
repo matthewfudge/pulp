@@ -8,6 +8,16 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v04100"></a>
+## [0.410.0] - 2026-06-10
+
+- fix/clap inbound sysex rt ([#3945](https://github.com/danielraffel/pulp/pull/3945))
+- refactor(local-ci): extract desktop recent proof output ([#3950](https://github.com/danielraffel/pulp/pull/3950))
+- feature/refactor local ci desktop cli lines ([#3946](https://github.com/danielraffel/pulp/pull/3946))
+- fix(ci): clean up release review sweep findings ([#3940](https://github.com/danielraffel/pulp/pull/3940))
+- feature/refactor local ci desktop action policy ([#3944](https://github.com/danielraffel/pulp/pull/3944))
+- feature/refactor local ci next slice ([#3943](https://github.com/danielraffel/pulp/pull/3943))
+
 <a id="v04090"></a>
 ## [0.409.0] - 2026-06-10
 
@@ -4241,6 +4251,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.410.0]: https://github.com/danielraffel/pulp/releases/tag/v0.410.0
 [0.409.0]: https://github.com/danielraffel/pulp/releases/tag/v0.409.0
 [0.408.0]: https://github.com/danielraffel/pulp/releases/tag/v0.408.0
 [0.407.0]: https://github.com/danielraffel/pulp/releases/tag/v0.407.0
