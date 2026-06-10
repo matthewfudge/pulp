@@ -109,6 +109,25 @@ def validation_result_from_run(
     }
 
 
+def validation_error_result(
+    target_name: str,
+    detail: str,
+    *,
+    log_path: Path,
+    transport_mode: str,
+) -> dict:
+    return {
+        "target": target_name,
+        "status": "error",
+        "exit_code": -1,
+        "duration_secs": 0.0,
+        "stdout_tail": "",
+        "stderr_tail": detail,
+        "log_file": str(log_path),
+        "transport_mode": transport_mode,
+    }
+
+
 def run_logged_command(
     cmd: list[str],
     *,

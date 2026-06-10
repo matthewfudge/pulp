@@ -3142,6 +3142,21 @@ def validation_result_from_run(
     )
 
 
+def validation_error_result(
+    target_name: str,
+    detail: str,
+    *,
+    log_path: Path,
+    transport_mode: str,
+) -> dict:
+    return _execution.validation_error_result(
+        target_name,
+        detail,
+        log_path=log_path,
+        transport_mode=transport_mode,
+    )
+
+
 def run_logged_command(
     cmd: list[str],
     *,
@@ -3238,16 +3253,7 @@ def run_posix_ssh_validation(
             config=config,
         )
     except RuntimeError as exc:
-        return {
-            "target": target_name,
-            "status": "error",
-            "exit_code": -1,
-            "duration_secs": 0.0,
-            "stdout_tail": "",
-            "stderr_tail": str(exc),
-            "log_file": str(log_path),
-            "transport_mode": "bundle",
-        }
+        return validation_error_result(target_name, str(exc), log_path=log_path, transport_mode="bundle")
 
     branch_q = shlex.quote(job["branch"])
     sha_q = shlex.quote(job["sha"])
@@ -3463,16 +3469,7 @@ def run_windows_ssh_validation(
             config=config,
         )
     except RuntimeError as exc:
-        return {
-            "target": target_name,
-            "status": "error",
-            "exit_code": -1,
-            "duration_secs": 0.0,
-            "stdout_tail": "",
-            "stderr_tail": str(exc),
-            "log_file": str(log_path),
-            "transport_mode": "bundle",
-        }
+        return validation_error_result(target_name, str(exc), log_path=log_path, transport_mode="bundle")
     try:
         repo_probe = ensure_windows_remote_repo_checkout(
             host,
@@ -3482,28 +3479,15 @@ def run_windows_ssh_validation(
             bundle_ref=bundle_ref,
         )
     except RuntimeError as exc:
-        return {
-            "target": target_name,
-            "status": "error",
-            "exit_code": -1,
-            "duration_secs": 0.0,
-            "stdout_tail": "",
-            "stderr_tail": str(exc),
-            "log_file": str(log_path),
-            "transport_mode": "bundle",
-        }
+        return validation_error_result(target_name, str(exc), log_path=log_path, transport_mode="bundle")
 
     if not isinstance(repo_probe, dict):
-        return {
-            "target": target_name,
-            "status": "error",
-            "exit_code": -1,
-            "duration_secs": 0.0,
-            "stdout_tail": "",
-            "stderr_tail": "Windows repo checkout probe returned no structured payload",
-            "log_file": str(log_path),
-            "transport_mode": "bundle",
-        }
+        return validation_error_result(
+            target_name,
+            "Windows repo checkout probe returned no structured payload",
+            log_path=log_path,
+            transport_mode="bundle",
+        )
 
     effective_repo_path = repo_probe.get("repo_path") or repo_path
     print(f"  [{target_name}] Running validation on {host}:{effective_repo_path} @ {short_sha(job['sha'])}...")
