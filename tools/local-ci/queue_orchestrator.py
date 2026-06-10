@@ -260,6 +260,11 @@ def cancel_queue_command_result_line(result: dict, job_ref: str) -> tuple[int, s
     return 0, f"Canceled: {result['summary']}"
 
 
+def enqueue_command_result_line(job: dict, *, created: bool) -> str:
+    prefix = "Enqueued" if created else "Already queued/running"
+    return f"{prefix}: {summarize_job(job)}"
+
+
 def complete_job_with_result_unlocked(job: dict, result: dict, result_path: Path | str) -> None:
     job["status"] = "completed"
     job["completed_at"] = result["completed_at"]

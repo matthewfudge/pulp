@@ -2527,6 +2527,10 @@ def cancel_queue_command_result_line(result: dict, job_ref: str) -> tuple[int, s
     return _queue_orchestrator.cancel_queue_command_result_line(result, job_ref)
 
 
+def enqueue_command_result_line(job: dict, *, created: bool) -> str:
+    return _queue_orchestrator.enqueue_command_result_line(job, created=created)
+
+
 def summarize_active_targets(active_targets: dict | None, preferred_order: list[str] | None = None) -> str:
     return _queue_orchestrator.summarize_active_targets(active_targets, preferred_order)
 
@@ -4465,10 +4469,7 @@ def cmd_enqueue(args: argparse.Namespace) -> int:
 
     print_submission_metadata(submission)
     job, created = enqueue_job(branch, sha, priority, targets, "enqueue", validation, submission=submission)
-    if created:
-        print(f"Enqueued: {summarize_job(job)}")
-    else:
-        print(f"Already queued/running: {summarize_job(job)}")
+    print(enqueue_command_result_line(job, created=created))
     return 0
 
 
@@ -4519,7 +4520,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     local_targets = [t for t in targets if t not in failover_targets]
     if local_targets:
         job, created = enqueue_job(branch, sha, priority, local_targets, "run", validation, submission=submission)
-        print(("Enqueued" if created else "Already queued/running") + f": {summarize_job(job)}")
+        print(enqueue_command_result_line(job, created=created))
 
         result, exit_code = wait_for_job(job["id"], config)
         if result is not None:
