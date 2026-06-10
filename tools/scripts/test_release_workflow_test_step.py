@@ -335,6 +335,7 @@ class ReleaseCliBackfillOverlay(unittest.TestCase):
         self.assertIsNotNone(loop_match, "could not locate overlay file loop")
         overlay_paths = loop_match.group("body")
         self.assertIn("tools/scripts/fetch_skia_for_release.py", overlay_paths)
+        self.assertIn("tools/scripts/package_cli.py", overlay_paths)
         self.assertIn("core/canvas/CMakeLists.txt", overlay_paths)
         self.assertIn("tools/deps/manifest.json", overlay_paths)
         self.assertNotIn(
