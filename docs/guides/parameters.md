@@ -177,6 +177,14 @@ active ramp without moving the cursor. `ParamInfo::smoothing_ramp_seconds` and
 `format::ControlRateParamSmoother` provide an opt-in ramp for processors that
 want click-free block-rate changes without splitting into sub-blocks.
 
+`ParameterEventQueue` is fixed-capacity and real-time safe. If more than
+1024 events arrive in one block, `push()` returns `false`, preserves the
+events already queued, and records the drop count for that block via
+`overflowed()` / `dropped_event_count()`. `clear()` starts the next block and
+resets the overflow counters. Format adapters drop excess events instead of
+allocating or resizing on the audio thread; legacy block-end `StateStore`
+writes still reflect the host's latest value.
+
 ## Binding (UI Integration)
 
 `Binding` wraps a parameter with reactive change notification and gesture tracking. Use it in UI widgets.

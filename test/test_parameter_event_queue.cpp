@@ -55,3 +55,25 @@ TEST_CASE("ParameterEventQueue supports move push, iteration, and reuse after cl
     REQUIRE(q.size() == 1);
     REQUIRE(q.events().front().param_id == 42);
 }
+
+TEST_CASE("ParameterEventQueue reports and resets overflow drops",
+          "[host][parameter-event-queue][overflow]") {
+    ParameterEventQueue q;
+    for (std::size_t i = 0; i < q.capacity(); ++i) {
+        REQUIRE(q.push(ParameterEvent{
+            .param_id = static_cast<pulp::state::ParamID>(i),
+            .sample_offset = static_cast<int32_t>(i),
+            .value = 0.0f,
+        }));
+    }
+
+    REQUIRE_FALSE(q.push(ParameterEvent{.param_id = 99, .sample_offset = 0, .value = 1.0f}));
+    REQUIRE(q.overflowed());
+    REQUIRE(q.dropped_event_count() == 1);
+    REQUIRE(q.size() == q.capacity());
+
+    q.clear();
+    REQUIRE_FALSE(q.overflowed());
+    REQUIRE(q.dropped_event_count() == 0);
+    REQUIRE(q.empty());
+}

@@ -10,6 +10,7 @@
 #include <iostream>
 #include <memory>
 #include <sstream>
+#include <string_view>
 
 #include <pulp/ship/android.hpp>
 #include <pulp/ship/appcast.hpp>
@@ -430,27 +431,28 @@ int cmd_ship(const std::vector<std::string>& args) {
                 return 1;
             }
 
-            // Name the package after the first plugin bundle we find,
-            // falling back to the project directory name.
             std::string product_name;
+            bool found_linux_plugin = false;
             for (auto dir_name : {"VST3", "CLAP", "LV2"}) {
                 auto dir = build_dir / dir_name;
                 if (!fs::exists(dir)) continue;
                 for (auto& entry : fs::directory_iterator(dir)) {
+                    const auto ext = entry.path().extension().string();
+                    const bool is_plugin =
+                        (std::string_view(dir_name) == "VST3" && ext == ".vst3") ||
+                        (std::string_view(dir_name) == "CLAP" && ext == ".clap") ||
+                        (std::string_view(dir_name) == "LV2" && ext == ".lv2");
+                    if (!is_plugin) continue;
+                    found_linux_plugin = true;
                     product_name = entry.path().stem().string();
                     break;
                 }
                 if (!product_name.empty()) break;
             }
-            if (product_name.empty()) product_name = root.filename().string();
-
-            const bool any_bundles = fs::exists(build_dir / "VST3")
-                                  || fs::exists(build_dir / "CLAP")
-                                  || fs::exists(build_dir / "LV2");
-            if (!any_bundles) {
-                std::cout << "Created 0 .pkg and 0 .dmg artifacts in "
-                          << artifacts.string() << "\n";
-                return 0;
+            if (!found_linux_plugin) {
+                std::cerr << "Error: no VST3/CLAP/LV2 plugins found in "
+                          << build_dir.string() << "\n";
+                return 1;
             }
 
             auto deb_path = artifacts / (product_name + "-" + version + ".deb");

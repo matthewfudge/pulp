@@ -108,6 +108,8 @@ instead of polling atomics inside the loop:
 
 * `param_events()` exposes the host-delivered `ParameterEventQueue`
   for the current block.
+* `ParameterEventQueue` is fixed-capacity; excess events are dropped,
+  counted for the current block, and never trigger audio-thread allocation.
 * `format::ParamCursor` advances parameter values at sample offsets and
   interpolates active `ramp_duration_sample_frames` events.
 * `format::for_each_subblock()` slices the audio block at parameter

@@ -197,10 +197,16 @@ TEST_CASE("ParameterEventQueue enforces capacity and preserves stable sort order
     }
 
     REQUIRE_FALSE(queue.push(ParameterEvent{.param_id = 9999, .sample_offset = 0, .value = 1.0f}));
+    REQUIRE(queue.overflowed());
+    REQUIRE(queue.dropped_event_count() == 1);
+    REQUIRE_FALSE(queue.push(ParameterEvent{.param_id = 10000, .sample_offset = 1, .value = 2.0f}));
+    REQUIRE(queue.dropped_event_count() == 2);
     REQUIRE(queue.size() == queue.capacity());
 
     queue.clear();
     REQUIRE(queue.empty());
+    REQUIRE_FALSE(queue.overflowed());
+    REQUIRE(queue.dropped_event_count() == 0);
     REQUIRE(queue.push(ParameterEvent{.param_id = 1, .sample_offset = 8, .value = 1.0f}));
     REQUIRE(queue.push(ParameterEvent{.param_id = 2, .sample_offset = 8, .value = 2.0f}));
     REQUIRE(queue.push(ParameterEvent{.param_id = 3, .sample_offset = 4, .value = 3.0f}));

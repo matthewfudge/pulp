@@ -240,6 +240,7 @@ void NativeCoreProcessor::process(audio::BufferView<float>& audio_output,
         view.events = event_scratch_.data();
         view.count = n;
         view.capacity = static_cast<uint32_t>(event_scratch_.size());
+        view.overflowed = queue->overflowed() ? 1u : 0u;
     } else {
         view.events = nullptr;  // distinct from present-but-empty
     }

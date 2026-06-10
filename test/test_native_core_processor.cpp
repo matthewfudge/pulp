@@ -78,6 +78,10 @@ pulp_native_param_v1 g_param = [] {
     return p;
 }();
 
+uint32_t g_last_param_view_count = 0;
+uint32_t g_last_param_view_capacity = 0;
+uint32_t g_last_param_view_overflowed = 0;
+
 const pulp_native_descriptor_v1* gain_descriptor() { return &g_desc; }
 const pulp_native_param_v1* gain_parameters(uint32_t* count) {
     if (count) *count = 1;
@@ -115,12 +119,19 @@ pulp_native_status gain_process(pulp_native_instance* inst,
     // Apply the last automation event for our parameter (offset-aware handling
     // is a DSP concern; this fixture just takes the final value for the block).
     if (io->params != nullptr && io->params->events != nullptr) {
+        g_last_param_view_count = io->params->count;
+        g_last_param_view_capacity = io->params->capacity;
+        g_last_param_view_overflowed = io->params->overflowed;
         for (uint32_t e = 0; e < io->params->count; ++e) {
             const auto& ev = io->params->events[e];
             if (ev.param_id_hash == g_param.id_hash) {
                 self->gain = static_cast<float>(ev.value);
             }
         }
+    } else {
+        g_last_param_view_count = 0;
+        g_last_param_view_capacity = 0;
+        g_last_param_view_overflowed = 0;
     }
     const auto* audio = io->audio;
     for (uint32_t b = 0; b < audio->output_bus_count; ++b) {
@@ -300,6 +311,44 @@ TEST_CASE("NativeCoreProcessor bridges automation and processes audio",
     // Output should be input (1.0) scaled by the automated gain (0.5).
     REQUIRE(out.l[0] == 0.5f);
     REQUIRE(out.r[frames - 1] == 0.5f);
+}
+
+TEST_CASE("NativeCoreProcessor forwards parameter-event overflow to native cores",
+          "[native-core-processor][params][overflow]") {
+    format::NativeCoreProcessor proc(&g_core);
+    state::StateStore store;
+
+    constexpr std::size_t frames = 16;
+    prepare_gain_processor(proc, store, frames);
+    Block in(frames, 1.0f);
+    Block out(frames, 0.0f);
+    audio::BufferView<float> out_view(out.ptrs.data(), 2, frames);
+    audio::BufferView<const float> in_view(
+        const_cast<const float* const*>(in.ptrs.data()), 2, frames);
+
+    state::ParameterEventQueue queue;
+    for (std::size_t i = 0; i < queue.capacity(); ++i) {
+        REQUIRE(queue.push({/*param_id=*/0,
+                            /*offset=*/0,
+                            /*value=*/0.25f,
+                            /*ramp=*/0}));
+    }
+    REQUIRE_FALSE(queue.push({/*param_id=*/0,
+                              /*offset=*/0,
+                              /*value=*/0.75f,
+                              /*ramp=*/0}));
+    REQUIRE(queue.overflowed());
+    proc.set_param_events(&queue);
+
+    midi::MidiBuffer min, mout;
+    format::ProcessContext pctx;
+    pctx.sample_rate = 48000.0;
+    pctx.num_samples = frames;
+    proc.process(out_view, in_view, min, mout, pctx);
+
+    REQUIRE(g_last_param_view_count == queue.capacity());
+    REQUIRE(g_last_param_view_capacity == queue.capacity());
+    REQUIRE(g_last_param_view_overflowed == 1);
 }
 
 #if PULP_NATIVE_CORE_PROCESS_RT_TRAP_TESTS

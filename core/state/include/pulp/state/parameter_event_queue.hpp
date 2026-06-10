@@ -10,6 +10,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 
 namespace pulp::state {
@@ -28,15 +29,23 @@ public:
     ParameterEventQueue() = default;
 
     bool push(const ParameterEvent& e) {
-        if (size_ >= events_.size()) return false;
+        if (size_ >= events_.size()) {
+            record_drop();
+            return false;
+        }
         events_[size_++] = e;
         return true;
     }
 
-    void clear() { size_ = 0; }
+    void clear() {
+        size_ = 0;
+        dropped_events_ = 0;
+    }
     bool empty() const { return size_ == 0; }
     std::size_t size() const { return size_; }
     constexpr std::size_t capacity() const { return kCapacity; }
+    bool overflowed() const { return dropped_events_ != 0; }
+    std::uint32_t dropped_event_count() const { return dropped_events_; }
 
     void sort() {
         for (std::size_t i = 1; i < size_; ++i) {
@@ -63,8 +72,15 @@ public:
     }
 
 private:
+    void record_drop() {
+        if (dropped_events_ < std::numeric_limits<std::uint32_t>::max()) {
+            ++dropped_events_;
+        }
+    }
+
     std::array<ParameterEvent, kCapacity> events_{};
     std::size_t size_ = 0;
+    std::uint32_t dropped_events_ = 0;
 };
 
 } // namespace pulp::state

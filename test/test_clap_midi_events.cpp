@@ -15,6 +15,10 @@
 //                             at the event's sample offset.
 //     - CLAP_EVENT_MIDI2    — routed straight to the UMP sidecar when
 //                             the plugin opted in to UMP.
+//     - CLAP_EVENT_MIDI_SYSEX
+//                           — dropped on the realtime-limited inbound path
+//                             because accepting host-owned payload bytes
+//                             requires a copy.
 //   Outbound:
 //     - midi_out → CLAP_EVENT_MIDI on out_events.
 //     - midi_out sysex → CLAP_EVENT_MIDI_SYSEX on out_events.
@@ -45,6 +49,7 @@
 #include <cstring>
 #include <memory>
 #include <optional>
+#include <utility>
 #include <vector>
 
 using namespace pulp;
@@ -213,6 +218,9 @@ public:
     }
     void prepare(const PrepareContext& context) override {
         captured_prepare = context;
+        captured_midi.reserve(64, 16);
+        captured_ump.reserve(64);
+        captured_param_events.reserve(64);
         ++prepare_count;
     }
     void release() override { ++release_count; }
@@ -243,9 +251,13 @@ public:
             }
         }
         captured_midi.clear();
+        captured_midi.clear_sysex();
         for (const auto& ev : midi_in) captured_midi.add(ev);
-        for (const auto& se : midi_in.sysex()) {
-            captured_midi.add_sysex(se.data, se.sample_offset, se.timestamp);
+        for (auto& se : midi_in.sysex()) {
+            // This test processor runs behind the CLAP adapter's no-alloc
+            // process guard; steal the adapter-owned sysex payload rather
+            // than allocating a copy while capturing assertions.
+            captured_midi.add_sysex(std::move(se.data), se.sample_offset, se.timestamp);
         }
         had_mpe_input = (mpe_input() != nullptr);
         had_ump_input = (ump_input() != nullptr);
@@ -288,9 +300,146 @@ public:
                  midi::MidiBuffer& midi_out,
                  const ProcessContext&) override {
         for (const auto& ev : to_emit) midi_out.add(ev);
-        for (const auto& se : sysex_to_emit) {
-            midi_out.add_sysex(se.data, se.sample_offset, se.timestamp);
+        for (auto& se : sysex_to_emit) {
+            midi_out.add_sysex(std::move(se));
         }
+    }
+};
+
+class ObservingMidiInProcessor : public Processor {
+public:
+    std::size_t observed_event_count = 0;
+    std::size_t observed_event_capacity = 0;
+    std::size_t observed_sysex_count = 0;
+    std::size_t observed_sysex_capacity = 0;
+    std::uint32_t observed_event_drops = 0;
+    std::uint32_t observed_sysex_drops = 0;
+
+    PluginDescriptor descriptor() const override {
+        PluginDescriptor d;
+        d.name = "ObservingMidiInCLAP";
+        d.manufacturer = "PulpTest";
+        d.bundle_id = "com.pulp.test.clap.observing-midi-in";
+        d.version = "1.0.0";
+        d.accepts_midi = true;
+        return d;
+    }
+    void define_parameters(state::StateStore&) override {}
+    void prepare(const PrepareContext&) override {}
+    void process(audio::BufferView<float>&,
+                 const audio::BufferView<const float>&,
+                 midi::MidiBuffer& midi_in,
+                 midi::MidiBuffer&,
+                 const ProcessContext&) override {
+        observed_event_count = midi_in.size();
+        observed_event_capacity = midi_in.event_capacity();
+        observed_sysex_count = midi_in.sysex_size();
+        observed_sysex_capacity = midi_in.sysex_capacity();
+        observed_event_drops = midi_in.dropped_event_count();
+        observed_sysex_drops = midi_in.dropped_sysex_count();
+    }
+};
+
+class ObservingSidecarProcessor : public Processor {
+public:
+    bool opts_mpe = false;
+    bool opts_ump = false;
+    bool observed_mpe_attached = false;
+    bool observed_ump_attached = false;
+    std::size_t observed_mpe_count = 0;
+    std::size_t observed_mpe_capacity = 0;
+    std::uint32_t observed_mpe_drops = 0;
+    std::size_t observed_ump_count = 0;
+    std::size_t observed_ump_capacity = 0;
+    std::uint32_t observed_ump_drops = 0;
+
+    PluginDescriptor descriptor() const override {
+        PluginDescriptor d;
+        d.name = "ObservingSidecarCLAP";
+        d.manufacturer = "PulpTest";
+        d.bundle_id = "com.pulp.test.clap.observing-sidecar";
+        d.version = "1.0.0";
+        d.accepts_midi = true;
+        d.supports_mpe = opts_mpe;
+        d.supports_ump = opts_ump;
+        return d;
+    }
+    void define_parameters(state::StateStore&) override {}
+    void prepare(const PrepareContext&) override {}
+    void process(audio::BufferView<float>&,
+                 const audio::BufferView<const float>&,
+                 midi::MidiBuffer&,
+                 midi::MidiBuffer&,
+                 const ProcessContext&) override {
+        observed_mpe_attached = mpe_input() != nullptr;
+        observed_ump_attached = ump_input() != nullptr;
+        if (auto* mpe = mpe_input()) {
+            observed_mpe_count = mpe->size();
+            observed_mpe_capacity = mpe->capacity();
+            observed_mpe_drops = mpe->dropped_event_count();
+        }
+        if (auto* ump = ump_input()) {
+            observed_ump_count = ump->size();
+            observed_ump_capacity = ump->capacity();
+            observed_ump_drops = ump->dropped_event_count();
+        }
+    }
+};
+
+class OverflowingMidiOutProcessor : public Processor {
+public:
+    bool emit_sysex = false;
+    std::vector<midi::MidiBuffer::SysexEvent> sysex_to_emit;
+    std::size_t observed_event_count = 0;
+    std::size_t observed_sysex_count = 0;
+    std::uint32_t observed_event_drops = 0;
+    std::uint32_t observed_sysex_drops = 0;
+    std::size_t observed_event_capacity = 0;
+    std::size_t observed_sysex_capacity = 0;
+
+    PluginDescriptor descriptor() const override {
+        PluginDescriptor d;
+        d.name = "OverflowingMidiOutCLAP";
+        d.manufacturer = "PulpTest";
+        d.bundle_id = "com.pulp.test.clap.overflowing-midi-out";
+        d.version = "1.0.0";
+        d.produces_midi = true;
+        return d;
+    }
+    void define_parameters(state::StateStore&) override {}
+    void prepare(const PrepareContext&) override {
+        if (emit_sysex) {
+            sysex_to_emit.clear();
+            sysex_to_emit.reserve(129);
+            for (std::size_t i = 0; i < 129; ++i) {
+                midi::MidiBuffer::SysexEvent se;
+                se.data = {0xF0, 0x7D, static_cast<uint8_t>(i & 0x7F), 0xF7};
+                se.sample_offset = static_cast<int32_t>(i);
+                sysex_to_emit.push_back(std::move(se));
+            }
+        }
+    }
+    void process(audio::BufferView<float>&,
+                 const audio::BufferView<const float>&,
+                 midi::MidiBuffer&,
+                 midi::MidiBuffer& midi_out,
+                 const ProcessContext&) override {
+        for (std::size_t i = 0; i < state::ParameterEventQueue::kCapacity + 1; ++i) {
+            auto ev = midi::MidiEvent::cc(0, 7, static_cast<uint8_t>(i & 0x7F));
+            ev.sample_offset = static_cast<int32_t>(i);
+            midi_out.add(ev);
+        }
+        if (emit_sysex) {
+            for (auto& se : sysex_to_emit) {
+                midi_out.add_sysex(std::move(se));
+            }
+        }
+        observed_event_count = midi_out.size();
+        observed_sysex_count = midi_out.sysex_size();
+        observed_event_drops = midi_out.dropped_event_count();
+        observed_sysex_drops = midi_out.dropped_sysex_count();
+        observed_event_capacity = midi_out.event_capacity();
+        observed_sysex_capacity = midi_out.sysex_capacity();
     }
 };
 
@@ -299,10 +448,14 @@ public:
 // adapter instantiates one.
 CapturingProcessor* g_capturing = nullptr;
 EmittingProcessor*  g_emitting  = nullptr;
+ObservingMidiInProcessor* g_observing_midi_in = nullptr;
+ObservingSidecarProcessor* g_observing_sidecar = nullptr;
+OverflowingMidiOutProcessor* g_overflowing_midi_out = nullptr;
 bool g_pending_opts_mpe = false;
 bool g_pending_opts_ump = false;
 bool g_pending_opts_node_mpe = false;
 bool g_pending_opts_node_ump = false;
+bool g_pending_overflow_sysex = false;
 std::vector<midi::MidiEvent> g_pending_emit;
 std::vector<midi::MidiBuffer::SysexEvent> g_pending_sysex;
 
@@ -325,6 +478,32 @@ std::unique_ptr<Processor> make_emitting() {
     g_emitting = up.get();
     if (!g_pending_emit.empty()) up->to_emit = g_pending_emit;
     if (!g_pending_sysex.empty()) up->sysex_to_emit = g_pending_sysex;
+    return up;
+}
+
+std::unique_ptr<Processor> make_observing_midi_in() {
+    auto up = std::make_unique<ObservingMidiInProcessor>();
+    g_observing_midi_in = up.get();
+    return up;
+}
+
+std::unique_ptr<Processor> make_observing_sidecar() {
+    auto up = std::make_unique<ObservingSidecarProcessor>();
+    g_observing_sidecar = up.get();
+    if (g_pending_opts_mpe) up->opts_mpe = true;
+    if (g_pending_opts_ump) up->opts_ump = true;
+    g_pending_opts_mpe = false;
+    g_pending_opts_ump = false;
+    g_pending_opts_node_mpe = false;
+    g_pending_opts_node_ump = false;
+    return up;
+}
+
+std::unique_ptr<Processor> make_overflowing_midi_out() {
+    auto up = std::make_unique<OverflowingMidiOutProcessor>();
+    g_overflowing_midi_out = up.get();
+    up->emit_sysex = g_pending_overflow_sysex;
+    g_pending_overflow_sysex = false;
     return up;
 }
 
@@ -1355,11 +1534,11 @@ TEST_CASE("CLAP_EVENT_NOTE_EXPRESSION vibrato / expression dropped silently when
 
 // ── Inbound: CLAP_EVENT_MIDI_SYSEX ──────────────────────────────────────
 
-TEST_CASE("CLAP_EVENT_MIDI_SYSEX decodes into MidiBuffer sysex sidecar",
+TEST_CASE("CLAP_EVENT_MIDI_SYSEX drops copy payload in realtime-limited path",
           "[clap][midi][issue-pending]") {
     g_pending_opts_mpe = false;
     g_pending_opts_ump = false;
-    Harness h(make_capturing);
+    Harness h(make_observing_midi_in);
 
     static const uint8_t kPayload[] = {0xF0, 0x7E, 0x7F, 0x06, 0x01, 0xF7};
     InputEventList events;
@@ -1371,14 +1550,10 @@ TEST_CASE("CLAP_EVENT_MIDI_SYSEX decodes into MidiBuffer sysex sidecar",
     events.push(ev);
 
     REQUIRE(h.run(events) == CLAP_PROCESS_CONTINUE);
-    // The sysex stream survives as a sidecar entry on MidiBuffer.
-    REQUIRE(g_capturing->captured_midi.sysex().size() == 1);
-    const auto& sx = g_capturing->captured_midi.sysex()[0];
-    REQUIRE(sx.sample_offset == 21);
-    REQUIRE(sx.data.size() == sizeof(kPayload));
-    for (std::size_t i = 0; i < sx.data.size(); ++i) {
-        REQUIRE(sx.data[i] == kPayload[i]);
-    }
+    REQUIRE(g_observing_midi_in != nullptr);
+    REQUIRE(g_observing_midi_in->observed_sysex_capacity == 128);
+    REQUIRE(g_observing_midi_in->observed_sysex_count == 0);
+    REQUIRE(g_observing_midi_in->observed_sysex_drops == 1);
 }
 
 TEST_CASE("CLAP_EVENT_MIDI_SYSEX with empty payload is dropped",
@@ -1770,6 +1945,123 @@ TEST_CASE("midi_out shorts + sysex interleave by sample_offset on out_events",
     REQUIRE(out.at(2)->time == 10);
     REQUIRE(out.at(2)->type == CLAP_EVENT_MIDI);
 }
+
+TEST_CASE("CLAP inbound MIDI drops past realtime event capacity without growing",
+          "[clap][midi][realtime]") {
+    Harness h(make_observing_midi_in);
+    InputEventList in;
+    for (std::size_t i = 0; i < state::ParameterEventQueue::kCapacity + 1; ++i) {
+        clap_event_midi_t ev{};
+        ev.header = make_header(sizeof(ev), CLAP_EVENT_MIDI,
+                                static_cast<uint32_t>(i % Harness::kFrames));
+        ev.port_index = 0;
+        ev.data[0] = 0xB0;
+        ev.data[1] = 7;
+        ev.data[2] = static_cast<uint8_t>(i & 0x7F);
+        in.push(ev);
+    }
+
+    REQUIRE(h.run(in) == CLAP_PROCESS_CONTINUE);
+    REQUIRE(g_observing_midi_in != nullptr);
+    REQUIRE(g_observing_midi_in->observed_event_capacity ==
+            state::ParameterEventQueue::kCapacity);
+    REQUIRE(g_observing_midi_in->observed_event_count ==
+            state::ParameterEventQueue::kCapacity);
+    REQUIRE(g_observing_midi_in->observed_event_drops == 1);
+}
+
+TEST_CASE("CLAP outbound MIDI drops past realtime event capacity without growing",
+          "[clap][midi][realtime]") {
+    g_pending_overflow_sysex = true;
+    Harness h(make_overflowing_midi_out);
+    InputEventList in;
+    OutputEventList out;
+
+    REQUIRE(h.run(in, &out) == CLAP_PROCESS_CONTINUE);
+    REQUIRE(g_overflowing_midi_out != nullptr);
+    REQUIRE(g_overflowing_midi_out->observed_event_capacity ==
+            state::ParameterEventQueue::kCapacity);
+    REQUIRE(g_overflowing_midi_out->observed_event_count ==
+            state::ParameterEventQueue::kCapacity);
+    REQUIRE(g_overflowing_midi_out->observed_event_drops == 1);
+    REQUIRE(g_overflowing_midi_out->observed_sysex_capacity == 128);
+    REQUIRE(g_overflowing_midi_out->observed_sysex_count == 128);
+    REQUIRE(g_overflowing_midi_out->observed_sysex_drops == 1);
+}
+
+TEST_CASE("CLAP MPE sidecar drops past realtime event capacity without growing",
+          "[clap][midi][realtime]") {
+    g_pending_opts_mpe = true;
+    g_pending_opts_ump = false;
+    Harness h(make_observing_sidecar);
+    InputEventList in;
+
+    for (std::size_t i = 0; i < 128; ++i) {
+        clap_event_note_t ev{};
+        ev.header = make_header(sizeof(ev), CLAP_EVENT_NOTE_ON,
+                                static_cast<uint32_t>(i % Harness::kFrames));
+        ev.note_id = -1;
+        ev.port_index = 0;
+        ev.channel = 1;
+        ev.key = static_cast<int16_t>(i);
+        ev.velocity = 1.0;
+        in.push(ev);
+    }
+
+    for (std::size_t i = 0; i < 8; ++i) {
+        clap_event_midi_t ev{};
+        ev.header = make_header(sizeof(ev), CLAP_EVENT_MIDI,
+                                static_cast<uint32_t>(i % Harness::kFrames));
+        ev.port_index = 0;
+        ev.data[0] = 0xD1;
+        ev.data[1] = static_cast<uint8_t>(64 + i);
+        ev.data[2] = 0;
+        in.push(ev);
+    }
+
+    REQUIRE(h.run(in) == CLAP_PROCESS_CONTINUE);
+    REQUIRE(g_observing_sidecar != nullptr);
+    REQUIRE(g_observing_sidecar->observed_mpe_attached);
+    REQUIRE(g_observing_sidecar->observed_mpe_capacity ==
+            state::ParameterEventQueue::kCapacity);
+    REQUIRE(g_observing_sidecar->observed_mpe_count ==
+            state::ParameterEventQueue::kCapacity);
+    REQUIRE(g_observing_sidecar->observed_mpe_drops == 128);
+}
+
+#if defined(CLAP_VERSION_GE) && CLAP_VERSION_GE(1, 1, 0)
+TEST_CASE("CLAP UMP sidecar drops past realtime event capacity without growing",
+          "[clap][midi][realtime]") {
+    g_pending_opts_mpe = false;
+    g_pending_opts_ump = true;
+    Harness h(make_observing_sidecar);
+    InputEventList in;
+
+    for (std::size_t i = 0; i < state::ParameterEventQueue::kCapacity + 1; ++i) {
+        const auto packet = midi::UmpPacket::note_on_2(
+            /*group*/0, /*channel*/1,
+            static_cast<uint8_t>(i & 0x7F), /*vel16*/0x8000);
+        clap_event_midi2_t ev{};
+        ev.header = make_header(sizeof(ev), CLAP_EVENT_MIDI2,
+                                static_cast<uint32_t>(i % Harness::kFrames));
+        ev.port_index = 0;
+        ev.data[0] = packet.words[0];
+        ev.data[1] = packet.words[1];
+        ev.data[2] = packet.words[2];
+        ev.data[3] = packet.words[3];
+        in.push(ev);
+    }
+
+    REQUIRE(h.run(in) == CLAP_PROCESS_CONTINUE);
+    REQUIRE(g_observing_sidecar != nullptr);
+    REQUIRE(g_observing_sidecar->observed_ump_attached);
+    REQUIRE(g_observing_sidecar->observed_ump_capacity ==
+            state::ParameterEventQueue::kCapacity);
+    REQUIRE(g_observing_sidecar->observed_ump_count ==
+            state::ParameterEventQueue::kCapacity);
+    REQUIRE(g_observing_sidecar->observed_ump_drops == 1);
+}
+#endif
 
 // ─────────────────────────────────────────────────────────────────────
 // host-quirks P3d — synthesize_bypass_parameter honored by the CLAP
