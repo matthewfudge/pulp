@@ -8,6 +8,18 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v04050"></a>
+## [0.405.0] - 2026-06-10
+
+- feature/audio harness 6 inspector window ([#3895](https://github.com/danielraffel/pulp/pull/3895))
+- ci/package cli resign ([#3894](https://github.com/danielraffel/pulp/pull/3894))
+- feature/refactor local ci status runner lines ([#3893](https://github.com/danielraffel/pulp/pull/3893))
+- feature/audio harness plugin surface ([#3891](https://github.com/danielraffel/pulp/pull/3891))
+- ci/release cli rust selfheal ([#3865](https://github.com/danielraffel/pulp/pull/3865))
+- feature/refactor local ci result formatting ([#3892](https://github.com/danielraffel/pulp/pull/3892))
+- ci(release): keep backfill CLI CMake source-compatible ([#3890](https://github.com/danielraffel/pulp/pull/3890))
+- feature/refactor local ci status formatting ([#3869](https://github.com/danielraffel/pulp/pull/3869))
+
 <a id="v04040"></a>
 ## [0.404.0] - 2026-06-10
 
@@ -4170,6 +4182,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.405.0]: https://github.com/danielraffel/pulp/releases/tag/v0.405.0
 [0.404.0]: https://github.com/danielraffel/pulp/releases/tag/v0.404.0
 [0.403.0]: https://github.com/danielraffel/pulp/releases/tag/v0.403.0
 [0.402.0]: https://github.com/danielraffel/pulp/releases/tag/v0.402.0
