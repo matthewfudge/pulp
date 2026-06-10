@@ -121,6 +121,28 @@ class ExecutionTests(unittest.TestCase):
         self.assertIn("Smoke validation contract violated", result["stderr_tail"])
         self.assertEqual(result["stdout_tail"], "")
 
+    def test_validation_error_result_matches_validation_contract(self) -> None:
+        result = self.mod.validation_error_result(
+            "windows",
+            "probe failed",
+            log_path=Path("windows.log"),
+            transport_mode="bundle",
+        )
+
+        self.assertEqual(
+            result,
+            {
+                "target": "windows",
+                "status": "error",
+                "exit_code": -1,
+                "duration_secs": 0.0,
+                "stdout_tail": "",
+                "stderr_tail": "probe failed",
+                "log_file": "windows.log",
+                "transport_mode": "bundle",
+            },
+        )
+
     def test_run_logged_command_starts_reader_before_writing_input(self) -> None:
         read_started = threading.Event()
         read_finished = threading.Event()
