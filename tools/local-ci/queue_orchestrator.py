@@ -3,7 +3,8 @@
 This module owns job identity, enqueue duplicate/priority policy, enqueue
 supersedence candidate selection, queue-command lookup and priority mutation,
 priority ordering, supersedence, cancellation result payloads, summaries,
-target-state status detail formatting, stale-running job selection/replacement/requeue state, stale-running
+target-state status detail formatting, status active-target selection,
+stale-running job selection/replacement/requeue state, stale-running
 reconciliation action selection, runner-info active-target mutation,
 completed-job state mutation, queue status grouping, and completed-queue
 retention. Higher-level queue mutation, locking, runner
@@ -283,6 +284,17 @@ def summarize_active_targets(active_targets: dict | None, preferred_order: list[
         parts.append(f"{name}={state.get('status', '?')}")
 
     return ", ".join(parts)
+
+
+def status_active_targets(job: dict, runner_info: dict | None = None) -> dict | None:
+    active_targets = job.get("active_targets")
+    if active_targets:
+        return active_targets
+
+    if runner_info and runner_info.get("active_job_id") == job["id"]:
+        return runner_info.get("active_targets")
+
+    return None
 
 
 def target_state_detail_parts(state: dict) -> list[str]:

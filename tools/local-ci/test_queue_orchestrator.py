@@ -91,6 +91,26 @@ class QueueOrchestratorTests(unittest.TestCase):
             "mac=pass, windows=running",
         )
         self.assertEqual(
+            self.mod.status_active_targets(
+                {"id": "job123", "active_targets": {"mac": {"status": "pass"}}},
+                {"active_job_id": "job123", "active_targets": {"mac": {"status": "running"}}},
+            ),
+            {"mac": {"status": "pass"}},
+        )
+        self.assertEqual(
+            self.mod.status_active_targets(
+                {"id": "job123"},
+                {"active_job_id": "job123", "active_targets": {"windows": {"status": "running"}}},
+            ),
+            {"windows": {"status": "running"}},
+        )
+        self.assertIsNone(
+            self.mod.status_active_targets(
+                {"id": "job123"},
+                {"active_job_id": "other", "active_targets": {"mac": {"status": "running"}}},
+            )
+        )
+        self.assertEqual(
             self.mod.target_state_detail_parts(
                 {
                     "phase": "build",
