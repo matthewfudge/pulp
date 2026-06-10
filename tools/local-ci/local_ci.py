@@ -2517,6 +2517,10 @@ def status_active_targets(job: dict, runner_info: dict | None = None) -> dict | 
     return _queue_orchestrator.status_active_targets(job, runner_info)
 
 
+def status_target_states(job: dict, active_targets: dict | None) -> list[tuple[str, dict]]:
+    return _queue_orchestrator.status_target_states(job, active_targets)
+
+
 def target_state_detail_parts(state: dict) -> list[str]:
     return _queue_orchestrator.target_state_detail_parts(state)
 
@@ -4738,10 +4742,7 @@ def cmd_status(_args: argparse.Namespace) -> int:
             target_summary = summarize_active_targets(active_targets, job.get("targets"))
             if target_summary:
                 print(f"    live targets: {target_summary}")
-            for name in job.get("targets") or []:
-                state = (active_targets or {}).get(name)
-                if not state:
-                    continue
+            for name, state in status_target_states(job, active_targets):
                 details = target_state_detail_parts(state)
                 if details:
                     print(f"    {name}: " + ", ".join(details))
@@ -4771,10 +4772,7 @@ def cmd_status(_args: argparse.Namespace) -> int:
             if target_summary:
                 progress_at = job.get("last_progress_at") or job.get("requeued_at") or "?"
                 print(f"    last known targets: {target_summary} (updated {progress_at})")
-            for name in job.get("targets") or []:
-                state = (active_targets or {}).get(name)
-                if not state:
-                    continue
+            for name, state in status_target_states(job, active_targets):
                 details = target_state_detail_parts(state)
                 if details:
                     print(f"    {name}: " + ", ".join(details))

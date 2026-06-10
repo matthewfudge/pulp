@@ -111,6 +111,22 @@ class QueueOrchestratorTests(unittest.TestCase):
             )
         )
         self.assertEqual(
+            self.mod.status_target_states(
+                {"targets": ["windows", "mac", "linux", "ios"]},
+                {
+                    "mac": {"status": "pass"},
+                    "windows": {"status": "running"},
+                    "linux": {},
+                    "extra": {"status": "ignored"},
+                },
+            ),
+            [
+                ("windows", {"status": "running"}),
+                ("mac", {"status": "pass"}),
+            ],
+        )
+        self.assertEqual(self.mod.status_target_states({"targets": ["mac"]}, None), [])
+        self.assertEqual(
             self.mod.target_state_detail_parts(
                 {
                     "phase": "build",
