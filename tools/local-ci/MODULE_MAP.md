@@ -22,6 +22,7 @@ and the matching contract tests in the same change.
 | `ssh_bundle.py` | Git bundle naming, local bundle creation, and SSH upload/progress/probe mechanics. | Target validation execution or queue orchestration. |
 | `cleanup.py` | Local-CI artifact cleanup planning/deletion, cleanup-plan line fragments, and stale Windows validator cleanup mechanics. | Lock acquisition, runner ownership, or user-facing cleanup command ordering/output side effects. |
 | `desktop_artifacts.py` | Desktop automation artifact roots and run/publish bundle directory layout. | Report staging, rollup generation, pruning policy, or target execution. |
+| `desktop_doctor.py` | Desktop automation capability derivation, writable-artifact checks, WebDriver status probing, and desktop doctor check assembly. | CLI output formatting, desktop action execution, artifact/report persistence, or launch adapter orchestration. |
 | `reporting.py` | Desktop automation report staging, run/publish rollups, manifest scanning, proof summaries, and pruning selection. | Artifact directory layout, target execution, source preparation, or CLI output. |
 | `source_prep.py` | Exact-SHA desktop source requests, cache keys, launch-command rewriting, prepare manifests, and macOS/Linux/Windows prepared source materialization. | Desktop artifact layout, target execution, queue orchestration, or target probes. |
 | `target_preflight.py` | SSH primary/fallback/UTM/Namespace failover checks, material config drift detection, and submission metadata formatting. | Queue mutation, target validation execution, or desktop automation adapters. |
@@ -42,7 +43,7 @@ behind the contracts added in this slice.
 
 | Cluster | Current responsibility | Extraction target |
 | --- | --- | --- |
-| Desktop target probes | Desktop doctor orchestration, launch adapters, and automation adapters. | later `execution.py` |
+| Desktop action orchestration | Launch adapters, local/remote automation adapters, and desktop action command execution. | later desktop automation module |
 | Queue orchestration | Remaining runner-state wrapper calls and other CLI-facing queue updates. | later queue modules |
 | Validation execution | Thin wrapper calls in `local_ci.py` plus any future execution-specific seams discovered while reducing the entrypoint. | `execution.py` |
 | CLI dispatch | Argument parser, subcommand routing, and user-facing command output. | `cli.py` or retained thin entrypoint |
