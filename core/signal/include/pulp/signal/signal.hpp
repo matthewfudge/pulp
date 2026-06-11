@@ -31,6 +31,14 @@
 #include <pulp/signal/fast_math.hpp>
 #include <pulp/signal/poly_math.hpp>
 #include <pulp/signal/stft.hpp>
+#include <pulp/signal/spectral_frame_engine.hpp>
+#include <pulp/signal/multichannel_phase_coordinator.hpp>
+#include <pulp/signal/spectral_envelope_shifter.hpp>
+#include <pulp/signal/realtime_pitch_time_processor.hpp>
+#include <pulp/signal/latency_aware_control_smoother.hpp>
+#include <pulp/signal/transient_phase_policy.hpp>
+#include <pulp/signal/freeze_hold.hpp>
+#include <pulp/signal/pitched_feedback_delay.hpp>
 #include <pulp/signal/spectrogram.hpp>
 #include <pulp/signal/multi_channel_meter.hpp>
 #include <pulp/signal/convolver.hpp>
