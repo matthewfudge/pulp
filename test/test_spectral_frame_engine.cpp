@@ -156,6 +156,30 @@ TEST_CASE("SpectralFrameEngine tapers stream edges instead of spiking",
     REQUIRE(peak < 1.0f);
 }
 
+TEST_CASE("SpectralFrameEngine preserves non-default steady-state body normalization",
+          "[signal][spectral-frame-engine][issue-3975]") {
+    for (auto window : {WindowFunction::Type::blackman, WindowFunction::Type::flat_top}) {
+        SpectralFrameEngineConfig config;
+        config.fft_size = 1024;
+        config.analysis_hop = 512;
+        config.window = window;
+        SpectralFrameEngine engine;
+        engine.prepare(config);
+
+        std::vector<std::vector<float>> in(1, std::vector<float>(32768, 1.0f));
+        auto out = run_identity(engine, in, 512);
+
+        float lo = 1e9f, hi = -1e9f;
+        for (int i = 8192; i < 24576; ++i) {
+            lo = std::min(lo, out[0][static_cast<size_t>(i)]);
+            hi = std::max(hi, out[0][static_cast<size_t>(i)]);
+        }
+        INFO("window index: " << static_cast<int>(window));
+        REQUIRE_THAT(lo, WithinAbs(1.0f, 1e-3f));
+        REQUIRE_THAT(hi, WithinAbs(1.0f, 1e-3f));
+    }
+}
+
 TEST_CASE("SpectralFrameEngine COLA flatness on DC", "[signal][spectral-frame-engine]") {
     SpectralFrameEngineConfig config;
     config.fft_size = 1024;

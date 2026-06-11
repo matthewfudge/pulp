@@ -252,15 +252,16 @@ private:
     void pop_one(float* const* out, int i) {
         assert(read_pos_ < available_);
         const auto idx = static_cast<size_t>(read_pos_ & ring_mask_);
-        // Floor the divisor at a fraction of steady-state coverage: a
-        // partial-overlap edge sample (norm << steady) is normalized by
-        // min_norm_ instead of its tiny own coverage, so it tapers toward
-        // zero rather than being amplified (pulp #3975). Body samples sit
-        // at/above steady, so norm > min_norm_ and they are unchanged.
-        const float norm = std::max(norm_ring_[idx], min_norm_);
+        // Floor only the stream-start partial-overlap region. Once a full FFT
+        // window has elapsed, per-sample normalization must remain exact for
+        // non-COLA windows/hops whose valid body coverage can dip below the
+        // startup floor.
+        const bool startup_edge = read_pos_ < config_.fft_size;
+        const float norm = startup_edge ? std::max(norm_ring_[idx], min_norm_)
+                                        : norm_ring_[idx];
         for (int ch = 0; ch < config_.channels; ++ch) {
             float* ring = output_ring_.data() + static_cast<size_t>(ch) * ring_size_;
-            out[ch][i] = ring[idx] / norm;
+            out[ch][i] = norm > 1e-9f ? ring[idx] / norm : 0.0f;
             ring[idx] = 0.0f;
         }
         norm_ring_[idx] = 0.0f;
