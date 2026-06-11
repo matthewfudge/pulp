@@ -5,7 +5,9 @@
 
 namespace pulp::signal {
 
-// Simple gain processor
+// Simple gain processor.
+// RT contract: setters and process paths are scalar-only and allocate no
+// memory.
 class Gain {
 public:
     void set_gain_db(float db) { gain_ = db_to_linear(db); }
@@ -24,8 +26,10 @@ private:
     float gain_ = 1.0f;
 };
 
-// Simple dry/wet mixer (single-sample, no latency compensation)
-// For the full multi-channel version with latency compensation, use dry_wet_mixer.hpp
+// Simple dry/wet mixer (single-sample, no latency compensation).
+// RT contract: setters and process paths are scalar-only and allocate no
+// memory. For the full multi-channel version with latency compensation, use
+// dry_wet_mixer.hpp.
 class SimpleMixer {
 public:
     void set_mix(float mix) { mix_ = std::clamp(mix, 0.0f, 1.0f); }

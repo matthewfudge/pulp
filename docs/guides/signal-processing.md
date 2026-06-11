@@ -1,6 +1,6 @@
 # Signal Processing
 
-The `pulp::signal` namespace provides 20 DSP processors for use inside `Processor::process()`. All are real-time safe after initialization. Include individual headers or use the convenience header:
+The `pulp::signal` namespace provides 30+ DSP processors for use inside `Processor::process()`. Process methods are real-time safe after construction/configuration/`prepare()` as documented per helper; setup methods that allocate tables, delay buffers, coefficient storage, or impulse-response data must run off the audio thread. Include individual headers or use the convenience header:
 
 ```cpp
 #include <pulp/signal/signal.hpp>  // everything

@@ -6,8 +6,9 @@
 
 namespace pulp::signal {
 
-// Delay line with linear interpolation for fractional delays
-// Real-time safe after prepare() (allocates buffer)
+// Delay line with linear interpolation for fractional delays.
+// RT contract: prepare() allocates storage; push/read/process/reset allocate no
+// memory after prepare().
 class DelayLine {
 public:
     // Allocate buffer for max delay in samples

@@ -5,7 +5,9 @@
 
 namespace pulp::signal {
 
-// Waveshaping distortion with multiple curve types
+// Waveshaping distortion with multiple curve types.
+// RT contract: setters and process paths are scalar-only and allocate no
+// memory.
 class WaveShaper {
 public:
     enum class Curve { soft_clip, hard_clip, tanh_clip, fold, sine_fold };

@@ -12,6 +12,9 @@ namespace pulp::signal {
 
 /// Pre-computed function lookup table with linear interpolation.
 ///
+/// RT contract: construction allocates and runs the generator. `process()`,
+/// `operator[]`, and size queries allocate no memory after construction.
+///
 /// Maps an input range [min, max] to pre-computed output values,
 /// using linear interpolation between table entries for smooth results.
 ///

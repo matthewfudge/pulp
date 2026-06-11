@@ -4,8 +4,10 @@
 
 namespace pulp::signal {
 
-// Band-limited oscillator with polyBLEP anti-aliasing
-// Supports sine, saw, square, and triangle waveforms
+// Band-limited oscillator with polyBLEP anti-aliasing.
+// RT contract: setters, reset, and next() allocate no memory. Smooth frequency
+// externally if zipper-free retuning is required.
+// Supports sine, saw, square, and triangle waveforms.
 class Oscillator {
 public:
     enum class Waveform { sine, saw, square, triangle };

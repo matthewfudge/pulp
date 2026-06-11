@@ -365,7 +365,7 @@ send_sysex(inquiry);  // Send over MIDI port
 
 ## signal
 
-30+ real-time-safe DSP processors. All operate on single samples or buffers. All are safe for the audio thread.
+30+ real-time-safe DSP processors. Process methods operate on single samples or buffers and are safe for the audio thread after the helper's documented construction/configuration/`prepare()` step. Setup methods that allocate storage must run off the audio thread.
 
 **Link:** `pulp::signal` · **Include prefix:** `<pulp/signal/...>`
 
