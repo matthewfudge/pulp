@@ -148,6 +148,11 @@ predictable output, no MIDI.
   owned by `NodeRuntime`, attach it only after the runtime object is in its
   final `CompiledGraph` storage; attaching before a move leaves a stale sidecar
   pointer.
+- `SignalGraph::inject_midi()` and `extract_midi()` cross the
+  control/audio-thread boundary through per-node mailboxes, not by mutating
+  audio-thread scratch directly. Keep mailbox snapshots and writer scratch
+  preallocated by `prepare()`; constructing a fresh MIDI snapshot in
+  `inject_midi()` reintroduces realtime-path allocation.
 - Keep plugin automation scratch preallocated by `SignalGraph::prepare()`.
   The audio-thread `process()` path must not create per-block containers for
   input pointer casts, sparse automation accumulation, or dense audio-rate
