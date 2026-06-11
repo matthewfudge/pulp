@@ -13,6 +13,10 @@ namespace pulp::signal {
 
 /// FIR filter with arbitrary coefficients and efficient circular buffer.
 ///
+/// RT contract: `set_coefficients()` allocates and must run off the audio
+/// thread. `process()` and `reset()` allocate no memory after coefficients are
+/// installed.
+///
 /// @code
 /// FirFilter fir;
 /// fir.set_coefficients({0.25f, 0.5f, 0.25f}); // 3-tap averaging

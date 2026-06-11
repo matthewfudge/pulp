@@ -10,6 +10,10 @@ namespace pulp::signal {
 
 /// Envelope follower with configurable attack and release times.
 ///
+/// RT contract: `process()`, `current()`, and `reset()` allocate no memory.
+/// `prepare()` and parameter setters recompute coefficients and should be run
+/// outside the audio callback unless the caller owns the retiming point.
+///
 /// Tracks the envelope of an input signal using first-order IIR
 /// smoothing with separate attack (rising) and release (falling)
 /// time constants.

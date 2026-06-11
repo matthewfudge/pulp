@@ -2,14 +2,36 @@
 
 #include "harness/rt_allocation_probe.hpp"
 
+#include <pulp/signal/processor_duplicator.hpp>
+#include <pulp/signal/signal.hpp>
 #include <pulp/signal/oversampling.hpp>
+#include <pulp/signal/wavetable.hpp>
 
 #include <array>
 #include <cstddef>
+#include <vector>
 
+using namespace pulp::signal;
 using pulp::signal::Oversampler;
 
 namespace {
+
+template <typename Fn>
+void require_allocates_no_memory(Fn&& fn) {
+    pulp::test::RtAllocationProbe probe;
+    fn();
+    REQUIRE(probe.allocation_count() == 0);
+}
+
+struct RtProbeGain {
+    float gain = 1.0f;
+    float sample_rate = 0.0f;
+    int reset_count = 0;
+
+    void set_sample_rate(float sr) { sample_rate = sr; }
+    float process(float input) { return input * gain; }
+    void reset() { ++reset_count; }
+};
 
 void require_process_allocates_no_memory(Oversampler::Kind kind,
                                          Oversampler::Factor factor) {
@@ -75,4 +97,125 @@ TEST_CASE("Oversampler process_block is allocation-free after configuration",
 
     REQUIRE(probe.allocation_count() == 0);
     REQUIRE(callback_hits == static_cast<int>(input.size()) * os.factor_value());
+}
+
+TEST_CASE("Scalar signal helpers are allocation-free after configuration",
+          "[signal][rt-safety]") {
+    Gain gain;
+    gain.set_gain_linear(0.5f);
+
+    SimpleMixer mixer;
+    mixer.set_mix(0.25f);
+
+    Oscillator osc;
+    osc.set_sample_rate(48000.0f);
+    osc.set_frequency(220.0f);
+    osc.set_waveform(Oscillator::Waveform::saw);
+
+    Biquad biquad;
+    biquad.set_coefficients(Biquad::Type::lowpass, 1800.0f, 0.707f, 48000.0f);
+
+    Svf svf;
+    svf.set_sample_rate(48000.0f);
+    svf.set_frequency(900.0f);
+    svf.set_resonance(0.8f);
+    svf.set_mode(Svf::Mode::bandpass);
+
+    Phaser phaser;
+    phaser.set_sample_rate(48000.0f);
+    phaser.set_rate(0.4f);
+    phaser.set_depth(0.6f);
+    phaser.set_stages(4);
+
+    WaveShaper shaper;
+    shaper.set_curve(WaveShaper::Curve::soft_clip);
+    shaper.set_drive(2.0f);
+
+    BallisticsFilter ballistics;
+    ballistics.prepare(48000.0f);
+    ballistics.set_attack_ms(2.0f);
+    ballistics.set_release_ms(80.0f);
+
+    require_allocates_no_memory([&] {
+        std::array<float, 64> samples {};
+        for (std::size_t i = 0; i < samples.size(); ++i) {
+            const float input = static_cast<float>(i % 13) * 0.03f - 0.18f;
+            float value = gain.process(input);
+            value = mixer.process(value, osc.next());
+            value = biquad.process(value);
+            value = svf.process(value);
+            value = phaser.process(value);
+            value = shaper.process(value);
+            samples[i] = ballistics.process(value);
+        }
+
+        gain.process(samples.data(), static_cast<int>(samples.size()));
+        svf.process(samples.data(), static_cast<int>(samples.size()));
+        phaser.process(samples.data(), static_cast<int>(samples.size()));
+        shaper.process(samples.data(), static_cast<int>(samples.size()));
+        ballistics.reset();
+    });
+}
+
+TEST_CASE("Prepared storage-backed signal helpers are allocation-free while processing",
+          "[signal][rt-safety]") {
+    DelayLine delay;
+    delay.prepare(64);
+
+    FirFilter fir;
+    fir.set_coefficients(std::vector<float>{0.25f, 0.5f, 0.25f});
+
+    LookupTable table(64, -1.0f, 1.0f, [](float x) { return x * x * x; });
+
+    ProcessorDuplicator<RtProbeGain> duplicator;
+    duplicator.prepare(2, 48000.0f);
+    duplicator.for_each([](RtProbeGain& g) { g.gain = 0.75f; });
+
+    require_allocates_no_memory([&] {
+        std::array<float, 32> left {};
+        std::array<float, 32> right {};
+        for (std::size_t i = 0; i < left.size(); ++i) {
+            const float input = static_cast<float>(i + 1) * 0.01f;
+            delay.push(input);
+            left[i] = fir.process(delay.read(3.5f));
+            right[i] = table.process(input);
+        }
+
+        float* channels[] = {left.data(), right.data()};
+        duplicator.process(channels, 2, static_cast<int>(left.size()));
+        duplicator.process_channel(right.data(), 1, static_cast<int>(right.size()));
+        duplicator.reset();
+        delay.reset();
+        fir.reset();
+    });
+}
+
+TEST_CASE("ProcessorChain and wavetable playback are allocation-free after setup",
+          "[signal][rt-safety]") {
+    ProcessorChain<Gain, Biquad, WaveShaper> chain;
+    chain.get<0>().set_gain_linear(0.8f);
+    chain.get<1>().set_coefficients(Biquad::Type::highpass, 120.0f, 0.707f, 48000.0f);
+    chain.get<2>().set_curve(WaveShaper::Curve::tanh_clip);
+
+    Wavetable table({
+        WavetableEntry{{0.0f, 1.0f, 0.0f, -1.0f}, 12000.0f},
+        WavetableEntry{{0.0f, 0.5f, 0.0f, -0.5f}, 24000.0f},
+    });
+    table.set_sample_rate(48000.0f);
+    table.set_frequency(440.0f);
+
+    WavetableBank bank({Wavetable::make_sine(64), Wavetable::make_triangle(2, 64)});
+    bank.set_sample_rate(48000.0f);
+    bank.set_frequency(220.0f);
+    bank.set_position(0.4f);
+
+    require_allocates_no_memory([&] {
+        std::array<float, 64> buffer {};
+        for (auto& sample : buffer) {
+            sample = chain.process(table.next() + bank.next());
+        }
+        chain.process(buffer.data(), static_cast<int>(buffer.size()));
+        chain.reset();
+        table.reset();
+    });
 }

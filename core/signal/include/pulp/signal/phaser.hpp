@@ -6,7 +6,9 @@
 
 namespace pulp::signal {
 
-// Phaser effect using cascaded allpass filters with LFO modulation
+// Phaser effect using cascaded allpass filters with LFO modulation.
+// RT contract: configuration setters, process, and reset use fixed member
+// storage and allocate no memory.
 class Phaser {
 public:
     void set_sample_rate(float sr) { sample_rate_ = sr; }

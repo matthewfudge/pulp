@@ -4,9 +4,11 @@
 
 namespace pulp::signal {
 
-// State Variable Filter — Topology Preserving Transform (TPT) design
-// Provides simultaneous lowpass, highpass, bandpass, and notch outputs
-// Numerically stable at all frequencies, no cramping at Nyquist
+// State Variable Filter — Topology Preserving Transform (TPT) design.
+// RT contract: setters recompute scalar coefficients; process/reset allocate no
+// memory. Retune at block boundaries if coefficient continuity matters.
+// Provides simultaneous lowpass, highpass, bandpass, and notch outputs.
+// Numerically stable at all frequencies, no cramping at Nyquist.
 class Svf {
 public:
     enum class Mode { lowpass, highpass, bandpass, notch };

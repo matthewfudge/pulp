@@ -36,6 +36,10 @@ struct WavetableEntry {
 
 /// Wavetable oscillator with band-switching.
 ///
+/// RT contract: constructors and factory helpers allocate table storage and
+/// must run off the audio thread. `set_sample_rate()`, `set_frequency()`,
+/// `reset()`, and `next()` allocate no memory after construction.
+///
 /// Construction: supply a pre-sorted list of bands (lowest
 /// `max_frequency_hz` first). `set_frequency` selects the smallest
 /// band whose budget covers the new frequency. When the selection
@@ -202,6 +206,9 @@ private:
 /// Linear-interpolated morph across N `Wavetable`s. Position 0..1
 /// selects the wavetable: 0 = first, 1 = last, with linear
 /// interpolation between adjacent entries.
+///
+/// RT contract: construction and vector ownership changes allocate. Setters and
+/// `next()` allocate no memory once the bank is built.
 class WavetableBank {
 public:
     WavetableBank() = default;
