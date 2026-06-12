@@ -214,6 +214,50 @@ TEST_CASE("FreezeHold latches a steady tone and holds it stably",
     REQUIRE(max_step < 0.2f);
 }
 
+TEST_CASE("FreezeHold engage/release transitions are level-flat (no dip)",
+          "[signal][freeze]") {
+    // The user-audible gate for the transition handling: engaging or
+    // releasing the hold over a steady tone must not notch the level. Two
+    // past defects both produced a ~50 ms, 4-5 dB dip ("ding") right at the
+    // edge: (1) phases advanced one hop BEFORE the first mixed hold frame,
+    // breaking the phase alignment the linear engage fade relies on; and
+    // (2) a linear release fade over the (decorrelated, jittered) hold,
+    // where only an equal-power law is power-flat.
+    RealtimePitchTimeProcessor proc;
+    RealtimePitchTimeConfig config;
+    config.quality = PitchTimeQuality::quality;
+    proc.prepare(kSr, config);
+
+    auto in = sine(440.0, 0.5, 336000);  // 7 s, tone throughout
+    auto out = run_mono(proc, in, 480, /*set_frozen_at=*/96000,
+                        /*release_at=*/192000);
+
+    // 5 ms RMS windows across each transition (+-0.5 s around the toggle,
+    // generous enough to cover the pipeline latency offset). Flat means
+    // every window within 2 dB of the region's mean - the dips this pins
+    // against measured -4.6 dB (engage) and -5.1 dB (release).
+    auto scan = [&](int from, int to) {
+        const int win = 240;  // 5 ms
+        double mean = 0.0;
+        int count = 0;
+        for (int s = from; s + win <= to; s += win) {
+            mean += window_rms_db(out, s, win);
+            ++count;
+        }
+        mean /= count;
+        double worst = 0.0;
+        for (int s = from; s + win <= to; s += win)
+            worst = std::max(worst, std::abs(window_rms_db(out, s, win) - mean));
+        return worst;
+    };
+    const double engage_dev = scan(72000, 144000);
+    const double release_dev = scan(168000, 240000);
+    INFO("worst 5 ms deviation: engage " << engage_dev << " dB, release "
+                                         << release_dev << " dB");
+    REQUIRE(engage_dev < 2.0);
+    REQUIRE(release_dev < 2.0);
+}
+
 TEST_CASE("FreezeHold never mutes when engaged before history fills",
           "[signal][freeze]") {
     RealtimePitchTimeProcessor proc;
