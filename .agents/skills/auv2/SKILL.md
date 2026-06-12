@@ -159,6 +159,15 @@ auval -v <type> <subtype> <manufacturer>
 
 Document this step in any issue or PR that flips a shipped plug-in's component type.
 
+**Beware the transient false PASS.** Right after `killall AudioComponentRegistrar`
+the daemon is re-inspecting every component, and `auval` run during that window
+returns *flickering* results — it can report `PASS` once, then `FAIL` (or the
+"didn't find the component" error) on the next run, against the same bundle. A
+type flip burned real time here: a mid-rescan `PASS` looked like the fix worked,
+but the stable result was `FAIL`. Always **let the rescan settle (`sleep 4-5`)
+and run `auval` at least twice**, and only trust a result that is stable across
+runs. A single green run immediately after a cache kill is not a pass.
+
 ### `auval` tests on persistent runners — kill the cache before every run
 
 Self-hosted CI runners (and local dev iteration where the same plug-in is
