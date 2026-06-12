@@ -418,8 +418,8 @@ public:
     /// own UI-thread "loading…" workflow against them and the adapter
     /// integration is purely additive.
     ///
-    /// Mirrors JUCE's @c AudioProcessor::suspendProcessing per
-    /// sudara "Big List of JUCE Tips" #30.
+    /// Standard suspend/resume guard: while suspended a processor should stop
+    /// touching shared real-time state so a host can safely reconfigure it.
     virtual void suspend() {}
 
     /// Resume processing after a prior @c suspend(). Default no-op;

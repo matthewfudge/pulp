@@ -284,6 +284,29 @@ Cocoa view factory returns `nil` under those guards. Keep this
 environment on every `auval-*` test even if the validator command itself
 looks audio-only.
 
+## Parameters are single-source-of-truth — never reconcile two stores
+
+The adapter overrides `GetParameter`/`SetParameter` to read/write the plugin's
+`StateStore` directly. The host's parameter value IS the store value — there is
+NO separate `Globals()`/AUElement copy to reconcile each block. Do not
+reintroduce a per-block `GetParameter()→store` pull: it reverts UI-thread edits
+(XY snap-back, type-in not taking) on the very next block, because the editor
+writes the store but not the host cache. The render thread must perform NO
+host-parameter write or notification — `AUEventListenerNotify` /
+`AUBase::SetParameter` / `Globals()->SetParameter` from `ProcessBufferLists`
+reentrantly stalls Logic's render thread and silences audio. UI edits reach the
+host via the gesture begin/end brackets (`set_gesture_callbacks`, UI thread) and
+an Audio-thread store listener that notifies on the editing thread with a
+`thread_local` echo guard so a host-originated `SetParameter` is not echoed back.
+
+## MIDI input is lock-free — no audio-thread mutex
+
+`HandleMIDIEvent`/`HandleSysEx` push to lock-free `SpscQueue<MidiEvent>` +
+bounded `SysexChunk` queues; `ProcessBufferLists` drains them wait-free. Don't
+add a `std::mutex` to the MIDI path — short messages stay allocation-free and
+the audio thread never blocks (the AU v2 *instrument* adapter still uses the old
+mutex/`pending_midi_` pattern and should be migrated to match).
+
 ## Reference pointers
 
 - Adapter source: `core/format/src/au_v2_adapter.cpp`, `core/format/include/pulp/format/au_v2_adapter.hpp`

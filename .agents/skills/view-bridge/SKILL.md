@@ -703,6 +703,34 @@ AUv3 avoids constructing `PluginViewHost`. Do not replace this with
 post-hoc window cleanup; the contract is that no native editor host is
 created in the first place.
 
+## Keyboard-focus host etiquette — never hold the host's first responder when idle
+
+A plugin editor embeds an `NSView` in the DAW's window. If that view returns
+`acceptsFirstResponder = YES` unconditionally (or the plugin sets a *focusable
+root* via `set_focusable(true)`), then **clicking any control makes the plugin
+view the host window's first responder, and every keystroke routes into the
+plugin** — stealing the host's keyboard. In Logic this silences **Musical
+Typing** on software-instrument tracks the instant you touch a plugin control,
+which masquerades perfectly as an audio failure ("adjusting the plugin kills the
+instrument until I reopen it" — reopening just refocuses a host view). No crash,
+no log; unaffected by any audio/parameter fix; happens only on instrument
+tracks (audio tracks don't need keystrokes) and only via the plugin's own GUI
+(the host's generic control view never moves focus out of the host). Cost ~2
+days to find — see the `au-xpc-shared-process-crash` debug note.
+
+Contract (`core/view/platform/mac/plugin_view_host_mac.mm`, both the CPU
+`PulpPluginView` and GPU `PulpGpuPluginView` classes — shared by AU/VST3/CLAP):
+
+- `acceptsFirstResponder` returns true **only while** `View::focused_input_`
+  is set (a widget is in active text input), not unconditionally.
+- After every `mouseDown:`/`mouseUp:`/`keyDown:`, call `syncKeyFocus`:
+  `makeFirstResponder:self` when a widget wants keys, `makeFirstResponder:nil`
+  the instant it doesn't — handing the keyboard back to the host.
+- Editors must NOT set a focusable ROOT. Claim focus per-field:
+  `claim_input_focus()` in `enter_typein()`, `release_input_focus()` in
+  `commit_typein()`/`cancel_typein()`. This is the JUCE default
+  (`wantsKeyboardFocus = false`; grab only for an active text field).
+
 ## GPU view host auto-selection — never hardcode `use_gpu=false`
 
 The format adapters (AU v2 / VST3 / CLAP / iOS AUv3) must NOT hand-set

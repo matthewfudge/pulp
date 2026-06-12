@@ -7,10 +7,12 @@
 #include <pulp/format/detail/playhead_diff.hpp>
 #include <pulp/midi/buffer.hpp>
 #include <pulp/midi/message.hpp>
+#include <pulp/runtime/spsc_queue.hpp>
 #include <pulp/state/parameter_event_queue.hpp>
 
+#include <array>
+#include <cstdint>
 #include <memory>
-#include <mutex>
 #include <vector>
 
 namespace pulp::format::au {
@@ -87,6 +89,18 @@ public:
                                       AudioUnitParameterID inParameterID,
                                       CFArrayRef* outStrings) override;
 
+    // Single-source-of-truth parameter access. The plugin's
+    // StateStore IS the parameter store: the host reads it via GetParameter and
+    // writes it via SetParameter, so there is no separate AUElement/Globals
+    // copy to reconcile each block (that split caused the UI snap-back / render
+    // stalls). process() reads the same store; UI edits notify the host via a
+    // main-thread listener. See the au_v2_adapter.cpp definitions.
+    OSStatus GetParameter(AudioUnitParameterID inID, AudioUnitScope inScope,
+                          AudioUnitElement inElement, Float32& outValue) override;
+    OSStatus SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope,
+                          AudioUnitElement inElement, Float32 inValue,
+                          UInt32 inBufferOffsetInFrames) override;
+
     OSStatus GetPropertyInfo(AudioUnitPropertyID inID, AudioUnitScope inScope,
                              AudioUnitElement inElement, UInt32& outDataSize,
                              bool& outWritable) override;
@@ -140,6 +154,11 @@ private:
     std::unique_ptr<Processor> processor_;
     state::StateStore store_;
 
+    // Main-thread listener that pushes editor parameter edits to the host
+    // (AudioUnitSetParameter), kept alive for the adapter's lifetime so host
+    // param writes/notifications never run on the render thread. See ctor.
+    state::ListenerToken ui_push_listener_;
+
     // Sample-accurate parameter-event sidecar, set on the Processor each block
     // so the param-events contract is uniform across formats (VST3/CLAP/AUv3
     // already provide it). AU v2's AUEffectBase has no scheduled/ramped
@@ -160,9 +179,6 @@ private:
     state::ParamID bypass_param_id_ = 0;
     std::vector<const float*> input_ptrs_;
     std::vector<float*> output_ptrs_;
-    // Pre-process snapshot of parameter values; used to diff plugin-side
-    // changes back to the host's parameter system (workstream 01 slice 1.3).
-    std::vector<float> param_snapshot_;
 
     // Item 1.3 — previous-block transport snapshot used to derive the
     // change flags (tempo_changed / time_sig_changed /
@@ -171,16 +187,21 @@ private:
     // no changes.
     detail::PlayheadSnapshot playhead_prev_{};
 
-    // MIDI input path — AU v2 effects that declare accepts_midi are
-    // packaged as aumf (kAudioUnitType_MusicEffect). The host then
-    // routes inbound MIDI through AUMIDIBase::MIDIEvent / SysEx, which
-    // dispatches to HandleMIDIEvent / HandleSysEx. We stash events into
-    // ``pending_midi_`` under ``midi_mutex_`` and drain them into the
-    // block-local MidiBuffer at the top of ProcessBufferLists. The
-    // mutex is only contended on the main/MIDI thread; the audio
-    // thread grabs it once per block to swap pending_midi_ out.
-    std::mutex midi_mutex_;
-    midi::MidiBuffer pending_midi_;
+    // MIDI input path — AU v2 effects that declare accepts_midi are packaged as
+    // aumf (kAudioUnitType_MusicEffect). The host routes inbound MIDI through
+    // AUMIDIBase::MIDIEvent / SysEx → HandleMIDIEvent / HandleSysEx. Those are
+    // LOCK-FREE single-producer (host MIDI/render thread) queues drained by the
+    // single consumer (ProcessBufferLists) — no mutex on the audio thread, the
+    // same atomic/wait-free discipline as the parameter store. Short messages
+    // are allocation-free; under flood, excess events are dropped rather than
+    // blocking the render (lossy, like the RT parameter notify path). aufx
+    // effects never receive MIDI, so the queues stay empty.
+    runtime::SpscQueue<midi::MidiEvent, 1024> midi_in_queue_;
+    struct SysexChunk {
+        std::array<uint8_t, 512> bytes{};
+        uint16_t length = 0;
+    };
+    runtime::SpscQueue<SysexChunk, 32> sysex_in_queue_;
 };
 
 } // namespace pulp::format::au

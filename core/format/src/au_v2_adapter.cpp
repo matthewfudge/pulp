@@ -10,6 +10,7 @@
 
 #include <pulp/format/au_v2_adapter.hpp>
 #include <pulp/format/quirk_apply.hpp>
+#include <pulp/format/detail/param_host_sync.hpp>
 #include <pulp/format/detail/playhead_diff.hpp>
 #include <pulp/format/plugin_state_io.hpp>
 #include <pulp/format/registry.hpp>
@@ -20,6 +21,12 @@
 #include <limits>
 
 namespace pulp::format::au {
+
+// Set while the HOST is writing a parameter (SetParameter), so the store's
+// UI-push listener — which fires inline on the same thread — skips echoing the
+// change back to the host. Thread-local so the guard is scoped to the writing
+// thread only.
+namespace { thread_local bool g_host_writing_param = false; }
 
 // Cross-TU Cocoa-view hook (see au_v2_adapter.hpp). Hidden visibility keeps it
 // per-loaded-image so two Pulp AU components in one host don't share state.
@@ -115,6 +122,34 @@ PulpAUEffect::PulpAUEffect(AudioComponentInstance ci)
                     event.mArgument.mParameter.mElement = 0;
                     AUEventListenerNotify(nullptr, nullptr, &event);
                 });
+
+            // UI → host parameter NOTIFICATION. When the editor edits a
+            // parameter (ParameterEdit → store), tell the host its value
+            // changed so it re-reads (via our GetParameter override) and records
+            // automation. This is a plain AUEventListenerNotify — NOT
+            // AudioUnitSetParameter on ourselves (which re-dispatches through the
+            // AU and, observed in Logic, wedges the render on gesture release).
+            //
+            // Registered as an Audio listener so it runs INLINE, synchronously,
+            // on whichever thread set the store: a UI edit fires it on the
+            // message thread (correct); a host write (SetParameter) fires it with
+            // g_host_writing_param set, so the echo is suppressed. The render
+            // thread never writes the store (no reconcile), so this never
+            // notifies from the render thread.
+            ui_push_listener_ = store_.add_listener(
+                [this](state::ParamID id, float /*value*/) {
+                    if (g_host_writing_param) return; // host's own write — no echo
+                    AudioUnitEvent ev;
+                    std::memset(&ev, 0, sizeof(ev));
+                    ev.mEventType = kAudioUnitEvent_ParameterValueChange;
+                    ev.mArgument.mParameter.mAudioUnit = GetComponentInstance();
+                    ev.mArgument.mParameter.mParameterID =
+                        static_cast<AudioUnitParameterID>(id);
+                    ev.mArgument.mParameter.mScope = kAudioUnitScope_Global;
+                    ev.mArgument.mParameter.mElement = 0;
+                    AUEventListenerNotify(nullptr, nullptr, &ev);
+                },
+                state::ListenerThread::Audio);
 
             // Set defaults in AU parameter system at construction time so hosts
             // can inspect them before Initialize() is called.
@@ -214,6 +249,40 @@ OSStatus PulpAUEffect::GetParameterValueStrings(AudioUnitScope inScope,
     return noErr;
 }
 
+OSStatus PulpAUEffect::GetParameter(AudioUnitParameterID inID, AudioUnitScope inScope,
+                                    AudioUnitElement inElement, Float32& outValue)
+{
+    // Single source of truth: the host reads the plugin's StateStore directly
+    // (matching the plain value range declared by GetParameterInfo). No separate
+    // Globals copy, so nothing to reconcile and nothing to snap back.
+    if (inScope == kAudioUnitScope_Global &&
+        store_.info(static_cast<state::ParamID>(inID)) != nullptr) {
+        outValue = store_.get_value(static_cast<state::ParamID>(inID));
+        return noErr;
+    }
+    return AUMIDIEffectBase::GetParameter(inID, inScope, inElement, outValue);
+}
+
+OSStatus PulpAUEffect::SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope,
+                                    AudioUnitElement inElement, Float32 inValue,
+                                    UInt32 inBufferOffsetInFrames)
+{
+    // Host-side write (automation playback, generic UI, preset recall) lands
+    // straight in the store that process() reads. set_value_rt is RT-safe (the
+    // host may call this from the render thread) and fires the inline Audio
+    // listener synchronously, where g_host_writing_param suppresses the echo
+    // back to the host.
+    if (inScope == kAudioUnitScope_Global &&
+        store_.info(static_cast<state::ParamID>(inID)) != nullptr) {
+        g_host_writing_param = true;
+        store_.set_value_rt(static_cast<state::ParamID>(inID), inValue);
+        g_host_writing_param = false;
+        return noErr;
+    }
+    return AUMIDIEffectBase::SetParameter(inID, inScope, inElement, inValue,
+                                          inBufferOffsetInFrames);
+}
+
 OSStatus PulpAUEffect::GetPropertyInfo(AudioUnitPropertyID inID, AudioUnitScope inScope,
                                        AudioUnitElement inElement, UInt32& outDataSize,
                                        bool& outWritable)
@@ -266,12 +335,10 @@ OSStatus PulpAUEffect::Initialize()
         ctx.input_channels = static_cast<int>(GetNumberOfChannels());
         ctx.output_channels = static_cast<int>(GetNumberOfChannels());
         processor_->prepare(ctx);
-
-        for (const auto& param : store_.all_params()) {
-            auto au_id = static_cast<AudioUnitParameterID>(param.id);
-            float value = Globals()->GetParameter(au_id);
-            store_.set_value(param.id, value);
-        }
+        // No reconcile state to seed and no Globals→store pull: store_ is the
+        // single source of truth and already holds the current values (defaults
+        // from define_parameters, or the values RestoreState wrote). Pulling
+        // Globals here would clobber a restored preset with construction defaults.
     }
 
     runtime::log_info("AU v2: initialized with {} channels at {} Hz",
@@ -294,20 +361,21 @@ OSStatus PulpAUEffect::HandleMIDIEvent(UInt8 inStatus, UInt8 inChannel,
                                 static_cast<uint8_t>(inData1),
                                 static_cast<uint8_t>(inData2));
     ev.sample_offset = static_cast<int32_t>(inStartFrame);
-    std::lock_guard lock(midi_mutex_);
-    pending_midi_.add(ev);
+    midi_in_queue_.try_push(ev); // lock-free; dropped if full (flood backstop)
     return noErr;
 }
 
 OSStatus PulpAUEffect::HandleSysEx(const UInt8* inData, UInt32 inLength)
 {
     if (!inData || inLength == 0) return noErr;
-    std::vector<uint8_t> bytes(inData, inData + inLength);
-    std::lock_guard lock(midi_mutex_);
-    // AU v2 SysEx doesn't surface a per-event sample offset at this SDK
-    // layer; deliver at block start so plugins see it on the leading edge
-    // of the current process() block.
-    pending_midi_.add_sysex(std::move(bytes), /*sample_offset=*/0);
+    // Lock-free, bounded copy. AU v2 SysEx carries no per-event sample offset at
+    // this SDK layer; it is delivered at block start. SysEx longer than the
+    // chunk (rare — most CI/MTC/identity messages are tiny) is truncated.
+    SysexChunk chunk;
+    chunk.length = static_cast<uint16_t>(std::min<UInt32>(
+        inLength, static_cast<UInt32>(chunk.bytes.size())));
+    std::memcpy(chunk.bytes.data(), inData, chunk.length);
+    sysex_in_queue_.try_push(chunk);
     return noErr;
 }
 
@@ -324,17 +392,24 @@ OSStatus PulpAUEffect::ProcessBufferLists(AudioUnitRenderActionFlags& ioActionFl
         return noErr;
     }
 
-    // Host → plugin: pull current parameter values into the store before
-    // processing. Also snapshot them so we can detect plugin-driven changes
-    // after process() returns.
-    auto params = store_.all_params();
-    param_snapshot_.resize(params.size());
-    for (std::size_t i = 0; i < params.size(); ++i) {
-        auto au_id = static_cast<AudioUnitParameterID>(params[i].id);
-        float value = GetParameter(au_id);
-        store_.set_value(params[i].id, value);
-        param_snapshot_[i] = value;
+    // Max-frames contract guard (generic — protects EVERY Pulp AU plugin). The
+    // Processor and all its scratch buffers were sized in prepare() to
+    // GetMaxFramesPerSlice(). A render larger than that would overflow them and
+    // corrupt DSP state (silence until re-init). The canonical AU response is
+    // to reject the render; well-behaved hosts never exceed the advertised max,
+    // so this never fires in normal playback. This also satisfies auval's
+    // "Bad Max Frames — Render should fail" contract test.
+    if (inFramesToProcess > GetMaxFramesPerSlice()) {
+        return kAudioUnitErr_TooManyFramesToProcess;
     }
+
+    // No host↔plugin parameter reconcile here any more. GetParameter/SetParameter
+    // are overridden to read/write store_ directly (single source of truth), so
+    // the host's parameter value IS the store value: host automation already
+    // landed in the store via SetParameter, and process() reads it below. This
+    // the render thread neither pulls, pushes, nor notifies host parameters,
+    // which removes the snap-back and the gesture-release render stall the
+    // per-block reconcile + on-thread host writes caused.
 
     UInt32 in_channels = inBuffer.mNumberBuffers;
     UInt32 out_channels = outBuffer.mNumberBuffers;
@@ -370,10 +445,8 @@ OSStatus PulpAUEffect::ProcessBufferLists(AudioUnitRenderActionFlags& ioActionFl
         // bypass turns off (Codex review on #3246). A bypassed plugin is a
         // wire — inbound MIDI is dropped with the block, matching the VST3
         // path (which leaves MIDI buffers empty on the bypass short-circuit).
-        {
-            std::lock_guard lock(midi_mutex_);
-            pending_midi_ = midi::MidiBuffer{};
-        }
+        while (midi_in_queue_.try_pop()) {}
+        while (sysex_in_queue_.try_pop()) {}
         return noErr;
     }
 
@@ -383,17 +456,15 @@ OSStatus PulpAUEffect::ProcessBufferLists(AudioUnitRenderActionFlags& ioActionFl
         output_ptrs_.data(), out_channels, inFramesToProcess);
 
     midi::MidiBuffer midi_in, midi_out;
-    // Drain MIDI events queued by HandleMIDIEvent/HandleSysEx on the host's
-    // MIDI delivery thread. Mirrors the AU v2 instrument adapter's pattern
-    // (``core/format/src/au_v2_instrument.cpp``) so ``aumf``-typed effects
-    // can actually receive inbound MIDI. ``aufx``-typed effects still get
-    // here, but the host never routes MIDI to them — pending_midi_ will
-    // simply stay empty.
-    {
-        std::lock_guard lock(midi_mutex_);
-        midi_in = std::move(pending_midi_);
-        pending_midi_ = midi::MidiBuffer{};
-    }
+    // Drain the lock-free MIDI queues filled by HandleMIDIEvent / HandleSysEx.
+    // Wait-free on the audio thread — no mutex. aumf-typed effects receive MIDI
+    // here; aufx-typed effects simply find the queues empty.
+    while (auto ev = midi_in_queue_.try_pop())
+        midi_in.add(*ev);
+    while (auto sx = sysex_in_queue_.try_pop())
+        midi_in.add_sysex(
+            std::vector<uint8_t>(sx->bytes.begin(), sx->bytes.begin() + sx->length),
+            /*sample_offset=*/0);
     midi_in.sort();
 
     ProcessContext ctx;
@@ -486,27 +557,12 @@ OSStatus PulpAUEffect::ProcessBufferLists(AudioUnitRenderActionFlags& ioActionFl
         processor_->process(output_view, input_view, midi_in, midi_out, ctx);
     }
 
-    // Plugin → host: diff params against the pre-process snapshot and push
-    // any plugin-side changes back to the host's parameter system. Without
-    // this loop, plugin-driven automation (e.g. a modulated parameter that
-    // the plugin writes to its store during process()) would never reach the
-    // host's automation lane, mirror widgets, or generic UI.
-    // Matches the VST3 and CLAP adapters' snapshot/diff pattern; workstream
-    // 01 slice 1.3.
-    for (std::size_t i = 0; i < params.size(); ++i) {
-        float post = store_.get_value(params[i].id);
-        if (post == param_snapshot_[i]) continue;
-        auto au_id = static_cast<AudioUnitParameterID>(params[i].id);
-        SetParameter(au_id, post);
-        AudioUnitEvent event;
-        std::memset(&event, 0, sizeof(event));
-        event.mEventType = kAudioUnitEvent_ParameterValueChange;
-        event.mArgument.mParameter.mAudioUnit = GetComponentInstance();
-        event.mArgument.mParameter.mParameterID = au_id;
-        event.mArgument.mParameter.mScope = kAudioUnitScope_Global;
-        event.mArgument.mParameter.mElement = 0;
-        AUEventListenerNotify(nullptr, nullptr, &event);
-    }
+    // No plugin→host parameter diff/push here. Because GetParameter reads the
+    // store directly, any value the Processor wrote during process() is already
+    // what the host will read — no Globals copy to update. (Live host-recording
+    // of *processor-driven* parameter modulation, which needs an explicit change
+    // notification, would be done from a main-thread pump, never a render-thread
+    // notify; no current plugin drives parameters from process().)
 
     // Item 3.11 — push latency / tail change notifications the processor
     // flagged during process(). AU v2 hosts watch

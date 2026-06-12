@@ -317,7 +317,19 @@ private:
     void feed_engine(const float* const* in, int num_samples) {
         int done = 0;
         while (done < num_samples) {
-            const int run = std::min(num_samples - done, analysis_hop_);
+            // Chunk exactly to the next analysis-frame boundary so
+            // offset_in_block_ is the TRUE in-block offset at which the frame
+            // completes. handle_frame evaluates the smoothed pitch/formant
+            // ratio at offset_in_block_; the old analysis_hop_-sized chunking
+            // pre-set it to the chunk END, so when a frame landed mid-chunk the
+            // control trajectory was sampled too far ahead. That fed an
+            // inconsistent synthesis hop into the overlap-add and collapsed the
+            // output to near-silence under rapid pitch/formant changes — and,
+            // because the bad hop sequence perturbs the running phase/position
+            // state, it stayed collapsed until reset(). Boundary-aligned chunks
+            // make the per-frame control offset exact.
+            const int until = std::max(1, engine_.samples_until_next_frame());
+            const int run = std::min(num_samples - done, until);
             offset_in_block_ = done + run;
             engine_.analyze(advance_ptrs(in, done), run,
                             [this](std::complex<float>* const* frames, int bins) {

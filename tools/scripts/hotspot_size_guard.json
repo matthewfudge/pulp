@@ -121,8 +121,8 @@
     },
     {
       "path": "core/canvas/include/pulp/canvas/canvas.hpp",
-      "max_loc": 1535,
-      "note": "public canvas header trim candidate"
+      "max_loc": 1546,
+      "note": "public canvas header trim candidate (+UTF-8 codepoint clamp in text_x_for_byte, prevents nil-NSString host-process crash)"
     },
     {
       "path": "tools/cli/cli_common.cpp",

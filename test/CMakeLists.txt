@@ -4494,10 +4494,10 @@ pulp_add_test_suite(pulp-test-platform-maturity LIBRARIES pulp::view)
 
 # Audio bridge tests
 pulp_add_test_suite(pulp-test-audio-bridge LIBRARIES pulp::view)
-
 # Widget tests
 pulp_add_test_suite(pulp-test-widgets LIBRARIES pulp::view)
 pulp_add_test_suite(pulp-test-parameter-edit LIBRARIES pulp::view pulp::state)
+pulp_add_test_suite(pulp-test-param-host-sync LIBRARIES pulp::state INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/core/format/include)
 pulp_add_test_suite(pulp-test-midi-binding LIBRARIES pulp::view pulp::state pulp::midi)
 # Widget tests — Label cluster (P5-3 follow-up — extracted from
 # test_widgets.cpp). Label intrinsic_width / intrinsic_height /
