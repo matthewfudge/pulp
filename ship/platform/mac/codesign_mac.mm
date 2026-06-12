@@ -327,8 +327,13 @@ bool create_combined_pkg(const std::vector<InstallComponent>& components,
     // distribution document that exposes each as a user-selectable choice
     // (the "Customize" pane). This is Pulp's default installer shape — a user
     // can install only the formats they want.
-    std::string tmp_dir = "/tmp/pulp-pkg-staging-" + std::to_string(getpid());
-    exec_status("rm -rf \"" + tmp_dir + "\"; mkdir -p \"" + tmp_dir + "\"");
+    //
+    // Stage in an mkdtemp() directory (unique, 0700, creation checked) rather
+    // than a predictable /tmp/...-<pid> path, so a concurrent build or a
+    // pre-existing path can't collide or be pre-seeded.
+    auto staging = make_temp_dir("pulp-pkg-staging");
+    if (!staging) return false;
+    const std::string tmp_dir = staging->string();
 
     std::string choices_outline;   // <line choice="..."/>
     std::string choice_defs;       // <choice .../> with nested <pkg-ref/>

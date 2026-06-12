@@ -737,9 +737,19 @@ Contract (`core/view/platform/mac/plugin_view_host_mac.mm`, both the CPU
   Otherwise a type-in left open when the user clicks a host control keeps
   `acceptsFirstResponder` true and re-steals the keyboard on the next event.
   Widgets with type-in UIs should override `on_focus_changed(false)` to
-  commit, exactly like a click-away inside the plugin. All three contracts
-  are pinned by `test_plugin_view_host_key_focus.mm` (real `NSWindow` +
-  responder dance, CPU host).
+  commit, exactly like a click-away inside the plugin.
+- **Scope every focus decision to THIS editor's root.** `View::focused_input_`
+  is a process-GLOBAL static, so with two plugin editors open in one host
+  (two instances of the same plug-in is the common case) it can point into a
+  *different* editor's tree. `acceptsFirstResponder`, `syncKeyFocus`, the
+  keyDown dispatch, and the resignFirstResponder text-input teardown must all
+  gate on `pulp_focus_under_root(self.rootView)` (focused view is `root` or a
+  descendant — walk `View::parent()`), never on the bare global. Otherwise
+  editor B accepts/steals the keyboard, or routes keys into editor A, while A
+  holds a focused field. All four contracts (claim/restore, host-grab ends
+  input, freed-prior-responder safety, per-editor scoping) are pinned by
+  `test_plugin_view_host_key_focus.mm` (real `NSWindow` + responder dance,
+  single- and two-editor, CPU host).
 - Editors must NOT set a focusable ROOT. Claim focus per-field:
   `claim_input_focus()` in `enter_typein()`, `release_input_focus()` in
   `commit_typein()`/`cancel_typein()`. This is the JUCE default

@@ -71,9 +71,12 @@ struct FocusGuard {
 };
 
 NSView* find_pulp_plugin_view(NSView* parent) {
-    for (NSView* sub in parent.subviews)
+    for (NSView* sub in parent.subviews) {
         if ([NSStringFromClass(sub.class) isEqualToString:@"PulpPluginView"])
             return sub;
+        NSView* nested = find_pulp_plugin_view(sub);
+        if (nested) return nested;
+    }
     return nil;
 }
 
@@ -166,6 +169,81 @@ TEST_CASE("PluginViewHost (mac CPU) — releasing text-input focus restores the 
 
         host->detach();
         host.reset();
+        [window close];
+    }
+}
+
+// Two plugin editors open in one host process (e.g. two instances of the same
+// plug-in). `View::focused_input_` is process-global, so the focus decisions
+// must be scoped to each editor's OWN root — otherwise editor B steals or
+// misroutes the keyboard when editor A holds a focused text field. This pins
+// the root-scoping (`pulp_focus_under_root`).
+TEST_CASE("PluginViewHost (mac CPU) — focus is scoped per editor; a second "
+          "open editor neither accepts nor ends the first editor's focus",
+          "[plugin-view-host][key-focus][mac][cpu][multi-editor]") {
+    @autoreleasepool {
+        FocusGuard guard;
+
+        NSWindow* window =
+            [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 800, 600)
+                                        styleMask:NSWindowStyleMaskBorderless
+                                          backing:NSBackingStoreBuffered
+                                            defer:NO];
+        if (!window || !window.contentView) {
+            SUCCEED("No Cocoa window — multi-editor focus test skipped.");
+            return;
+        }
+
+        NSView* containerA =
+            [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 400, 600)];
+        NSView* containerB =
+            [[NSView alloc] initWithFrame:NSMakeRect(400, 0, 400, 600)];
+        [window.contentView addSubview:containerA];
+        [window.contentView addSubview:containerB];
+
+        FocusRecordingView rootA;
+        FocusRecordingView rootB;
+        PluginViewHost::Options opts;
+        opts.size = {400u, 600u};
+        opts.use_gpu = false;
+        auto hostA = PluginViewHost::create(rootA, opts);
+        auto hostB = PluginViewHost::create(rootB, opts);
+        REQUIRE(hostA != nullptr);
+        REQUIRE(hostB != nullptr);
+        hostA->attach_to_parent((__bridge void*)containerA);
+        hostB->attach_to_parent((__bridge void*)containerB);
+
+        NSView* viewA = find_pulp_plugin_view(containerA);
+        NSView* viewB = find_pulp_plugin_view(containerB);
+        REQUIRE(viewA != nil);
+        REQUIRE(viewB != nil);
+        REQUIRE(viewA != viewB);
+
+        // Focus a text widget in editor A only.
+        rootA.claim_input_focus();
+        REQUIRE(View::focused_input_ == &rootA);
+
+        // Editor A wants the keyboard; editor B must NOT — its root doesn't own
+        // the global focus slot.
+        REQUIRE([viewA acceptsFirstResponder]);
+        REQUIRE_FALSE([viewB acceptsFirstResponder]);
+
+        // Editor B syncing focus must not steal first responder; editor A's does.
+        [viewB syncKeyFocus];
+        REQUIRE(window.firstResponder != viewB);
+        [viewA syncKeyFocus];
+        REQUIRE(window.firstResponder == viewA);
+
+        // Editor B resigning first responder must NOT end editor A's text input
+        // (pulp_plugin_end_text_input is root-scoped).
+        [viewB resignFirstResponder];
+        REQUIRE(View::focused_input_ == &rootA);
+        REQUIRE(rootA.lost_count == 0);
+
+        hostA->detach();
+        hostB->detach();
+        hostA.reset();
+        hostB.reset();
         [window close];
     }
 }
