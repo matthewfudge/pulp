@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v04270"></a>
+## [0.427.0] - 2026-06-11
+
+- Expose Audio Inspector probe JSON to agents ([#3989](https://github.com/danielraffel/pulp/pull/3989))
+
 <a id="v04261"></a>
 ## [0.426.1] - 2026-06-11
 
@@ -4369,6 +4374,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.427.0]: https://github.com/danielraffel/pulp/releases/tag/v0.427.0
 [0.426.1]: https://github.com/danielraffel/pulp/releases/tag/v0.426.1
 [0.426.0]: https://github.com/danielraffel/pulp/releases/tag/v0.426.0
 [0.425.0]: https://github.com/danielraffel/pulp/releases/tag/v0.425.0
