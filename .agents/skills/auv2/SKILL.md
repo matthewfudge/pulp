@@ -49,7 +49,26 @@ When you add a new example or change an existing one's descriptor to declare `ac
 
 ## MIDI Input Wiring
 
-The AU v2 effect adapter inherits from `AUMIDIEffectBase` (`AUEffectBase` + `AUMIDIBase`) so the SDK's `MIDIEvent` / `SysEx` entry points exist. Inbound MIDI flows:
+### The entry FACTORY must dispatch MusicDevice selectors — not just the base class
+
+Two independent things must both be true for an `aumf` to receive MIDI, and it is easy to get the first and miss the second:
+
+1. The adapter **class** must implement the MIDI methods — `PulpAUEffect` derives `AUMIDIEffectBase` and overrides `HandleMIDIEvent` / `HandleSysEx`. ✅ (always true for Pulp effects)
+2. The component **entry** must register through a factory whose *lookup table* carries the MusicDevice selectors. A factory only dispatches the selectors its lookup knows. `ausdk::AUBaseFactory` (`AUBaseLookup`) has **no** MusicDevice selectors, so even though the class implements `HandleMIDIEvent`, the host's `MusicDeviceMIDIEvent` call returns **-4 (unimpErr)** — no note ever reaches the adapter, and `auval -v aumf` fails with `-4 IN CALL MusicDeviceMIDIEvent` (often with a cascading `Bad Max Frames` line that clears once the MIDI dispatch is fixed).
+
+So the entry macro is type-specific (`core/format/include/pulp/format/au_v2_entry.hpp`):
+
+| Macro | Factory | Use for |
+|-------|---------|---------|
+| `PULP_AU_PLUGIN` | `ausdk::AUBaseFactory` | `aufx` (audio-only effect) |
+| `PULP_AU_MIDI_PLUGIN` | `ausdk::AUMIDIEffectFactory` (`AUMIDILookup` = MIDIEvent + SysEx) | `aumf` (MIDI-receiving effect) |
+| instrument entry (`au_v2_instrument_entry.hpp`) | `ausdk::AUMusicDeviceFactory` (`AUMusicLookup` = + StartNote/StopNote) | `aumu` (instrument) |
+
+**Three surfaces must agree** for an `aumf`, or the component is invalid: `descriptor().accepts_midi = true`, the `aumf` type (CMake `ACCEPTS_MIDI` or a hand-written `Info.plist.au`), **and** `PULP_AU_MIDI_PLUGIN` in the plugin's `au_v2_entry.cpp`. The dispatch contract is pinned by `test/test_au_v2_effect.cpp` (`[dispatch]` — asserts `AUMIDILookup` routes `kMusicDeviceMIDIEventSelect` and `AUBaseLookup` does not), so a regression to the base factory fails in CI instead of at auval/Logic time.
+
+### Flow
+
+The adapter inherits `AUMIDIEffectBase` (`AUEffectBase` + `AUMIDIBase`) so the SDK's `MIDIEvent` / `SysEx` entry points exist. Inbound MIDI flows:
 
 ```
 host -> AUMIDIBase::MIDIEvent(status, data1, data2, frame)

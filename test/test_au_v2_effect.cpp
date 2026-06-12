@@ -20,10 +20,40 @@
 #include <pulp/midi/buffer.hpp>
 #include <pulp/midi/message.hpp>
 
+#include <AudioUnitSDK/AUPlugInDispatch.h>
+#include <AudioToolbox/AudioUnit.h>
+
 #include <cstdint>
 
 using namespace pulp;
 using pulp::format::au::decode_midi_event;
+
+// Component-entry dispatch contract for MIDI-receiving effects (`aumf`).
+//
+// The bug this guards: PULP_AU_MIDI_PLUGIN must register through
+// ausdk::AUMIDIEffectFactory, NOT ausdk::AUBaseFactory. A factory only
+// dispatches the selectors its lookup table carries — AUBaseLookup has no
+// MusicDevice selectors, so a `MusicDeviceMIDIEvent` call on an aumf built
+// with the base factory returns -4 (unimpErr) and auval fails with
+// "-4 IN CALL MusicDeviceMIDIEvent" (the host never delivers a note). The
+// adapter class already implements HandleMIDIEvent; the *lookup table* is
+// what was wrong. This pins the exact selector the two factories' lookups
+// must (and must not) carry, so a regression to the base factory is caught
+// in CI instead of at auval/Logic time.
+TEST_CASE("AU v2 MIDI-effect lookup dispatches MusicDeviceMIDIEvent; "
+          "base lookup does not",
+          "[au][midi][au-v2][dispatch]")
+{
+    // AUMIDIEffectFactory (used by PULP_AU_MIDI_PLUGIN) routes the
+    // MusicDevice MIDIEvent selector to a real method.
+    REQUIRE(ausdk::AUMIDILookup::Lookup(kMusicDeviceMIDIEventSelect) != nullptr);
+    // The plain effect factory (PULP_AU_PLUGIN, aufx) does not — calling
+    // MusicDeviceMIDIEvent there is the unimplemented path that broke aumf.
+    REQUIRE(ausdk::AUBaseLookup::Lookup(kMusicDeviceMIDIEventSelect) == nullptr);
+    // Both still dispatch a core selector — sanity that the lookups are live.
+    REQUIRE(ausdk::AUMIDILookup::Lookup(kAudioUnitInitializeSelect) != nullptr);
+    REQUIRE(ausdk::AUBaseLookup::Lookup(kAudioUnitInitializeSelect) != nullptr);
+}
 
 TEST_CASE("AU v2 effect: Control Change decode round-trips channel + data",
           "[au][midi][au-v2][issue-pending]")
