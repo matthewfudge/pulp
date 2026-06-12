@@ -64,47 +64,48 @@ public:
             std::fill(ch.begin(), ch.end(), 0.0f);
     }
 
-    /// Prepare for processing
-    void prepare(int max_channels, int /*max_block_size*/) {
+    /// Prepare for processing. Pre-allocates the dry scratch so the audio-thread
+    /// push_dry() never allocates (or indexes out of range on a mismatched bus).
+    void prepare(int max_channels, int max_block_size) {
         max_channels_ = std::max(0, max_channels);
+        max_block_size_ = std::max(0, max_block_size);
         delay_pos_ = 0;
+        dry_count_ = 0;
         if (latency_ > 0 && max_channels_ > 0)
             delay_buffer_.assign(static_cast<size_t>(latency_ * max_channels_), 0.0f);
         else
             delay_buffer_.clear();
-        dry_buffer_.clear();
+        dry_buffer_.assign(
+            static_cast<size_t>(max_channels_),
+            std::vector<float>(static_cast<size_t>(max_block_size_), 0.0f));
     }
 
-    /// Push dry samples before processing (call before your wet processing)
+    /// Push dry samples before processing (call before your wet processing).
+    /// RT-safe: no allocation, clamps to the prepared channel/block geometry.
     void push_dry(const float* const* channels, int num_channels, int num_samples) {
         if (channels == nullptr || num_channels <= 0 || num_samples <= 0) {
-            dry_buffer_.clear();
+            dry_count_ = 0;
             return;
         }
+        const int count = std::min(num_channels, max_channels_);
+        const int n = std::min(num_samples, max_block_size_);
+        dry_count_ = n;
 
         if (latency_ <= 0) {
-            // No latency compensation — just store the dry signal
-            dry_buffer_.resize(static_cast<size_t>(num_channels));
-            for (int ch = 0; ch < num_channels; ++ch) {
-                dry_buffer_[ch].resize(static_cast<size_t>(num_samples));
-                std::memcpy(dry_buffer_[ch].data(), channels[ch],
-                           static_cast<size_t>(num_samples) * sizeof(float));
-            }
+            // No latency compensation — copy the dry signal into the scratch.
+            for (int ch = 0; ch < count; ++ch)
+                std::memcpy(dry_buffer_[static_cast<size_t>(ch)].data(), channels[ch],
+                            static_cast<size_t>(n) * sizeof(float));
             return;
         }
 
         // With latency compensation — delay the dry signal.
         // Process sample-by-sample (all channels per sample) so the delay
         // position advances once per frame, not once per channel.
-        const int count = std::min(num_channels, max_channels_);
-        dry_buffer_.resize(static_cast<size_t>(count));
-        for (int ch = 0; ch < count; ++ch)
-            dry_buffer_[ch].resize(static_cast<size_t>(num_samples));
-
-        for (int i = 0; i < num_samples; ++i) {
+        for (int i = 0; i < n; ++i) {
             for (int ch = 0; ch < count; ++ch) {
                 size_t idx = static_cast<size_t>(delay_pos_ * max_channels_ + ch);
-                dry_buffer_[ch][i] = delay_buffer_[idx];
+                dry_buffer_[static_cast<size_t>(ch)][static_cast<size_t>(i)] = delay_buffer_[idx];
                 delay_buffer_[idx] = channels[ch][i];
             }
             delay_pos_ = (delay_pos_ + 1) % latency_;
@@ -116,10 +117,11 @@ public:
         float dry_gain, wet_gain;
         compute_gains(dry_gain, wet_gain);
 
-        for (int ch = 0; ch < num_channels && ch < static_cast<int>(dry_buffer_.size()); ++ch) {
-            const int sample_count = std::min(num_samples, static_cast<int>(dry_buffer_[ch].size()));
+        const int chans = std::min(num_channels, static_cast<int>(dry_buffer_.size()));
+        const int sample_count = std::min(num_samples, dry_count_); // only valid dry
+        for (int ch = 0; ch < chans; ++ch) {
             for (int i = 0; i < sample_count; ++i) {
-                wet_channels[ch][i] = dry_buffer_[ch][i] * dry_gain +
+                wet_channels[ch][i] = dry_buffer_[static_cast<size_t>(ch)][static_cast<size_t>(i)] * dry_gain +
                                       wet_channels[ch][i] * wet_gain;
             }
         }
@@ -137,6 +139,8 @@ private:
     MixCurve curve_ = MixCurve::Linear;
     int latency_ = 0;
     int max_channels_ = 2;
+    int max_block_size_ = 0;     ///< prepared block ceiling; dry scratch is sized to it
+    int dry_count_ = 0;          ///< valid samples currently held in dry_buffer_
     int delay_pos_ = 0;
     std::vector<float> delay_buffer_;
     std::vector<std::vector<float>> dry_buffer_;
