@@ -192,6 +192,20 @@ TEST_CASE("pulp host derives AU ids from bundle Info.plist before loading",
                "<key>subtype</key><string>PLPT</string>"
                "</dict></array></dict></plist>\n");
 
+    const auto missing_type = base / "MissingType.component";
+    write_text(missing_type / "Contents" / "Info.plist",
+               "<plist><dict><key>AudioComponents</key><array><dict>"
+               "<key>subtype</key><string>PLPT</string>"
+               "<key>manufacturer</key><string>Pulp</string>"
+               "</dict></array></dict></plist>\n");
+
+    const auto missing_subtype = base / "MissingSubtype.component";
+    write_text(missing_subtype / "Contents" / "Info.plist",
+               "<plist><dict><key>AudioComponents</key><array><dict>"
+               "<key>type</key><string>aumf</string>"
+               "<key>manufacturer</key><string>Pulp</string>"
+               "</dict></array></dict></plist>\n");
+
     const std::vector<fs::path> bundles = {
         base / "MissingInfoPlist.component",
         valid_bundle,
@@ -199,6 +213,8 @@ TEST_CASE("pulp host derives AU ids from bundle Info.plist before loading",
         no_dict,
         unterminated_dict,
         missing_manufacturer,
+        missing_type,
+        missing_subtype,
     };
 
     for (const auto& bundle : bundles) {

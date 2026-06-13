@@ -83,6 +83,18 @@ TEST_CASE("AU Info.plist parser rejects incomplete metadata",
                 "<key>subtype</key><string>PHBn</string>"
                 "</dict></array></dict></plist>")
                 .empty());
+    REQUIRE(au::parse_unique_id_from_text(
+                "<plist><dict><key>AudioComponents</key><array><dict>"
+                "<key>subtype</key><string>PHBn</string>"
+                "<key>manufacturer</key><string>Pulp</string>"
+                "</dict></array></dict></plist>")
+                .empty());
+    REQUIRE(au::parse_unique_id_from_text(
+                "<plist><dict><key>AudioComponents</key><array><dict>"
+                "<key>type</key><string>aumf</string>"
+                "<key>manufacturer</key><string>Pulp</string>"
+                "</dict></array></dict></plist>")
+                .empty());
 }
 
 TEST_CASE("AU Info.plist parser reads bundle Info.plist",
