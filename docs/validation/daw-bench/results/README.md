@@ -40,6 +40,20 @@ needs a machine-readable artifact. The JSON report includes
 `missing_scripted_lane_count` so CI can track host-lab coverage without
 scraping markdown.
 
+For local planning only, add `--include-local-host-availability` to annotate
+missing scripted lanes with whether this Mac appears to have that DAW installed
+under `/Applications`:
+
+```bash
+python3 tools/scripts/summarize_daw_bench_results.py \
+    docs/validation/daw-bench/results \
+    --require-any \
+    --include-local-host-availability
+```
+
+Those annotations are scheduling hints, not validation evidence. They do not
+change `covered_scripted_lane_count`, and they do not close any missing lane.
+
 Use the stricter completion gate only when a branch is claiming that the
 scripted host-lab backlog is closed:
 
@@ -62,6 +76,38 @@ status against the checked-in log events. A `Confirmed` row must include the
 expected event in at least one listed log, and a `Not Triggered` row must not
 contradict the listed logs.
 
+AU preflight output can be captured separately when debugging scan/discovery
+failures:
+
+```bash
+python3 tools/scripts/check_au_component_preflight.py \
+    ~/Library/Audio/Plug-Ins/Components/PulpHostBench.component \
+    --expect-type aumf \
+    --expect-subtype PHBn \
+    --expect-manufacturer Pulp \
+    --expect-factory PulpHostBenchAUFactory \
+    --expect-symbol PulpHostBenchAUFactory \
+    --check-permissions \
+    --check-codesign \
+    --check-auval-list \
+    --run-auval \
+    --auval-repeat 2 \
+    --format json
+```
+
+That JSON is diagnostic context only. It proves package/discovery preflight
+state, not DAW host behavior; a missing Logic AU result still needs a real
+filled-in script, log, and `.daw-bench.json` manifest before it counts as
+host-lab evidence. When a DAW-bench manifest cites preflight JSON via
+`preflight_reports`, the validator only checks that the file exists and has the
+expected `check_au_component_preflight.py --format json` shape. The reported
+preflight may pass or fail because both outcomes are useful diagnostics.
+When `check-auval-list` fails, the diagnostic also summarizes whether `auval -a`
+listed any non-Apple components. A result that lists only Apple components means
+the local AU registrar is not exposing third-party components, so a missing
+Logic AU lane should stay open until that machine-level condition is fixed and
+stable repeated `auval` passes are captured.
+
 ## Manifest Schema
 
 ```json
@@ -77,6 +123,7 @@ contradict the listed logs.
   "plugin_version": "0.395.0",
   "result_markdown": "06-reaper-vst3.md",
   "logs": ["logs/Reaper-VST3-20260612T120000Z-pid42.log"],
+  "preflight_reports": ["preflight/logic-au-preflight.json"],
   "capabilities": [
     {
       "capability": "load",
@@ -106,3 +153,8 @@ matrix column names after normalization, such as `load`, `params`, `midi`,
 manifest for the host/format lane and a `Confirmed` capability entry. The
 validator cross-checks known capabilities against checked-in log events when
 logs are present.
+
+`preflight_reports` is optional diagnostic context. Each entry must reference a
+checked-in JSON file emitted by `check_au_component_preflight.py --format json`.
+Preflight reports do not count as logs and do not close any missing scripted
+lane in the compatibility rollup.

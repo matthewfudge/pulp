@@ -45,6 +45,39 @@ session.
    - AU:   `cp -R build/AU/PulpHostBench.component ~/Library/Audio/Plug-Ins/Components/`
    - VST3: `cp -R build/VST3/PulpHostBench.vst3 ~/Library/Audio/Plug-Ins/VST3/`
    - CLAP: `cp -R build/CLAP/PulpHostBench.clap ~/Library/Audio/Plug-Ins/CLAP/`
+   For AU benches, `PulpHostBench` is a MIDI-capable effect and must scan as
+   `aumf PHBn Pulp`. After rebuilding or reinstalling the AU, clear the AU
+   registrar cache before trusting host results:
+   ```bash
+   python3 tools/scripts/check_au_component_preflight.py \
+       ~/Library/Audio/Plug-Ins/Components/PulpHostBench.component \
+       --expect-type aumf \
+       --expect-subtype PHBn \
+       --expect-manufacturer Pulp \
+       --expect-factory PulpHostBenchAUFactory \
+       --expect-symbol PulpHostBenchAUFactory \
+       --check-permissions \
+       --check-codesign
+   killall -KILL AudioComponentRegistrar 2>/dev/null || true
+   sleep 5
+   python3 tools/scripts/check_au_component_preflight.py \
+       ~/Library/Audio/Plug-Ins/Components/PulpHostBench.component \
+       --expect-type aumf \
+       --expect-subtype PHBn \
+       --expect-manufacturer Pulp \
+       --expect-factory PulpHostBenchAUFactory \
+       --expect-symbol PulpHostBenchAUFactory \
+       --check-permissions \
+       --check-codesign \
+       --check-auval-list \
+       --run-auval \
+       --auval-repeat 2
+   ```
+   Both `auval` runs must be stable. A transient pass immediately after cache
+   reset is not durable evidence, and a discovery failure means the Logic AU
+   bench is not ready to run. If the preflight reports that `auval -a` lists
+   Apple components and no non-Apple components, treat that as a machine-level
+   AU registrar issue rather than evidence about the HostBench bundle itself.
 3. **Clear stale logs** so this session's events stand alone:
    ```bash
    rm -rf ~/Library/Logs/PulpHostBench/   # macOS

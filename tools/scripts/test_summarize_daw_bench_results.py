@@ -158,8 +158,9 @@ class DawBenchSummaryTests(unittest.TestCase):
             self.assertIn("`reaper_process_while_bypassed`", markdown)
             self.assertIn("docs/validation/daw-bench/results/2026-06-12/reaper-vst3.daw-bench.json", markdown)
             self.assertIn("## Scripted Lanes Without Checked-In Manifests", markdown)
-            self.assertIn("| Logic Pro | AU | `docs/validation/daw-bench/01-logic-pro-au.md` |", markdown)
-            self.assertIn("| AUM | AUv3 | `docs/validation/daw-bench/08-aum-auv3.md` |", markdown)
+            self.assertIn("| Host | Format | Local Status | Script |", markdown)
+            self.assertIn("| Logic Pro | AU | - | `docs/validation/daw-bench/01-logic-pro-au.md` |", markdown)
+            self.assertIn("| AUM | AUv3 | - | `docs/validation/daw-bench/08-aum-auv3.md` |", markdown)
 
     def test_json_report_is_machine_readable(self) -> None:
         tmp_ctx, root, result_dir = self._repo()
@@ -198,6 +199,49 @@ class DawBenchSummaryTests(unittest.TestCase):
                     "script": "docs/validation/daw-bench/08-aum-auv3.md",
                 },
             ])
+
+    def test_local_host_availability_detects_macos_apps(self) -> None:
+        tmp_ctx, root, _result_dir = self._repo()
+        with tmp_ctx:
+            apps = root / "Applications"
+            (apps / "Logic Pro.app").mkdir(parents=True)
+            lanes = summary.load_scripted_lanes(
+                root / "docs" / "validation" / "daw-bench",
+                repo_root=root,
+            )
+            availability = summary.local_host_availability(lanes, applications_dir=apps)
+            self.assertEqual(availability["Logic Pro"].status, "available")
+            self.assertIn("Logic Pro.app", availability["Logic Pro"].detail)
+            self.assertEqual(availability["AUM"].status, "unavailable")
+            self.assertIn("iOS/iPadOS", availability["AUM"].detail)
+
+    def test_json_report_can_include_local_host_availability(self) -> None:
+        tmp_ctx, root, result_dir = self._repo()
+        with tmp_ctx:
+            (root / "Applications" / "Logic Pro.app").mkdir(parents=True)
+            path = result_dir / "reaper-vst3.daw-bench.json"
+            path.write_text(json.dumps(_manifest()), encoding="utf-8")
+            summaries, _results = summary.load_summaries([result_dir], repo_root=root)
+            planned_lanes = summary.load_scripted_lanes(
+                root / "docs" / "validation" / "daw-bench",
+                repo_root=root,
+            )
+            availability = summary.local_host_availability(
+                planned_lanes,
+                applications_dir=root / "Applications",
+            )
+            data = json.loads(summary.render_json(
+                summaries,
+                repo_root=root,
+                planned_lanes=planned_lanes,
+                host_availability=availability,
+            ))
+            missing = data["scripted_lanes_without_manifests"]
+            self.assertEqual(missing[0]["host"], "Logic Pro")
+            self.assertEqual(missing[0]["local_host_status"], "available")
+            self.assertIn("Logic Pro.app", missing[0]["local_host_detail"])
+            self.assertEqual(missing[1]["host"], "AUM")
+            self.assertEqual(missing[1]["local_host_status"], "unavailable")
 
     def test_invalid_manifest_blocks_summary(self) -> None:
         tmp_ctx, root, result_dir = self._repo()

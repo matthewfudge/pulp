@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
+import platform
 import sys
 from dataclasses import dataclass
 from typing import Any
@@ -44,6 +45,25 @@ class PlannedLane:
     host: str
     format: str
     script: pathlib.Path
+
+
+@dataclass(frozen=True)
+class HostAvailability:
+    status: str
+    detail: str
+
+
+HOST_APP_CANDIDATES: dict[str, tuple[str, ...]] = {
+    "Ableton Live": ("Ableton Live.app",),
+    "Bitwig Studio": ("Bitwig Studio.app",),
+    "Cubase 9": ("Cubase 9.app",),
+    "Cubase 12": ("Cubase 12.app",),
+    "FL Studio": ("FL Studio.app",),
+    "Logic Pro": ("Logic Pro.app",),
+    "REAPER": ("REAPER.app",),
+    "Studio One": ("Studio One.app",),
+    "Wavelab": ("WaveLab.app", "Wavelab.app"),
+}
 
 
 def _load_manifest(path: pathlib.Path) -> dict[str, Any]:
@@ -176,11 +196,46 @@ def missing_scripted_lanes(
     ]
 
 
+def local_host_availability(
+    planned_lanes: list[PlannedLane],
+    *,
+    applications_dir: pathlib.Path = pathlib.Path("/Applications"),
+) -> dict[str, HostAvailability]:
+    hosts = sorted({lane.host for lane in planned_lanes})
+    availability: dict[str, HostAvailability] = {}
+    is_macos = platform.system() == "Darwin" or applications_dir != pathlib.Path("/Applications")
+
+    for host in hosts:
+        if host == "AUM":
+            availability[host] = HostAvailability(
+                "unavailable",
+                "iOS/iPadOS AUv3 host; not discoverable in macOS /Applications",
+            )
+            continue
+        candidates = HOST_APP_CANDIDATES.get(host)
+        if not candidates:
+            availability[host] = HostAvailability("unknown", "no local detector for this host")
+            continue
+        if not is_macos:
+            availability[host] = HostAvailability("unknown", "local host detection is macOS-only")
+            continue
+        matches = [name for name in candidates if (applications_dir / name).exists()]
+        if matches:
+            availability[host] = HostAvailability("available", f"found {matches[0]}")
+        else:
+            availability[host] = HostAvailability(
+                "unavailable",
+                "not found in " + applications_dir.as_posix(),
+            )
+    return availability
+
+
 def render_markdown(
     summaries: list[ResultSummary],
     *,
     repo_root: pathlib.Path = REPO_ROOT,
     planned_lanes: list[PlannedLane] | None = None,
+    host_availability: dict[str, HostAvailability] | None = None,
 ) -> str:
     lines: list[str] = ["# DAW Bench Compatibility Summary", ""]
     if not summaries:
@@ -236,17 +291,24 @@ def render_markdown(
             )
 
     if missing_lanes:
+        host_availability = host_availability or {}
         lines.extend([
             "",
             "## Scripted Lanes Without Checked-In Manifests",
             "",
             "These rows are manual bench scripts that still need real result evidence.",
             "",
-            "| Host | Format | Script |",
-            "|------|--------|--------|",
+            "| Host | Format | Local Status | Script |",
+            "|------|--------|--------------|--------|",
         ])
         for lane in missing_lanes:
-            lines.append(f"| {lane.host} | {lane.format} | `{lane.script.as_posix()}` |")
+            availability = host_availability.get(lane.host)
+            status = "-"
+            if availability:
+                status = f"{availability.status}: {availability.detail}"
+            lines.append(
+                f"| {lane.host} | {lane.format} | {status} | `{lane.script.as_posix()}` |"
+            )
 
     lines.append("")
     return "\n".join(lines)
@@ -257,9 +319,11 @@ def render_json(
     *,
     repo_root: pathlib.Path = REPO_ROOT,
     planned_lanes: list[PlannedLane] | None = None,
+    host_availability: dict[str, HostAvailability] | None = None,
 ) -> str:
     planned_lanes = planned_lanes or []
     missing_lanes = missing_scripted_lanes(summaries, planned_lanes)
+    host_availability = host_availability or {}
     data = {
         "manifest_count": len(summaries),
         "host_format_count": len({(item.host, item.format) for item in summaries}),
@@ -292,6 +356,14 @@ def render_json(
                 "host": lane.host,
                 "format": lane.format,
                 "script": lane.script.as_posix(),
+                **(
+                    {
+                        "local_host_status": host_availability[lane.host].status,
+                        "local_host_detail": host_availability[lane.host].detail,
+                    }
+                    if lane.host in host_availability
+                    else {}
+                ),
             }
             for lane in missing_lanes
         ],
@@ -311,11 +383,20 @@ def main(argv: list[str] | None = None) -> int:
                         help="repository root used to render relative evidence paths")
     parser.add_argument("--scripts-dir", type=pathlib.Path, default=DEFAULT_SCRIPTS_DIR,
                         help="manual DAW-bench scripts directory used to compute lane coverage")
+    parser.add_argument("--include-local-host-availability", action="store_true",
+                        help="annotate missing scripted lanes with local macOS host availability")
+    parser.add_argument("--applications-dir", type=pathlib.Path, default=pathlib.Path("/Applications"),
+                        help="macOS Applications directory used with --include-local-host-availability")
     args = parser.parse_args(argv)
 
     summaries, results = load_summaries(args.paths, repo_root=args.repo_root)
     planned_lanes = load_scripted_lanes(args.scripts_dir, repo_root=args.repo_root)
     missing_lanes = missing_scripted_lanes(summaries, planned_lanes)
+    availability = (
+        local_host_availability(planned_lanes, applications_dir=args.applications_dir)
+        if args.include_local_host_availability
+        else None
+    )
     if any(not result.ok for result in results):
         print(evidence.render_results(results, scanned=len(args.paths)), file=sys.stderr)
         return 1
@@ -336,9 +417,25 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if args.format == "json":
-        print(render_json(summaries, repo_root=args.repo_root, planned_lanes=planned_lanes), end="")
+        print(
+            render_json(
+                summaries,
+                repo_root=args.repo_root,
+                planned_lanes=planned_lanes,
+                host_availability=availability,
+            ),
+            end="",
+        )
     else:
-        print(render_markdown(summaries, repo_root=args.repo_root, planned_lanes=planned_lanes), end="")
+        print(
+            render_markdown(
+                summaries,
+                repo_root=args.repo_root,
+                planned_lanes=planned_lanes,
+                host_availability=availability,
+            ),
+            end="",
+        )
     return 0
 
 

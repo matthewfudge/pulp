@@ -16,6 +16,9 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
+#include <optional>
+#include <regex>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -49,6 +52,41 @@ const char* format_name(pulp::host::PluginFormat f) {
         case F::LV2:          return "LV2";
     }
     return "?";
+}
+
+std::string read_text_file(const fs::path& path) {
+    std::ifstream input(path);
+    if (!input) return {};
+    return std::string(std::istreambuf_iterator<char>(input),
+                       std::istreambuf_iterator<char>());
+}
+
+std::optional<std::string> extract_xml_string_value(const std::string& dict,
+                                                    std::string_view key) {
+    const std::string pattern =
+        "<key>\\s*" + std::string(key) + "\\s*</key>\\s*<string>\\s*([^<]+?)\\s*</string>";
+    std::smatch match;
+    if (!std::regex_search(dict, match, std::regex(pattern))) return std::nullopt;
+    return match[1].str();
+}
+
+std::string au_unique_id_from_bundle_info_plist(const fs::path& bundle) {
+    const auto plist = read_text_file(bundle / "Contents" / "Info.plist");
+    if (plist.empty()) return {};
+
+    const auto audio_components = plist.find("<key>AudioComponents</key>");
+    if (audio_components == std::string::npos) return {};
+    const auto dict_begin = plist.find("<dict>", audio_components);
+    if (dict_begin == std::string::npos) return {};
+    const auto dict_end = plist.find("</dict>", dict_begin);
+    if (dict_end == std::string::npos) return {};
+    const auto dict = plist.substr(dict_begin, dict_end - dict_begin);
+
+    const auto type = extract_xml_string_value(dict, "type");
+    const auto subtype = extract_xml_string_value(dict, "subtype");
+    const auto manufacturer = extract_xml_string_value(dict, "manufacturer");
+    if (!type || !subtype || !manufacturer) return {};
+    return *type + ":" + *subtype + ":" + *manufacturer;
 }
 
 } // namespace
@@ -278,6 +316,9 @@ int cmd_host(const std::vector<std::string>& args) {
     if (path.empty()) {
         std::fprintf(stderr, "pulp host: no plug-in path given\n");
         return 1;
+    }
+    if (unique_id.empty() && format == PluginFormat::AudioUnit) {
+        unique_id = au_unique_id_from_bundle_info_plist(path);
     }
 
     PluginInfo info;
