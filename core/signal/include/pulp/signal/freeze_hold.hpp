@@ -105,29 +105,72 @@ public:
         if (!latched_)
             return; // pass-through (possibly still filling — never mute)
 
-        // Crossfade target: 1 while engaged, 0 while releasing. Linear
-        // gains: at engage the hold starts phase-aligned with the live
-        // signal (initialized from the latched frame), so the correlated
-        // sum stays amplitude-flat — an equal-power fade would bump it
-        // by up to 3 dB. At release the hold has drifted; the linear
-        // fade's slight mid-fade dip there is the lesser artifact.
+        // Crossfade target: 1 while engaged, 0 while releasing. The fade
+        // LAW depends on direction. At ENGAGE the hold starts phase-aligned
+        // with the live signal (initialized from the latched frame and
+        // advanced only AFTER each mix, so the latch frame plays its
+        // captured phases verbatim): the sum is correlated, and linear
+        // gains keep it amplitude-flat — equal-power would bump it up to
+        // 3 dB. At RELEASE the hold has drifted (instantaneous-frequency
+        // estimate error + the deliberate phase random-walk), so hold and
+        // live are decorrelated: there a linear fade dips ~3–5 dB mid-fade
+        // (measured -5.1 dB on a steady tone — an audible "ding"), and the
+        // power-flat equal-power law is correct.
         const float step = 1.0f / static_cast<float>(config_.crossfade_frames);
         fade_ = std::clamp(fade_ + (engaged_ ? step : -step), 0.0f, 1.0f);
-        const float hold_gain = fade_;
-        const float live_gain = 1.0f - fade_;
+        float hold_gain, live_gain;
+        if (engaged_) {
+            hold_gain = fade_;
+            live_gain = 1.0f - fade_;
+        } else {
+            const float t = fade_ * 1.57079632679489662f;  // fade_ * pi/2
+            hold_gain = std::sin(t);
+            live_gain = std::cos(t);
+        }
 
-        advance_hold_phases();
         for (int ch = 0; ch < channels; ++ch) {
             const float* mags = held_mag_.data()
                                 + static_cast<size_t>(ch) * num_bins_;
             const double* phases = held_phase_.data()
                                    + static_cast<size_t>(ch) * num_bins_;
+            // Per-channel frame energies for the transition normalization
+            // below: the gain laws above are only flat on average — a
+            // narrowband bin whose hold drifted to anti-phase with the live
+            // signal partially cancels under ANY fixed-gain crossfade
+            // (measured: a residual -2.7 dB release notch on a pure tone).
+            // Renormalizing the mixed frame to the power-interpolated
+            // target makes the transition level-flat by construction, for
+            // any content and any phase relationship.
+            double e_live = 0.0, e_hold = 0.0, e_mix = 0.0;
             for (int k = 0; k < num_bins_; ++k) {
+                const auto live = frames[ch][k];
                 const auto held = std::polar(mags[k] * hold_gain,
                                              static_cast<float>(phases[k]));
-                frames[ch][k] = frames[ch][k] * live_gain + held;
+                e_live += static_cast<double>(std::norm(live));
+                e_hold += static_cast<double>(mags[k]) * mags[k];
+                const auto mixed = live * live_gain + held;
+                e_mix += static_cast<double>(std::norm(mixed));
+                frames[ch][k] = mixed;
+            }
+            if (live_gain > 0.0f) {  // mid-fade only; steady hold is exact
+                // Target: endpoint energies interpolated by fade POSITION,
+                // not by the gains — gain-derived targets are wrong for one
+                // correlation case or the other (a g²-weighted target undid
+                // the correlated engage fade by up to -3 dB mid-fade).
+                const double target =
+                    (1.0 - static_cast<double>(fade_)) * e_live
+                    + static_cast<double>(fade_) * e_hold;
+                const double scale_sq = target / std::max(e_mix, 1e-12);
+                const float scale = static_cast<float>(std::sqrt(
+                    std::clamp(scale_sq, 0.0625, 16.0)));
+                for (int k = 0; k < num_bins_; ++k) frames[ch][k] *= scale;
             }
         }
+        // Advance AFTER mixing: the first held frame must reproduce the
+        // latched phases exactly, or the engage fade sums partially
+        // cancelling signals (one-hop phase skew ≈ arbitrary per bin —
+        // measured as a -4.6 dB dip at engage before this ordering).
+        advance_hold_phases();
     }
 
 private:

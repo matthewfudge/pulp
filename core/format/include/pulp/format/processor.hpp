@@ -586,6 +586,8 @@ public:
     /// own UI-thread "loading…" workflow against them and the adapter
     /// integration is purely additive.
     ///
+    /// Standard suspend/resume guard: while suspended a processor should stop
+    /// touching shared real-time state so a host can safely reconfigure it.
     virtual void suspend() {}
 
     /// Resume processing after a prior @c suspend(). Default no-op;

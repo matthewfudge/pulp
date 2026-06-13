@@ -575,3 +575,53 @@ TEST_CASE("registered fonts are visible to the SkParagraph font collection",
 }
 
 #endif  // PULP_HAS_SKIA
+
+// Regression: the base-Canvas text_x_for_byte default measures a PREFIX
+// SUBSTRING. A caller-supplied byte index landing inside a multi-byte UTF-8
+// sequence used to slice an invalid prefix; on the CoreGraphics backend that
+// made the NSString conversion return nil and NSAttributedString THROW inside
+// drawRect:, killing the host's entire AU process (observed live: adjusting
+// one plugin's GUI killed the upstream instrument hosted in the same Logic
+// AUHostingService process). The default must clamp back to a codepoint
+// boundary so measure_text never sees invalid UTF-8.
+TEST_CASE("Canvas::text_x_for_byte clamps mid-codepoint indices to a UTF-8 "
+          "boundary before measuring",
+          "[canvas][text][utf8]") {
+    // RecordingCanvas is the concrete no-surface Canvas; override only
+    // measure_text to capture the prefix the default text_x_for_byte builds.
+    struct PrefixCapture : pulp::canvas::RecordingCanvas {
+        std::vector<std::string> seen;
+        float measure_text(const std::string& t) override {
+            seen.push_back(t);
+            return static_cast<float>(t.size());
+        }
+    };
+
+    auto is_valid_utf8 = [](const std::string& s) {
+        std::size_t i = 0;
+        while (i < s.size()) {
+            const auto c = static_cast<unsigned char>(s[i]);
+            std::size_t len = c < 0x80 ? 1 : (c >> 5) == 0x6 ? 2
+                            : (c >> 4) == 0xE ? 3 : (c >> 3) == 0x1E ? 4 : 0;
+            if (len == 0 || i + len > s.size()) return false;
+            for (std::size_t k = 1; k < len; ++k)
+                if ((static_cast<unsigned char>(s[i + k]) & 0xC0) != 0x80)
+                    return false;
+            i += len;
+        }
+        return true;
+    };
+
+    PrefixCapture canvas;
+    // Mixed 1/2/3/4-byte codepoints: "aé€😀b"
+    const std::string text = "a\xC3\xA9\xE2\x82\xAC\xF0\x9F\x98\x80"
+                             "b";
+    for (std::size_t i = 0; i <= text.size() + 2; ++i)
+        (void) canvas.text_x_for_byte(text, i);
+
+    REQUIRE_FALSE(canvas.seen.empty());
+    for (const auto& prefix : canvas.seen) {
+        INFO("prefix bytes: " << prefix.size());
+        REQUIRE(is_valid_utf8(prefix));
+    }
+}

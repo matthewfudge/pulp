@@ -715,6 +715,58 @@ AUv3 avoids constructing `PluginViewHost`. Do not replace this with
 post-hoc window cleanup; the contract is that no native editor host is
 created in the first place.
 
+## Keyboard-focus host etiquette — never hold the host's first responder when idle
+
+A plugin editor embeds an `NSView` in the DAW's window. If that view returns
+`acceptsFirstResponder = YES` unconditionally (or the plugin sets a *focusable
+root* via `set_focusable(true)`), then **clicking any control makes the plugin
+view the host window's first responder, and every keystroke routes into the
+plugin** — stealing the host's keyboard. In Logic this silences **Musical
+Typing** on software-instrument tracks the instant you touch a plugin control,
+which masquerades perfectly as an audio failure ("adjusting the plugin kills the
+instrument until I reopen it" — reopening just refocuses a host view). No crash,
+no log; unaffected by any audio/parameter fix; happens only on instrument
+tracks (audio tracks don't need keystrokes) and only via the plugin's own GUI
+(the host's generic control view never moves focus out of the host). Cost ~2
+days to find — see the `au-xpc-shared-process-crash` debug note.
+
+Contract (`core/view/platform/mac/plugin_view_host_mac.mm`, both the CPU
+`PulpPluginView` and GPU `PulpGpuPluginView` classes — shared by AU/VST3/CLAP):
+
+- `acceptsFirstResponder` returns true **only while** `View::focused_input_`
+  is set (a widget is in active text input), not unconditionally.
+- After every `mouseDown:`/`mouseUp:`/`keyDown:`, call `syncKeyFocus`:
+  `makeFirstResponder:self` when a widget wants keys; the instant it doesn't,
+  **restore the host's PRIOR first responder** (saved at claim time), not
+  nil — handing nil leaves Logic's key routing dead (Musical Typing stays
+  silent after a type-in commit until the user resets the track). The saved
+  pointer is never dereferenced: it is re-found *by identity* in the window's
+  live view tree (`pulp_plugin_live_prior_responder`), so a freed responder
+  degrades to nil instead of a dangling send (the file builds without ARC).
+- **The host's grab wins**: `resignFirstResponder` must end the focused
+  widget's text input (`pulp_plugin_end_text_input`: clear the slot, then
+  `on_focus_changed(false)` so the widget commits/closes its type-in).
+  Otherwise a type-in left open when the user clicks a host control keeps
+  `acceptsFirstResponder` true and re-steals the keyboard on the next event.
+  Widgets with type-in UIs should override `on_focus_changed(false)` to
+  commit, exactly like a click-away inside the plugin.
+- **Scope every focus decision to THIS editor's root.** `View::focused_input_`
+  is a process-GLOBAL static, so with two plugin editors open in one host
+  (two instances of the same plug-in is the common case) it can point into a
+  *different* editor's tree. `acceptsFirstResponder`, `syncKeyFocus`, the
+  keyDown dispatch, and the resignFirstResponder text-input teardown must all
+  gate on `pulp_focus_under_root(self.rootView)` (focused view is `root` or a
+  descendant — walk `View::parent()`), never on the bare global. Otherwise
+  editor B accepts/steals the keyboard, or routes keys into editor A, while A
+  holds a focused field. All four contracts (claim/restore, host-grab ends
+  input, freed-prior-responder safety, per-editor scoping) are pinned by
+  `test_plugin_view_host_key_focus.mm` (real `NSWindow` + responder dance,
+  single- and two-editor, CPU host).
+- Editors must NOT set a focusable ROOT. Claim focus per-field:
+  `claim_input_focus()` in `enter_typein()`, `release_input_focus()` in
+  `commit_typein()`/`cancel_typein()`. This is the JUCE default
+  (`wantsKeyboardFocus = false`; grab only for an active text field).
+
 ## GPU view host auto-selection — never hardcode `use_gpu=false`
 
 The format adapters (AU v2 / VST3 / CLAP / iOS AUv3) must NOT hand-set

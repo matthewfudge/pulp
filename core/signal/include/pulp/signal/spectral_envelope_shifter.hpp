@@ -91,6 +91,7 @@ public:
         // more than 40 dB under the frame peak has no audible effect on
         // the correction.
         float max_power = 0.0f;
+        double energy_before = 0.0;
         for (int k = 0; k < num_bins_; ++k) {
             float power = 0.0f;
             for (int ch = 0; ch < channels; ++ch) {
@@ -98,6 +99,7 @@ public:
                 const float im = frames[ch][k].imag();
                 power += re * re + im * im;
             }
+            energy_before += static_cast<double>(power);
             log_mag_[static_cast<size_t>(k)] = power / static_cast<float>(channels);
             max_power = std::max(max_power, log_mag_[static_cast<size_t>(k)]);
         }
@@ -119,6 +121,7 @@ public:
 
         // Apply E(k*warp) / E(k) in the log domain with linear
         // interpolation, clamped at the spectrum edges and by max gain.
+        double energy_after = 0.0;
         for (int k = 0; k < num_bins_; ++k) {
             const float pos = std::min(static_cast<float>(k) * warp,
                                        static_cast<float>(num_bins_ - 1));
@@ -130,8 +133,43 @@ public:
             float gain_ln = warped - envelope_[static_cast<size_t>(k)];
             gain_ln = std::clamp(gain_ln, -max_gain_ln_, max_gain_ln_);
             const float gain = std::exp(gain_ln);
-            for (int ch = 0; ch < channels; ++ch)
+            for (int ch = 0; ch < channels; ++ch) {
                 frames[ch][k] *= gain;
+                energy_after += static_cast<double>(std::norm(frames[ch][k]));
+            }
+        }
+
+        // Energy-preserving normalization. The correction RESHAPES the spectral
+        // envelope (the whole point — moving formants) but must not change
+        // overall loudness. Without this, a narrow-band input (e.g. a single
+        // tone, whose cepstral envelope peaks AT the tone) is scaled by the
+        // falling envelope sampled above the peak, so the level collapses
+        // progressively as warp (= pitch ratio) grows — silent pitch-up with
+        // formant preservation ON. Restoring the pre-correction energy keeps the
+        // timbre change while holding loudness constant.
+        //
+        // SAFETY: only normalize frames with real energy, and CLAMP the gain.
+        // On a near-silent frame (the gaps between instrument notes) the ratio
+        // energy_before/energy_after is ill-conditioned and could explode to a
+        // huge gain → Inf/NaN → which a host (Logic) treats as a dead channel
+        // and mutes the whole signal path. A sane correction never needs more
+        // than a few dB of overall trim, so clamp to +/-18 dB and leave silent
+        // frames untouched.
+        constexpr double kEnergyFloor = 1e-9; // below this the frame is silence
+        if (energy_after > kEnergyFloor && energy_before > kEnergyFloor) {
+            float norm = static_cast<float>(std::sqrt(energy_before / energy_after));
+            // Generous bound: a narrow-band tone legitimately needs up to ~+30 dB
+            // of correction (its cepstral envelope concentrates the energy), so
+            // the guard rail must clear that with margin. It exists only to cap a
+            // runaway toward Inf on a numerically-degenerate frame, NOT to limit
+            // a real correction — a tight rail under-corrects and re-introduces
+            // the quiet-pitch-up bug. +/-48 dB.
+            norm = std::clamp(norm, 1.0f / 256.0f, 256.0f);
+            if (std::isfinite(norm)) {
+                for (int k = 0; k < num_bins_; ++k)
+                    for (int ch = 0; ch < channels; ++ch)
+                        frames[ch][k] *= norm;
+            }
         }
     }
 

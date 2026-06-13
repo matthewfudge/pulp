@@ -49,7 +49,26 @@ When you add a new example or change an existing one's descriptor to declare `ac
 
 ## MIDI Input Wiring
 
-The AU v2 effect adapter inherits from `AUMIDIEffectBase` (`AUEffectBase` + `AUMIDIBase`) so the SDK's `MIDIEvent` / `SysEx` entry points exist. Inbound MIDI flows:
+### The entry FACTORY must dispatch MusicDevice selectors — not just the base class
+
+Two independent things must both be true for an `aumf` to receive MIDI, and it is easy to get the first and miss the second:
+
+1. The adapter **class** must implement the MIDI methods — `PulpAUEffect` derives `AUMIDIEffectBase` and overrides `HandleMIDIEvent` / `HandleSysEx`. ✅ (always true for Pulp effects)
+2. The component **entry** must register through a factory whose *lookup table* carries the MusicDevice selectors. A factory only dispatches the selectors its lookup knows. `ausdk::AUBaseFactory` (`AUBaseLookup`) has **no** MusicDevice selectors, so even though the class implements `HandleMIDIEvent`, the host's `MusicDeviceMIDIEvent` call returns **-4 (unimpErr)** — no note ever reaches the adapter, and `auval -v aumf` fails with `-4 IN CALL MusicDeviceMIDIEvent` (often with a cascading `Bad Max Frames` line that clears once the MIDI dispatch is fixed).
+
+So the entry macro is type-specific (`core/format/include/pulp/format/au_v2_entry.hpp`):
+
+| Macro | Factory | Use for |
+|-------|---------|---------|
+| `PULP_AU_PLUGIN` | `ausdk::AUBaseFactory` | `aufx` (audio-only effect) |
+| `PULP_AU_MIDI_PLUGIN` | `ausdk::AUMIDIEffectFactory` (`AUMIDILookup` = MIDIEvent + SysEx) | `aumf` (MIDI-receiving effect) |
+| instrument entry (`au_v2_instrument_entry.hpp`) | `ausdk::AUMusicDeviceFactory` (`AUMusicLookup` = + StartNote/StopNote) | `aumu` (instrument) |
+
+**Three surfaces must agree** for an `aumf`, or the component is invalid: `descriptor().accepts_midi = true`, the `aumf` type (CMake `ACCEPTS_MIDI` or a hand-written `Info.plist.au`), **and** `PULP_AU_MIDI_PLUGIN` in the plugin's `au_v2_entry.cpp`. The dispatch contract is pinned by `test/test_au_v2_effect.cpp` (`[dispatch]` — asserts `AUMIDILookup` routes `kMusicDeviceMIDIEventSelect` and `AUBaseLookup` does not), so a regression to the base factory fails in CI instead of at auval/Logic time.
+
+### Flow
+
+The adapter inherits `AUMIDIEffectBase` (`AUEffectBase` + `AUMIDIBase`) so the SDK's `MIDIEvent` / `SysEx` entry points exist. Inbound MIDI flows:
 
 ```
 host -> AUMIDIBase::MIDIEvent(status, data1, data2, frame)
@@ -150,6 +169,15 @@ auval -v <type> <subtype> <manufacturer>
 ```
 
 Document this step in any issue or PR that flips a shipped plug-in's component type.
+
+**Beware the transient false PASS.** Right after `killall AudioComponentRegistrar`
+the daemon is re-inspecting every component, and `auval` run during that window
+returns *flickering* results — it can report `PASS` once, then `FAIL` (or the
+"didn't find the component" error) on the next run, against the same bundle. A
+type flip burned real time here: a mid-rescan `PASS` looked like the fix worked,
+but the stable result was `FAIL`. Always **let the rescan settle (`sleep 4-5`)
+and run `auval` at least twice**, and only trust a result that is stable across
+runs. A single green run immediately after a cache kill is not a pass.
 
 ### `auval` tests on persistent runners — kill the cache before every run
 
@@ -294,6 +322,30 @@ validator paths must carry
 Cocoa view factory returns `nil` under those guards. Keep this
 environment on every `auval-*` test even if the validator command itself
 looks audio-only.
+
+## Parameters are single-source-of-truth — never reconcile two stores
+
+The adapter overrides `GetParameter`/`SetParameter` to read/write the plugin's
+`StateStore` directly. The host's parameter value IS the store value — there is
+NO separate `Globals()`/AUElement copy to reconcile each block. Do not
+reintroduce a per-block `GetParameter()→store` pull: it reverts UI-thread edits
+(XY snap-back, type-in not taking) on the very next block, because the editor
+writes the store but not the host cache. The render thread must perform NO
+host-parameter write or notification — `AUEventListenerNotify` /
+`AUBase::SetParameter` / `Globals()->SetParameter` from `ProcessBufferLists`
+reentrantly stalls Logic's render thread and silences audio. UI edits reach the
+host via the gesture begin/end brackets (`set_gesture_callbacks`, UI thread) and
+an Audio-thread store listener that notifies on the editing thread with a
+`thread_local` echo guard so a host-originated `SetParameter` is not echoed back.
+
+## MIDI input is lock-free — no audio-thread mutex
+
+`HandleMIDIEvent`/`HandleSysEx` push to lock-free `SpscQueue<MidiEvent>` +
+bounded `SysexChunk` queues; `ProcessBufferLists` drains them wait-free. Don't
+add a `std::mutex` to the MIDI path — short messages stay allocation-free and
+the audio thread never blocks. The AU v2 *instrument* adapter
+(`au_v2_instrument.cpp`) uses the same single-source params + `SpscQueue`
+note-input pattern (`HandleNoteOn`/`HandleNoteOff` → lock-free queue).
 
 ## Reference pointers
 

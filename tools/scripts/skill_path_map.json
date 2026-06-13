@@ -326,6 +326,13 @@
       "paths": [
         "examples/webview-*/**"
       ]
+    },
+    "audio-headless-debug": {
+      "paths": [
+        "tools/audio/analysis/**",
+        "core/format/include/pulp/format/headless.hpp",
+        ".agents/skills/audio-headless-debug/**"
+      ]
     }
   }
 }

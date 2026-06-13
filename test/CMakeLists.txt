@@ -1323,15 +1323,15 @@ pulp_add_test_suite(pulp-test-view-size-aspect LIBRARIES pulp::format)
 pulp_add_test_suite(pulp-test-view-design-viewport LIBRARIES pulp::view)
 
 # PluginViewHost design-viewport wiring (mac CPU + GPU). The pure
-# math is already pinned by `pulp-test-view-design-viewport`; this
-# target covers the new PluginViewHost virtuals (set_design_viewport,
-# set_fixed_aspect_ratio, window_to_root_point) and that the mac CPU
-# host inverse-maps mouse coords before hit_test. GPU section soft-
-# skips without Dawn / a window server. Foundation for CLAP
-# gui_get_resize_hints + VST3 checkSizeConstraint resize negotiation.
+# math is already pinned by `pulp-test-view-design-viewport`; covers the
+# PluginViewHost virtuals + CPU-host inverse mouse mapping (GPU section
+# soft-skips without Dawn; foundation for CLAP/VST3 resize negotiation)
+# and the keyboard-focus host-etiquette contract (prior-responder
+# restore, host-grab ends text input — keeps Musical Typing alive).
 if(APPLE AND NOT PULP_IOS)
     add_executable(pulp-test-plugin-view-host-design-viewport
-        test_plugin_view_host_design_viewport.mm)
+        test_plugin_view_host_design_viewport.mm
+        test_plugin_view_host_key_focus.mm)
     target_link_libraries(pulp-test-plugin-view-host-design-viewport PRIVATE
         pulp::view pulp::canvas Catch2::Catch2WithMain "-framework AppKit")
     if(PULP_HAS_SKIA)
@@ -4489,10 +4489,10 @@ pulp_add_test_suite(pulp-test-platform-maturity LIBRARIES pulp::view)
 
 # Audio bridge tests
 pulp_add_test_suite(pulp-test-audio-bridge LIBRARIES pulp::view)
-
 # Widget tests
 pulp_add_test_suite(pulp-test-widgets LIBRARIES pulp::view)
 pulp_add_test_suite(pulp-test-parameter-edit LIBRARIES pulp::view pulp::state)
+pulp_add_test_suite(pulp-test-param-host-sync LIBRARIES pulp::state INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/core/format/include)
 pulp_add_test_suite(pulp-test-midi-binding LIBRARIES pulp::view pulp::state pulp::midi)
 # Widget tests — Label cluster (P5-3 follow-up — extracted from
 # test_widgets.cpp). Label intrinsic_width / intrinsic_height /

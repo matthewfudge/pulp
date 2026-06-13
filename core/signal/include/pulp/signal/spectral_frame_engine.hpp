@@ -153,6 +153,16 @@ public:
         }
     }
 
+    /// Samples that must still be fed before the next analysis frame
+    /// completes (>= 1). Lets a caller chunk its feed so each `analyze`
+    /// call ends exactly when a frame emits — making the in-block offset of
+    /// the completed frame known precisely (needed to evaluate per-frame
+    /// control trajectories, e.g. a smoothed pitch ratio, at the correct
+    /// position instead of the chunk end).
+    int samples_until_next_frame() const {
+        return static_cast<int>(next_frame_at_ - samples_fed_);
+    }
+
     /// Split API — analysis only. Pushes `num_samples` per channel from
     /// `in`, invoking `on_frames` once per completed frame. Runs are split
     /// exactly at frame boundaries, so frames land at fft_size + k * hop
