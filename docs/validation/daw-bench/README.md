@@ -101,7 +101,19 @@ session.
 6. **Fill in the Result table** at the bottom of the script.
    Mark each row Confirmed / Refuted / Not Triggered. Save the
    resulting `.md` so it can be pasted back into the follow-up PR.
-7. **Run the aggregator** when you've benched as many hosts as
+7. **Optionally run the REAPER smoke helper** when checking local VST3 or CLAP
+   readiness before a full manual run:
+   ```bash
+   python3 tools/scripts/run_reaper_hostbench_smoke.py --format vst3 \
+       --copy-log-to docs/validation/daw-bench/results/<date>/logs
+   python3 tools/scripts/run_reaper_hostbench_smoke.py --format clap \
+       --copy-log-to docs/validation/daw-bench/results/<date>/logs
+   ```
+   This helper proves REAPER can instantiate HostBench and write a bench log
+   for that format on this machine. It is diagnostic automation only; do not
+   skip the filled-in script or manifest review steps when promoting support
+   claims.
+8. **Run the aggregator** when you've benched as many hosts as
    you plan to in this round:
    ```bash
    python3 tools/scripts/promote_quirk_tiers.py \
@@ -111,7 +123,7 @@ session.
    git apply /tmp/promote.patch
    git diff core/format/include/pulp/format/host_quirks.hpp
    ```
-8. **Write the evidence manifest** beside the filled-in result
+9. **Write the evidence manifest** beside the filled-in result
    markdown. Use the schema in [`results/README.md`](results/README.md)
    and validate it before promoting tiers:
    ```bash
@@ -119,7 +131,7 @@ session.
        docs/validation/daw-bench/results/<date> \
        --require-any
    ```
-9. **Open a PR** that includes the patch plus the filled-in
+10. **Open a PR** that includes the patch plus the filled-in
    scripts and `.daw-bench.json` manifest under
    `docs/validation/daw-bench/results/<date>/`.
 

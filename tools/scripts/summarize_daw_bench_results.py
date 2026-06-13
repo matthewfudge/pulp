@@ -54,15 +54,15 @@ class HostAvailability:
 
 
 HOST_APP_CANDIDATES: dict[str, tuple[str, ...]] = {
-    "Ableton Live": ("Ableton Live.app",),
-    "Bitwig Studio": ("Bitwig Studio.app",),
+    "Ableton Live": ("Ableton Live*.app",),
+    "Bitwig Studio": ("Bitwig Studio*.app",),
     "Cubase 9": ("Cubase 9.app",),
     "Cubase 12": ("Cubase 12.app",),
-    "FL Studio": ("FL Studio.app",),
+    "FL Studio": ("FL Studio*.app",),
     "Logic Pro": ("Logic Pro.app",),
     "REAPER": ("REAPER.app",),
-    "Studio One": ("Studio One.app",),
-    "Wavelab": ("WaveLab.app", "Wavelab.app"),
+    "Studio One": ("Studio One*.app",),
+    "Wavelab": ("WaveLab*.app", "Wavelab*.app"),
 }
 
 
@@ -219,9 +219,17 @@ def local_host_availability(
         if not is_macos:
             availability[host] = HostAvailability("unknown", "local host detection is macOS-only")
             continue
-        matches = [name for name in candidates if (applications_dir / name).exists()]
+        matches: list[pathlib.Path] = []
+        for candidate in candidates:
+            if any(ch in candidate for ch in "*?["):
+                matches.extend(path for path in applications_dir.glob(candidate) if path.is_dir())
+            else:
+                path = applications_dir / candidate
+                if path.is_dir():
+                    matches.append(path)
+        matches.sort(key=lambda path: path.name.casefold())
         if matches:
-            availability[host] = HostAvailability("available", f"found {matches[0]}")
+            availability[host] = HostAvailability("available", f"found {matches[0].name}")
         else:
             availability[host] = HostAvailability(
                 "unavailable",

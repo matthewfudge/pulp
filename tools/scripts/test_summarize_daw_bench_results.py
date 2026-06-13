@@ -215,6 +215,29 @@ class DawBenchSummaryTests(unittest.TestCase):
             self.assertEqual(availability["AUM"].status, "unavailable")
             self.assertIn("iOS/iPadOS", availability["AUM"].detail)
 
+    def test_local_host_availability_detects_versioned_daw_apps(self) -> None:
+        tmp_ctx = tempfile.TemporaryDirectory()
+        with tmp_ctx:
+            root = pathlib.Path(tmp_ctx.name)
+            apps = root / "Applications"
+            (apps / "Ableton Live 12 Suite.app").mkdir(parents=True)
+            (apps / "Studio One 6.app").mkdir(parents=True)
+            (apps / "WaveLab 12.app").mkdir(parents=True)
+            lanes = [
+                summary.PlannedLane("Ableton Live", "VST3", pathlib.Path("live.md")),
+                summary.PlannedLane("Studio One", "VST3", pathlib.Path("studio-one.md")),
+                summary.PlannedLane("Wavelab", "VST3", pathlib.Path("wavelab.md")),
+                summary.PlannedLane("Bitwig Studio", "VST3", pathlib.Path("bitwig.md")),
+            ]
+            availability = summary.local_host_availability(lanes, applications_dir=apps)
+            self.assertEqual(availability["Ableton Live"].status, "available")
+            self.assertIn("Ableton Live 12 Suite.app", availability["Ableton Live"].detail)
+            self.assertEqual(availability["Studio One"].status, "available")
+            self.assertIn("Studio One 6.app", availability["Studio One"].detail)
+            self.assertEqual(availability["Wavelab"].status, "available")
+            self.assertIn("WaveLab 12.app", availability["Wavelab"].detail)
+            self.assertEqual(availability["Bitwig Studio"].status, "unavailable")
+
     def test_json_report_can_include_local_host_availability(self) -> None:
         tmp_ctx, root, result_dir = self._repo()
         with tmp_ctx:
