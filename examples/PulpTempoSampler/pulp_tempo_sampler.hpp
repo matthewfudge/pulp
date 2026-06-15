@@ -26,6 +26,7 @@
 #include <pulp/signal/offline_stretch.hpp>
 #include <pulp/view/animation.hpp>
 #include <pulp/view/drag_drop.hpp>
+#include <pulp/view/musical_typing.hpp>
 #include <pulp/view/parameter_binding.hpp>
 #include <pulp/view/theme.hpp>
 #include <pulp/view/ui_components.hpp>
@@ -130,6 +131,10 @@ public:
     // Loaded: a left click on a slice auditions it (note = root + slice index),
     // instead of the base WaveformEditor's range selection.
     void on_mouse_event(const view::MouseEvent& event) override {
+        // Scroll/pinch INSIDE the waveform zooms (vertical, around the cursor)
+        // and pans (horizontal) — no zoom buttons.
+        if (event.is_wheel) { if (has_audio_) handle_wheel(event); return; }
+
         const bool explicit_phase = event.hasExplicitPhase();
         const bool down = explicit_phase ? event.isPress() : event.is_down;
         const bool up = explicit_phase ? event.isRelease() : !event.is_down;
@@ -170,7 +175,8 @@ public:
         auto b = local_bounds();
         if (!has_audio_) paint_cta(c, b);
         if (drag_over_)  paint_drag_overlay(c, b);
-        // Single playhead at the most-recently-triggered slice's position.
+        // Single playhead at the most-recently-triggered slice's position
+        // (viewport-aware via sample_to_x, so it tracks correctly when zoomed).
         if (has_audio_ && playhead_query && total_samples_ > 0) {
             int s = -1; float prog = 0.0f;
             playhead_query(s, prog);
@@ -179,10 +185,12 @@ public:
                     static_cast<double>(prog) *
                     static_cast<double>(slices_[static_cast<std::size_t>(s) + 1] -
                                         slices_[static_cast<std::size_t>(s)]);
-                const float x = b.x + static_cast<float>(samp / total_samples_) * b.width;
-                c.set_stroke_color(canvas::Color::rgba8(0x46, 0xF0, 0xDB));
-                c.set_line_width(2.0f);
-                c.stroke_line(x, b.y, x, b.y + b.height);
+                const float x = sample_to_x(static_cast<int>(samp), b);
+                if (x >= b.x && x <= b.x + b.width) {  // only when in view
+                    c.set_stroke_color(canvas::Color::rgba8(0x46, 0xF0, 0xDB));
+                    c.set_line_width(2.0f);
+                    c.stroke_line(x, b.y, x, b.y + b.height);
+                }
             }
         }
         const float fa = std::clamp(flash_.value(), 0.0f, 1.0f);
@@ -231,6 +239,7 @@ private:
             }
             slices_ = std::move(slices);
             total_samples_ = static_cast<long>(mono.size());
+            set_visible_range(0, static_cast<int>(total_samples_));  // zoom-to-fit new sample
             has_audio_ = true;
         } else {
             slices_.clear();
@@ -238,15 +247,36 @@ private:
             has_audio_ = false;
         }
     }
-    // Map a local x to a slice index (root + index = MIDI note). -1 if none.
-    int slice_at_x(float x) const {
+    // Scroll wheel / two-finger: vertical -> zoom around the cursor, horizontal
+    // -> pan. Cursor-centred zoom keeps the sample under the pointer fixed.
+    void handle_wheel(const view::MouseEvent& e) {
         auto b = local_bounds();
-        if (b.width <= 0 || total_samples_ <= 0 || slices_.size() < 2) return -1;
-        const float frac = std::clamp((x - b.x) / b.width, 0.0f, 0.999f);
-        const long sample = static_cast<long>(frac * static_cast<float>(total_samples_));
+        if (b.width <= 0 || total_samples_ <= 0) return;
+        const int total = static_cast<int>(total_samples_);
+        const int len = visible_length() > 0 ? visible_length() : total;
+        if (std::abs(e.scroll_delta_y) >= std::abs(e.scroll_delta_x)) {
+            const float factor = std::exp(e.scroll_delta_y * 0.15f);  // scroll up -> zoom in
+            int new_len = std::clamp(static_cast<int>(static_cast<float>(len) / factor), 64, total);
+            const int s0 = x_to_sample(e.position.x, b);
+            const float frac = std::clamp((e.position.x - b.x) / b.width, 0.0f, 1.0f);
+            int new_start = s0 - static_cast<int>(frac * static_cast<float>(new_len));
+            new_start = std::clamp(new_start, 0, std::max(0, total - new_len));
+            set_visible_range(new_start, new_len);
+        } else {
+            scroll(static_cast<int>(e.scroll_delta_x * static_cast<float>(len) * 0.01f));
+        }
+    }
+
+    // Map a local x to a slice index (root + index = MIDI note). -1 if none.
+    // Viewport-aware (uses the zoom/scroll transform) so clicks land on the
+    // right slice even when zoomed in.
+    int slice_at_x(float x) const {
+        if (total_samples_ <= 0 || slices_.size() < 2) return -1;
+        const long sample = static_cast<long>(x_to_sample(x, local_bounds()));
         for (std::size_t i = 0; i + 1 < slices_.size(); ++i)
             if (sample >= slices_[i] && sample < slices_[i + 1]) return static_cast<int>(i);
-        return static_cast<int>(slices_.size()) - 2;  // clamp to last slice
+        if (sample >= slices_.back()) return static_cast<int>(slices_.size()) - 2;
+        return 0;
     }
     void advance_flash() {
         const auto now = std::chrono::steady_clock::now();
@@ -326,49 +356,35 @@ class SamplerEditorRoot : public view::View {
 public:
     std::vector<view::ParameterBinding> bindings;
     std::vector<state::ListenerToken> listeners;
-    std::function<void(int slice_index, bool on)> on_play_slice;  // musical typing
+    // Musical typing (computer keyboard -> notes -> slices). The SDK controller
+    // owns the QWERTY->note map, dedup, modifier-chord rejection and note-off;
+    // create_view() wires its on_note_on/off to the processor's RT note queue and
+    // current_root_note to the ROOT param.
+    view::MusicalTypingController typing;
+    std::function<int()> current_root_note;
 
     SamplerEditorRoot() {
         set_focusable(true);
-        // Musical typing must work without the editor holding keyboard focus, so
-        // also receive keys via the host's global-key hook (fired on the root
-        // view every keystroke). Works when the editor IS the window root —
-        // plugin hosts, and the standalone with show_settings_tab=false.
-        on_global_key = [this](const view::KeyEvent& e) { return on_key_event(e); };
+        // Receive keys whether or not the editor holds focus: the host's
+        // global-key hook fires on the window root every keystroke (standalone),
+        // and on_key_event covers the focused path.
+        on_global_key = [this](const view::KeyEvent& e) { return on_musical_key(e); };
     }
 
-    // Musical typing: home row a s d f g h j k l -> slices 0..8 (root + index).
-    // De-duped so key auto-repeat doesn't retrigger a held note.
-    bool on_key_event(const view::KeyEvent& event) override {
-        const int idx = slice_for_key(event.key);
-        if (idx < 0) return false;
-        if (event.is_down) {
-            if (held_[static_cast<std::size_t>(idx)]) return true;  // auto-repeat
-            held_[static_cast<std::size_t>(idx)] = true;
-            if (on_play_slice) on_play_slice(idx, true);
-        } else {
-            held_[static_cast<std::size_t>(idx)] = false;
-            if (on_play_slice) on_play_slice(idx, false);
-        }
-        return true;
-    }
+    bool on_key_event(const view::KeyEvent& event) override { return on_musical_key(event); }
+
+    // Release any held typing notes (e.g. on focus loss) so nothing sticks.
+    void release_all_typing() { typing.all_notes_off(); }
 
 private:
-    static int slice_for_key(view::KeyCode k) {
-        switch (k) {
-            case view::KeyCode::a: return 0;
-            case view::KeyCode::s: return 1;
-            case view::KeyCode::d: return 2;
-            case view::KeyCode::f: return 3;
-            case view::KeyCode::g: return 4;
-            case view::KeyCode::h: return 5;
-            case view::KeyCode::j: return 6;
-            case view::KeyCode::k: return 7;
-            case view::KeyCode::l: return 8;
-            default: return -1;
-        }
+    bool on_musical_key(const view::KeyEvent& e) {
+        // Don't turn typing into a name field into notes — if a text-input widget
+        // owns focus, let it have the keys.
+        if (auto* fv = view::View::focused_input_; fv && fv->accepts_text_input())
+            return false;
+        if (current_root_note) typing.set_base_note(current_root_note());
+        return typing.handle_key(e);  // false for unmapped / modifier chords -> host keeps them
     }
-    std::array<bool, 9> held_{};
 };
 
 class PulpTempoSamplerProcessor : public format::Processor {
@@ -682,8 +698,12 @@ public:
         };
         root->add_child(std::move(wf));
 
-        // Musical typing (home row) routes to the same audition path.
-        root->on_play_slice = [this](int idx, bool on) { play_slice(idx, on); };
+        // Musical typing: the SDK MusicalTypingController turns the QWERTY row
+        // into notes; base = ROOT so 'a' plays slice 0, 'w' slice 1, … Notes go
+        // to the same lock-free UI->audio queue as host MIDI and slice clicks.
+        root->current_root_note = [this] { return static_cast<int>(state().get_value(kRootNote)); };
+        root->typing.on_note_on = [this](int note, float vel) { ui_note_on(note, vel); };
+        root->typing.on_note_off = [this](int note) { ui_note_off(note); };
 
         // ── Footer: wired controls only ──
         // Root-note dropdown (slice 0 maps to this MIDI note; idx = note - root).
