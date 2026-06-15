@@ -387,6 +387,25 @@ Any new `std::system` call that feeds an exit code MUST decode it the same
 way. Covered by `pulp delegates a non-zero child exit code intact` in
 `test/test_cli_shellout.cpp` (which runs against `pulp-cpp`, the delegate).
 
+**Prefer `pulp::platform::exec` over `std::system` for quoted-path shell-outs
+on Windows (2026-06-14):** `std::system(cmd)` runs `cmd.exe /c <cmd>`. When
+`<cmd>` *starts with* a quoted path **and** contains further quotes (e.g. quoted
+arguments and a quoted redirect target — the common shape `"C:\tool.exe"
+--output "C:\out" > "C:\log" 2>&1`), `cmd /c` mis-parses it and aborts with
+*"The filename, directory name, or volume label syntax is incorrect"* before
+running anything — so the tool never launches and no output/redirect file is
+created. Reproduced against a real Windows host through the CRT `system()`. The
+robust fix is to **not go through the shell at all**: spawn the tool with
+`pulp::platform::exec(program, args_vector, timeout_ms)`, which passes an argv
+array straight to the process (no `cmd`, no quote parsing). `pulp kit verify
+--execute-screenshots` (`maybe_execute_screenshot_profile` in
+`tools/cli/kit_commands.cpp`) hit this — it now uses `exec()` for both the
+direct-`.exe` path and the `.cmd`/`.bat` path (`exec("cmd", {"/C", shell_command})`).
+If you must use `std::system` (e.g. you genuinely need shell features) and the
+command begins with a quoted path, wrap the ENTIRE command in one extra pair of
+double quotes (`command = "\"" + command + "\"";`) so `cmd` strips exactly that
+pair and runs the remainder verbatim.
+
 ### Numeric CLI flags
 
 For count-like flags such as `pulp run --frames`, parsers should accept only

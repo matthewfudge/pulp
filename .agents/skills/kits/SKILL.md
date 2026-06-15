@@ -60,6 +60,7 @@ Developer notes:
 - Agent-authored packages need `authoring.humanReview.reviewed: true` before publish dry-run can pass.
 - Template kits need `validation.generatedProjectDiffs` before `pulp create --template <kit-dir>`.
 - UI kits need screenshot evidence. Run `pulp kit verify` after plan review; use `--execute-screenshots` only when rendered artifacts are explicitly needed.
+- `--execute-screenshots` runs the screenshot tool via `pulp::platform::exec` (argv vector, no shell) in `maybe_execute_screenshot_profile`. Keep it off `std::system`: on Windows a `cmd /c` command that starts with a quoted tool path plus further quotes mis-parses and never launches the tool — see the `exec`-vs-`std::system` gotcha in the `cli-maintenance` skill.
 - After applying a UI kit, recommend `pulp_use_kit_ui(...)` only when the developer chooses to attach the reviewed script/tokens/assets.
 - Graph/native kits must surface exported fixtures/files, platform claims, and realtime claims before apply. Verification must not load dynamic libraries.
 - Signed `node-pack` kits must not claim iOS/AUv3 support.
