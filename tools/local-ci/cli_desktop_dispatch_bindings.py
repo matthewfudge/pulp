@@ -49,6 +49,7 @@ def cmd_desktop(bindings: Mapping[str, Any], args: Any) -> int:
             "design-proof": _binding(bindings, "cmd_desktop_design_proof"),
             "video-matrix": _binding(bindings, "cmd_desktop_video_matrix"),
             "video": _binding(bindings, "cmd_desktop_video"),
+            "serve": _binding(bindings, "cmd_desktop_serve"),
         },
     )
 

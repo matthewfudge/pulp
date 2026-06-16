@@ -17,6 +17,7 @@ import desktop_cli as _desktop_cli
 import desktop_doctor as _desktop_doctor
 import desktop_review_commands_cli as _desktop_review_commands_cli
 import desktop_video_compose_commands_cli as _desktop_video_compose_commands_cli
+import desktop_serve_commands_cli as _desktop_serve_commands_cli
 import desktop_video_action_commands_cli as _desktop_video_action_commands_cli
 import desktop_video_matrix_commands_cli as _desktop_video_matrix_commands_cli
 import desktop_setup_commands_cli as _desktop_setup_commands_cli
@@ -78,6 +79,7 @@ BOOTSTRAP_MODULE_ALIASES = {
     "_desktop_doctor": _desktop_doctor,
     "_desktop_review_commands_cli": _desktop_review_commands_cli,
     "_desktop_video_compose_commands_cli": _desktop_video_compose_commands_cli,
+    "_desktop_serve_commands_cli": _desktop_serve_commands_cli,
     "_desktop_video_action_commands_cli": _desktop_video_action_commands_cli,
     "_desktop_video_matrix_commands_cli": _desktop_video_matrix_commands_cli,
     "_desktop_setup_commands_cli": _desktop_setup_commands_cli,

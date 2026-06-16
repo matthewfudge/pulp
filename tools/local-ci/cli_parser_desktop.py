@@ -318,6 +318,17 @@ def add_desktop_subcommands(sub: argparse._SubParsersAction) -> None:
     add_desktop_video_args(p_desktop_video)
     add_desktop_source_args(p_desktop_video)
 
+    p_desktop_serve = desktop_sub.add_parser("serve", help="Serve a desktop publish report over local HTTP")
+    p_desktop_serve.add_argument("path", nargs="?", help="Optional report directory (default: latest published report)")
+    p_desktop_serve.add_argument("--host", default="127.0.0.1", help="Host/interface to bind (default: 127.0.0.1)")
+    p_desktop_serve.add_argument("--port", type=int, default=8765, help="Port to bind (default: 8765)")
+    p_desktop_serve.add_argument("--auto-port", action="store_true", help="Use the first available port at or above --port")
+    p_desktop_serve.add_argument("--background", action="store_true", help="Start a detached static report server and return immediately")
+    p_desktop_serve.add_argument("--label", default="desktop-proof", help="Background server label for --background, --status, and --stop")
+    p_desktop_serve.add_argument("--status", action="store_true", help="Show background server status for --label")
+    p_desktop_serve.add_argument("--stop", action="store_true", help="Stop the background server recorded for --label")
+    p_desktop_serve.add_argument("--json", action="store_true", help="Emit machine-readable JSON for background/status/stop")
+
     p_desktop_inspect = desktop_sub.add_parser("inspect", help="Launch an app and capture screenshot + available UI state")
     p_desktop_inspect.add_argument("target", help="Desktop target name (for example: mac)")
     p_desktop_inspect.add_argument("--command", dest="launch_command", help="Quoted command to launch in the GUI session")
