@@ -15,6 +15,8 @@ and the matching contract tests in the same change.
 | `cli_parser_video.py` | Video-proof argument group (--record-video / --video-* / --capture-bundle-id) for the desktop smoke/click subcommands. | Argument dispatch, command execution, or video recording logic. |
 | `desktop_review_command_bindings.py` | Facade binding for the desktop review verdict command. | Verdict logic, recording, or report staging. |
 | `desktop_review_commands_cli.py` | Desktop video-proof review verdict command (record approved/needs-work on a run manifest, optional gh comment/close). | Recording, compose, report staging, or command dispatch. |
+| `desktop_video_compose_command_bindings.py` | Facade bindings for the desktop compose-video/design commands. | Compose/diff logic or command dispatch. |
+| `desktop_video_compose_commands_cli.py` | Desktop compose-video / design-diff / design-proof commands (Remotion recompose + design-parity still proofs). | Recording, review verdicts, or command dispatch. |
 | `io_utils_design_parity.py` | Stdlib PNG codec and design-parity image diff summary. | Video recording, capture orchestration, or report publishing. |
 | `macos_desktop_action_video.py` | Video-only helpers for the macOS smoke flow (focus/marker summaries, reaper-recipe validation, pid/log waits). | Launch/capture sequencing or binding installation. |
 | `macos_desktop_smoke_video_dependency_bindings.py` | Video dependency callables for the macOS smoke facade. | Underlying recording logic or command dispatch. |

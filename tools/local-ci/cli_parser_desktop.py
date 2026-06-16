@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 
-from cli_parser_video import add_desktop_video_args
+from cli_parser_video import VIDEO_PROOF_TEMPLATE_CHOICES, add_desktop_video_args
 
 
 def add_desktop_source_args(command_parser: argparse.ArgumentParser) -> None:
@@ -191,6 +191,52 @@ def add_desktop_subcommands(sub: argparse._SubParsersAction) -> None:
     p_desktop_review_watch.add_argument("--interval", type=float, default=0.0, help="Seconds between watch iterations (default: one-shot)")
     p_desktop_review_watch.add_argument("--max-iterations", type=int, default=1, help="Maximum watch iterations; use with --interval for short polling windows")
     p_desktop_review_watch.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+
+    p_desktop_compose_video = desktop_sub.add_parser("compose-video", help="Render or rerender a Remotion proof for an existing desktop run manifest")
+    p_desktop_compose_video.add_argument("manifest", help="Path to the run manifest.json to compose")
+    p_desktop_compose_video.add_argument("--output", help="Output composed MP4 path (default: <run>/video/proof-composed.mp4)")
+    p_desktop_compose_video.add_argument("--metadata", help="Output composed metadata JSON path (default: <run>/video/composed-metadata.json)")
+    p_desktop_compose_video.add_argument("--issue-output", help="Output issue-ready MP4 path (default: <run>/video/proof.issue.mp4)")
+    p_desktop_compose_video.add_argument("--issue-metadata", help="Output issue metadata JSON path (default: <run>/video/issue-metadata.json)")
+    p_desktop_compose_video.add_argument("--small-video", action="store_true", help="Also create a <=10 MB convenience encode when possible")
+    p_desktop_compose_video.add_argument("--small-output", help="Output small MP4 path (default: <run>/video/proof.small.mp4)")
+    p_desktop_compose_video.add_argument("--small-metadata", help="Output small metadata JSON path (default: <run>/video/small-metadata.json)")
+    p_desktop_compose_video.add_argument("--small-video-budget-mb", type=float, default=10.0, help="Attachment budget in decimal MB for the small video (default: 10)")
+    p_desktop_compose_video.add_argument("--template", choices=VIDEO_PROOF_TEMPLATE_CHOICES, help="Remotion proof template variant")
+    p_desktop_compose_video.add_argument("--source-image", help="Optional source/reference image for design-parity proofs")
+    p_desktop_compose_video.add_argument("--source-label", help="Label for --source-image (default: Source reference)")
+    p_desktop_compose_video.add_argument("--diff-image", help="Optional visual diff image for design-parity proofs")
+    p_desktop_compose_video.add_argument("--diff-label", help="Label for --diff-image (default: Difference map)")
+    p_desktop_compose_video.add_argument("--title", help="Override the composed video title")
+    p_desktop_compose_video.add_argument("--note", action="append", default=[], help="Short note to show in the composed proof video; may be repeated")
+    p_desktop_compose_video.add_argument("--video-attachment-budget-mb", type=float, default=100.0, help="Attachment budget in decimal MB for the issue video (default: 100)")
+    p_desktop_compose_video.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+
+    p_desktop_design_diff = desktop_sub.add_parser("design-diff", help="Generate a source-vs-native image diff for design-parity proof videos")
+    p_desktop_design_diff.add_argument("--source-image", required=True, help="Source/reference image, such as a Figma export")
+    p_desktop_design_diff.add_argument("--native-image", help="Native implementation screenshot to compare")
+    p_desktop_design_diff.add_argument("--manifest", help="Run manifest whose artifacts.screenshot should be used as --native-image when omitted")
+    p_desktop_design_diff.add_argument("--output", required=True, help="Output visual diff image path")
+    p_desktop_design_diff.add_argument("--resized-source-output", help="Optional output path for the source image resized to native screenshot dimensions")
+    p_desktop_design_diff.add_argument("--enhance-brightness", type=float, default=3.0, help="Brightness multiplier for the visual diff image (default: 3)")
+    p_desktop_design_diff.add_argument("--metadata", help="Optional metadata JSON output path")
+    p_desktop_design_diff.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+
+    p_desktop_design_proof = desktop_sub.add_parser("design-proof", help="Create a design-parity proof from source and native still images")
+    p_desktop_design_proof.add_argument("--source-image", required=True, help="Source/reference image, such as a Figma export")
+    p_desktop_design_proof.add_argument("--native-image", required=True, help="Native implementation screenshot/render to compare")
+    p_desktop_design_proof.add_argument("--output-dir", help="Output run directory (default: desktop artifact root/mac/design-proof/<timestamp-label>)")
+    p_desktop_design_proof.add_argument("--label", default="design-parity-proof", help="Run label (default: design-parity-proof)")
+    p_desktop_design_proof.add_argument("--source-label", default="Source reference", help="Label for the source image (default: Source reference)")
+    p_desktop_design_proof.add_argument("--diff-label", default="Source vs native screenshot diff", help="Label for the generated diff image")
+    p_desktop_design_proof.add_argument("--title", default="Design parity proof", help="Composed video title")
+    p_desktop_design_proof.add_argument("--note", action="append", default=[], help="Short note to show in the composed proof video; may be repeated")
+    p_desktop_design_proof.add_argument("--context", action="append", default=[], help="Context key=value to include in the proof report; may be repeated")
+    p_desktop_design_proof.add_argument("--enhance-brightness", type=float, default=3.0, help="Brightness multiplier for the visual diff image (default: 3)")
+    p_desktop_design_proof.add_argument("--video-attachment-budget-mb", type=float, default=100.0, help="Attachment budget in decimal MB for the issue video (default: 100)")
+    p_desktop_design_proof.add_argument("--small-video", action="store_true", help="Also create a <=10 MB convenience encode when possible")
+    p_desktop_design_proof.add_argument("--small-video-budget-mb", type=float, default=10.0, help="Attachment budget in decimal MB for the small video (default: 10)")
+    p_desktop_design_proof.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
 
     p_desktop_inspect = desktop_sub.add_parser("inspect", help="Launch an app and capture screenshot + available UI state")
     p_desktop_inspect.add_argument("target", help="Desktop target name (for example: mac)")
