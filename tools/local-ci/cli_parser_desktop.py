@@ -135,6 +135,28 @@ def add_desktop_subcommands(sub: argparse._SubParsersAction) -> None:
     add_desktop_video_args(p_desktop_click)
     add_desktop_source_args(p_desktop_click)
 
+    p_desktop_verdict = desktop_sub.add_parser("verdict", help="Record a human review verdict on a desktop run manifest")
+    p_desktop_verdict.add_argument("manifest", help="Path to the run manifest.json to update")
+    verdict_group = p_desktop_verdict.add_mutually_exclusive_group(required=True)
+    verdict_group.add_argument("--approved", action="store_true", help="Mark the proof as approved")
+    verdict_group.add_argument("--needs-work", action="store_true", help="Mark the proof as needing work")
+    p_desktop_verdict.add_argument("--notes", default="", help="Optional reviewer notes")
+    p_desktop_verdict.add_argument("--reviewer", default="", help="Optional reviewer identity")
+    p_desktop_verdict.add_argument("--issue-url", default="", help="Optional GitHub review issue URL")
+    p_desktop_verdict.add_argument(
+        "--comment-issue",
+        action="store_true",
+        help="Post the verdict summary to --issue-url with gh before updating the local manifest",
+    )
+    p_desktop_verdict.add_argument("--close-issue", action="store_true", help="Close --issue-url with gh after recording an approved verdict")
+    p_desktop_verdict.add_argument(
+        "--close-reason",
+        default="completed",
+        choices=["completed", "not planned"],
+        help="GitHub issue close reason for --close-issue",
+    )
+    p_desktop_verdict.add_argument("--json", action="store_true", help="Emit machine-readable JSON")
+
     p_desktop_inspect = desktop_sub.add_parser("inspect", help="Launch an app and capture screenshot + available UI state")
     p_desktop_inspect.add_argument("target", help="Desktop target name (for example: mac)")
     p_desktop_inspect.add_argument("--command", dest="launch_command", help="Quoted command to launch in the GUI session")

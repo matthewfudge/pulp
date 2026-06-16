@@ -49,6 +49,7 @@ class CliDesktopDispatchBindingsTests(unittest.TestCase):
             "cmd_desktop_smoke",
             "cmd_desktop_click",
             "cmd_desktop_inspect",
+            "cmd_desktop_verdict",
         ]:
             bindings[name] = object()
         return bindings, captured
@@ -75,10 +76,11 @@ class CliDesktopDispatchBindingsTests(unittest.TestCase):
         self.assertIs(captured["desktop_args"], args)
         self.assertEqual(
             set(captured["desktop_commands"]),
-            {"install", "doctor", "status", "config", "recent", "proof", "publish", "cleanup", "smoke", "click", "inspect"},
+            {"install", "doctor", "status", "config", "recent", "proof", "publish", "cleanup", "smoke", "click", "inspect", "verdict"},
         )
         self.assertIs(captured["desktop_commands"]["install"], bindings["cmd_desktop_install"])
         self.assertIs(captured["desktop_commands"]["inspect"], bindings["cmd_desktop_inspect"])
+        self.assertIs(captured["desktop_commands"]["verdict"], bindings["cmd_desktop_verdict"])
 
     def test_install_cli_desktop_dispatch_helpers_wires_named_exports(self):
         bindings, captured = self._bindings()

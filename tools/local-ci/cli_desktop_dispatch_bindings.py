@@ -40,6 +40,7 @@ def cmd_desktop(bindings: Mapping[str, Any], args: Any) -> int:
             "smoke": _binding(bindings, "cmd_desktop_smoke"),
             "click": _binding(bindings, "cmd_desktop_click"),
             "inspect": _binding(bindings, "cmd_desktop_inspect"),
+            "verdict": _binding(bindings, "cmd_desktop_verdict"),
         },
     )
 
