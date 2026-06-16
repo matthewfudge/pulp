@@ -2,6 +2,9 @@
 
 #include <pulp/audio/buffer.hpp>
 #include <pulp/audio/device.hpp>
+#if PULP_ENABLE_AUDIO_PROBES
+#include <pulp/audio/audio_probe.hpp>
+#endif
 #include <pulp/format/processor.hpp>
 #include <pulp/format/test_signal.hpp>
 #include <pulp/midi/device.hpp>
@@ -13,6 +16,12 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
+
+namespace pulp::view {
+class AudioInspectorWindow;
+class CommandRegistry;
+}  // namespace pulp::view
 
 namespace pulp::format {
 
@@ -23,6 +32,20 @@ struct StandaloneConfig {
     int buffer_size = 256;
     int output_channels = 2;
     int input_channels = 0;
+    // Optional host constraints. When non-empty, the standalone settings UI
+    // only offers these values and persisted settings outside the list are
+    // clamped back to the first allowed value.
+    std::vector<double> allowed_sample_rates;
+    std::vector<int> allowed_buffer_sizes;
+    // Capability flag for apps/instruments that do not consume audio input.
+    // The standalone host derives this from the processor descriptor at
+    // startup, and the settings UI uses it to avoid presenting an unusable
+    // input-device workflow for instrument-only apps.
+    bool supports_audio_input = true;
+    // Effects usually want the test signal as input. Instruments have no
+    // audio input, so their test tone should exercise the selected output
+    // device directly.
+    bool route_test_signal_to_output = false;
     // When true, run_with_editor() avoids showing/activating the native
     // window. Use with screenshot_path for CI/test smoke runs.
     bool headless = false;
@@ -46,6 +69,25 @@ struct StandaloneConfig {
     // Frames to wait before capture. Default 30 (~0.5s @60fps) gives the
     // first React-driven layout + effects pass time to settle.
     int screenshot_frame_delay = 30;
+
+    // When non-empty, run_with_editor() arms the same one-shot frame-delay
+    // path as `screenshot_path` and, after the delay, writes the live output
+    // probe's latest snapshot (peak/RMS/dBFS/clip/NaN/silence counters) as a
+    // JSON object to this path, then exits. This is the programmatic readout
+    // of the live Audio Inspector for agents and CI — distinct from the
+    // offline `pulp audio validate` Doctor. Set via set_config() or by reading
+    // PULP_AUDIO_PROBE_JSON. Only meaningful when PULP_ENABLE_AUDIO_PROBES is
+    // ON; probes-off standalone builds reject this request before opening the
+    // editor so callers do not mistake an unsupported binary for silence.
+    std::string audio_probe_json_path;
+
+    // Programmatic live scope capture over the output-boundary probe's copied
+    // capture ring. Like audio_probe_json_path, this is a dev/agent readout and
+    // is only meaningful when PULP_ENABLE_AUDIO_PROBES is ON.
+    std::string audio_scope_json_path;
+    int audio_scope_window_samples = 2048;
+    std::string audio_scope_trigger = "rising-zero";
+    int audio_scope_channel = 0;
 
     // Item 3.5 (macOS plan) — built-in tempo source. The standalone host has
     // no DAW providing transport, so it acts as one: it surfaces
@@ -81,6 +123,18 @@ public:
 
     TestSignalSource& test_signal() { return test_signal_; }
     view::AudioBridge& input_meter_bridge() { return input_meter_bridge_; }
+    view::AudioBridge& output_meter_bridge() { return output_meter_bridge_; }
+
+#if PULP_ENABLE_AUDIO_PROBES
+    /// Realtime output-boundary probe (Phase 5). Observes the processor output
+    /// at the "standalone processor-output boundary" — immediately after
+    /// `processor_->process(...)` and before the device callback returns. This
+    /// is the first wired probe stage for the "UI works, no sound" report. A
+    /// consumer (UI/test) reads the latest snapshot via
+    /// `output_probe().latest()`. Distinct from `input_meter_bridge_`, which is
+    /// input-oriented and lacks the snapshot's stage/sequence/NaN/clip fields.
+    audio::AudioProbe& output_probe() { return output_probe_; }
+#endif
     audio::AudioSystem* audio_system() { return audio_system_.get(); }
     midi::MidiSystem* midi_system() { return midi_system_.get(); }
 
@@ -135,11 +189,44 @@ private:
 
     TestSignalSource test_signal_;
     view::AudioBridge input_meter_bridge_;
+    view::AudioBridge output_meter_bridge_;
+#if PULP_ENABLE_AUDIO_PROBES
+    // Phase 5 realtime output-boundary probe. prepare()d in start() with the
+    // device's channel/buffer/rate; analyze_output() is called from the audio
+    // callback right after processor render. RT-safe (scalar-only).
+    audio::AudioProbe output_probe_;
+    // Pre-allocated channel-pointer array for the probe view (no audio-thread
+    // allocation). Sized in start() to the output channel count.
+    std::vector<const float*> output_probe_ptrs_;
+
+    // Developer Audio Inspector tool window (Phase 6). A separate floating
+    // window that reads `output_probe_.latest()` each UI tick and renders the
+    // live meters / waveform / probe-stage status. Lives on the app so it
+    // outlives the idle callback that polls it; `output_probe_` is declared
+    // before it so the probe outlives the window on teardown (the window holds
+    // a raw probe pointer). Constructed in run_with_editor() only when a real
+    // window exists, behind a shared CommandRegistry routed by
+    // `route_global_keys` (Cmd/Ctrl+Shift+A). Opened when PULP_AUDIO_INSPECTOR
+    // is set in the environment.
+    std::unique_ptr<view::CommandRegistry> command_registry_;
+    std::unique_ptr<view::AudioInspectorWindow> audio_inspector_;
+#endif
+    // The MAXIMUM frames the audio callback may deliver in one block. This is
+    // NOT the nominal buffer_size: when the device runs at a different sample
+    // rate than the app, CoreAudio (and other backends) insert a resampler that
+    // pulls the render callback in variable, larger-than-nominal blocks. The
+    // processor and every scratch buffer are sized to THIS, and the callback
+    // guards against any block beyond it, so an oversized pull can never trip
+    // Processor::process()'s `num_samples <= max_block` assert or overflow the
+    // pre-allocated buffers.
+    int max_callback_block_ = 0;
     audio::Buffer<float> test_buffer_;        // Pre-allocated for audio callback
     audio::Buffer<float> silence_buffer_;    // Pre-allocated silence for missing input
     std::vector<float*> test_ptrs_;           // Pre-allocated channel pointers
+    std::vector<float*> direct_output_ptrs_;  // Pre-allocated for output test signal
     std::vector<const float*> silence_ptrs_;  // Pre-allocated silence channel pointers
     std::vector<const float*> meter_ptrs_;    // Pre-allocated for meter analysis
+    std::vector<const float*> output_meter_ptrs_;
 };
 
 } // namespace pulp::format

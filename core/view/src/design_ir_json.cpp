@@ -63,6 +63,7 @@ static InteractiveElementKind interactive_kind_from_id(const std::string& s) {
     if (s == "dropdown") return InteractiveElementKind::dropdown;
     if (s == "text_field") return InteractiveElementKind::text_field;
     if (s == "tab_group") return InteractiveElementKind::tab_group;
+    if (s == "stepper") return InteractiveElementKind::stepper;
     return InteractiveElementKind::knob;
 }
 static const char* interactive_kind_id(InteractiveElementKind k) {
@@ -70,6 +71,7 @@ static const char* interactive_kind_id(InteractiveElementKind k) {
         case InteractiveElementKind::dropdown:   return "dropdown";
         case InteractiveElementKind::text_field: return "text_field";
         case InteractiveElementKind::tab_group:  return "tab_group";
+        case InteractiveElementKind::stepper:    return "stepper";
         case InteractiveElementKind::knob:       break;
     }
     return "knob";
@@ -821,6 +823,8 @@ IRNode parse_ir_node(const choc::value::ValueView& obj) {
             el.h = get_float(e, "h");
             el.selected_index = static_cast<int>(get_float(e, "selected_index"));
             el.placeholder = get_string(e, "placeholder");
+            el.bg_color = get_string(e, "bg_color");
+            el.label = get_string(e, "label");
             if (e.hasObjectMember("options") && e["options"].isArray()) {
                 const auto opts = e["options"];
                 for (uint32_t j = 0; j < opts.size(); ++j)
@@ -1742,8 +1746,7 @@ static void write_ir_node_json(std::ostringstream& out, const IRNode& node,
             write_float_member(out, ef, "cx", el.cx);
             write_float_member(out, ef, "cy", el.cy);
             write_float_member(out, ef, "hit_radius", el.hit_radius);
-            if (!el.svg_patch_d.empty())
-                write_string_member(out, ef, "svg_patch_d", el.svg_patch_d);
+            if (!el.svg_patch_d.empty()) write_string_member(out, ef, "svg_patch_d", el.svg_patch_d);
             write_float_member(out, ef, "default_value", el.default_value);
             // Overlay-control fields — emitted only when set (knobs stay lean).
             if (el.x != 0.0f) write_float_member(out, ef, "x", el.x);
@@ -1754,6 +1757,8 @@ static void write_ir_node_json(std::ostringstream& out, const IRNode& node,
                 write_int_member(out, ef, "selected_index", el.selected_index);
             if (!el.placeholder.empty())
                 write_string_member(out, ef, "placeholder", el.placeholder);
+            if (!el.bg_color.empty()) write_string_member(out, ef, "bg_color", el.bg_color);
+            if (!el.label.empty()) write_string_member(out, ef, "label", el.label);
             if (!el.options.empty()) {
                 write_key(out, ef, "options");
                 out << '[';

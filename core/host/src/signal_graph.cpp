@@ -1,32 +1,138 @@
 // Signal Graph implementation.
 //
-// Phase 0B: audio-thread reads happen exclusively against an immutable
-// CompiledGraph snapshot, published via atomic<shared_ptr>. UI-thread
-// mutations (add_*, connect*, disconnect, remove_node, set_node_gain,
-// set_node_parameter) invalidate the snapshot; prepare() rebuilds a fresh
-// snapshot and atomic-swaps it in. See signal_graph.hpp for the mutation
-// protocol details.
+// Phase 0B: audio-thread reads happen against a CompiledGraph snapshot,
+// published via an atomic raw pointer. UI-thread topology mutations (add_*,
+// connect*, disconnect, remove_node) invalidate the snapshot; prepare()
+// rebuilds and publishes a fresh snapshot. Control-thread shared_ptr owners
+// keep retired snapshots alive until active process readers drain, avoiding
+// libstdc++'s lock-taking atomic shared_ptr path in process().
+// See signal_graph.hpp for the mutation protocol details.
 
 #include <pulp/host/signal_graph.hpp>
 #include <pulp/runtime/log.hpp>
 #include <algorithm>
+#include <array>
 #include <queue>
+#include <cmath>
+#include <limits>
 #include <unordered_set>
 #include <unordered_map>
 #include <cstring>
+#include <thread>
 #include <utility>
 
 namespace pulp::host {
 namespace {
 
+constexpr std::size_t kGraphMidiEventCapacity =
+    state::ParameterEventQueue::kCapacity;
+constexpr std::size_t kGraphMidiSysexCapacity = 128;
+constexpr std::size_t kGraphMidiSysexPayloadCapacity = 4096;
+
+void prepare_midi_block_storage(midi::MidiBuffer& block,
+                                midi::UmpBuffer& ump) {
+    block.reserve(kGraphMidiEventCapacity,
+                  kGraphMidiSysexCapacity,
+                  kGraphMidiSysexPayloadCapacity);
+    block.set_realtime_capacity_limit(true);
+    ump.reserve(kGraphMidiEventCapacity);
+    ump.set_realtime_capacity_limit(true);
+    block.attach_ump(&ump);
+}
+
+void clear_midi_block(midi::MidiBuffer& block) {
+    block.clear();
+    block.clear_sysex();
+    if (auto* ump = block.ump()) ump->clear();
+}
+
+bool midi_block_has_drops(const midi::MidiBuffer& block) {
+    if (block.dropped_event_count() > 0 || block.dropped_sysex_count() > 0) {
+        return true;
+    }
+    const auto* ump = block.ump();
+    return ump && ump->dropped_event_count() > 0;
+}
+
+bool copy_midi_block(const midi::MidiBuffer& src, midi::MidiBuffer& dst) {
+    bool copied_all = !midi_block_has_drops(src);
+    for (const auto& ev : src) {
+        if (!dst.add(ev)) copied_all = false;
+    }
+    for (const auto& sx : src.sysex()) {
+        if (sx.data.empty()) {
+            if (!dst.add_sysex({}, sx.sample_offset, sx.timestamp)) {
+                copied_all = false;
+            }
+        } else {
+            if (!dst.add_sysex_copy(sx.data.data(), sx.data.size(),
+                                    sx.sample_offset, sx.timestamp)) {
+                copied_all = false;
+            }
+        }
+    }
+    const auto* src_ump = src.ump();
+    auto* dst_ump = dst.ump();
+    if (src_ump && dst_ump) {
+        for (const auto& ev : *src_ump) {
+            if (!dst_ump->add(ev)) copied_all = false;
+        }
+    } else if (src_ump && !src_ump->empty()) {
+        copied_all = false;
+    }
+    return copied_all;
+}
+
 bool parameter_allows_modulation(const HostParamInfo& p,
                                  uint32_t param_id,
-                                 state::ParamRate required_rate) {
+                                 state::ParamRate required_rate,
+                                 bool require_modulatable = false) {
     return p.id == param_id
         && p.rate == required_rate
         && p.flags.automatable
+        && (!require_modulatable || p.flags.modulatable)
         && !p.flags.read_only
         && !p.flags.stepped;
+}
+
+bool has_input_port(const GraphNode& node, PortIndex port) {
+    return node.num_input_ports > 0
+        && port < static_cast<PortIndex>(node.num_input_ports);
+}
+
+bool has_output_port(const GraphNode& node, PortIndex port) {
+    return node.num_output_ports > 0
+        && port < static_cast<PortIndex>(node.num_output_ports);
+}
+
+std::size_t saturating_add(std::size_t a, std::size_t b) {
+    const auto max = std::numeric_limits<std::size_t>::max();
+    return b > max - a ? max : a + b;
+}
+
+std::size_t saturating_mul(std::size_t a, std::size_t b) {
+    const auto max = std::numeric_limits<std::size_t>::max();
+    if (a == 0 || b == 0) return 0;
+    return a > max / b ? max : a * b;
+}
+
+std::uint64_t saturating_add_u64(std::uint64_t a, std::uint64_t b) {
+    const auto max = std::numeric_limits<std::uint64_t>::max();
+    return b > max - a ? max : a + b;
+}
+
+std::uint64_t saturating_mul_u64(std::uint64_t a, std::uint64_t b) {
+    const auto max = std::numeric_limits<std::uint64_t>::max();
+    if (a == 0 || b == 0) return 0;
+    return a > max / b ? max : a * b;
+}
+
+state::ModulationMixMode modulation_mix_for(AutomationMix mix) {
+    switch (mix) {
+        case AutomationMix::Replace: return state::ModulationMixMode::Replace;
+        case AutomationMix::Add: return state::ModulationMixMode::Add;
+    }
+    return state::ModulationMixMode::Add;
 }
 
 float map_modulation_sample(const Connection& c, float sample) {
@@ -45,6 +151,13 @@ bool push_parameter_event(ParameterEventQueue& queue,
         value,
         0,
     });
+}
+
+template <typename T, typename GetId>
+T* find_by_id(std::vector<T>& entries, uint32_t id, GetId get_id) {
+    auto it = std::find_if(entries.begin(), entries.end(),
+                           [&](const T& entry) { return get_id(entry) == id; });
+    return it == entries.end() ? nullptr : &*it;
 }
 
 bool is_valid_custom_node_type(const CustomNodeType& type) {
@@ -81,6 +194,40 @@ std::shared_ptr<void> make_custom_instance(const CustomNodeType& type) {
 }
 
 } // namespace
+
+SignalGraph::MidiBlockSnapshot::MidiBlockSnapshot() {
+    prepare_midi_block_storage(events, ump);
+}
+
+SignalGraph::MidiBlockSnapshot::MidiBlockSnapshot(
+    const MidiBlockSnapshot& other)
+    : MidiBlockSnapshot() {
+    *this = other;
+}
+
+SignalGraph::MidiBlockSnapshot&
+SignalGraph::MidiBlockSnapshot::operator=(const MidiBlockSnapshot& other) {
+    if (this == &other) return *this;
+    set_from_midi(other.events, other.sequence, other.incomplete);
+    return *this;
+}
+
+bool SignalGraph::MidiBlockSnapshot::set_from_midi(
+    const midi::MidiBuffer& src,
+    uint64_t new_sequence,
+    bool source_incomplete) {
+    clear_midi_block(events);
+    sequence = new_sequence;
+    const bool copied_all = copy_midi_block(src, events);
+    incomplete = source_incomplete || !copied_all;
+    return !incomplete;
+}
+
+bool SignalGraph::MidiBlockSnapshot::copy_to_midi(
+    midi::MidiBuffer& dst) const {
+    const bool copied_all = copy_midi_block(events, dst);
+    return copied_all && !incomplete;
+}
 
 NodeId SignalGraph::add_input_node(int channels, const std::string& name) {
     GraphNode node;
@@ -287,7 +434,11 @@ bool SignalGraph::remove_node(NodeId id) {
 
 bool SignalGraph::connect(NodeId source, PortIndex source_port,
                           NodeId dest, PortIndex dest_port) {
-    if (!node(source) || !node(dest)) return false;
+    const GraphNode* src_n = node(source);
+    const GraphNode* dst_n = node(dest);
+    if (!src_n || !dst_n) return false;
+    if (!has_output_port(*src_n, source_port)) return false;
+    if (!has_input_port(*dst_n, dest_port)) return false;
     if (would_create_cycle(source, dest)) return false;
     Connection conn{source, source_port, dest, dest_port};
     for (auto& c : connections_) if (c == conn) return false;
@@ -316,8 +467,8 @@ bool SignalGraph::connect_sidechain(NodeId source, PortIndex source_port,
     const GraphNode* dst_n = node(dest);
     if (!src_n || !dst_n) return false;
     if (dst_n->type != NodeType::Plugin) return false;
-    if ((int)source_port >= src_n->num_output_ports) return false;
-    if ((int)dest_sidechain_port >= dst_n->num_input_ports) return false;
+    if (!has_output_port(*src_n, source_port)) return false;
+    if (!has_input_port(*dst_n, dest_sidechain_port)) return false;
     if (would_create_cycle(source, dest)) return false;
 
     Connection conn{};
@@ -341,7 +492,7 @@ bool SignalGraph::connect_automation(NodeId src, PortIndex src_audio_port,
     const GraphNode* dst_n = node(dest);
     if (!src_n || !dst_n) return false;
     if (dst_n->type != NodeType::Plugin || !dst_n->plugin) return false;
-    if ((int)src_audio_port >= src_n->num_output_ports) return false;
+    if (!has_output_port(*src_n, src_audio_port)) return false;
 
     // Reject automation edges that would introduce a cycle. Automation
     // edges contribute to topological order (the source must be processed
@@ -395,13 +546,14 @@ bool SignalGraph::connect_audio_rate_modulation(NodeId src, PortIndex src_audio_
     const GraphNode* dst_n = node(dest);
     if (!src_n || !dst_n) return false;
     if (dst_n->type != NodeType::Plugin || !dst_n->plugin) return false;
-    if ((int)src_audio_port >= src_n->num_output_ports) return false;
+    if (!has_output_port(*src_n, src_audio_port)) return false;
     if (would_create_cycle(src, dest)) return false;
 
     bool ok_param = false;
     for (const auto& pi : dst_n->plugin->parameters()) {
         if (pi.id != dest_param_id) continue;
-        if (!parameter_allows_modulation(pi, dest_param_id, state::ParamRate::AudioRate)) {
+        if (!parameter_allows_modulation(
+                pi, dest_param_id, state::ParamRate::AudioRate, true)) {
             return false;
         }
         ok_param = true;
@@ -430,33 +582,99 @@ bool SignalGraph::connect_audio_rate_modulation(NodeId src, PortIndex src_audio_
     conn.automation_range_hi      = range_hi;
     conn.automation_smoothing_ms  = std::max(0.0f, smoothing_ms);
     conn.automation_mix           = mix;
+    state::ModulationLane lane;
+    if (!audio_rate_modulation_lane(conn, lane)) return false;
     connections_.push_back(conn);
     invalidate_live_();
     return true;
 }
 
+bool SignalGraph::audio_rate_modulation_lane(const Connection& connection,
+                                             state::ModulationLane& lane) const {
+    if (!connection.audio_rate_modulation || connection.automation) {
+        return false;
+    }
+
+    const GraphNode* src_n = node(connection.source_node);
+    const GraphNode* dst_n = node(connection.dest_node);
+    if (!src_n || !dst_n || dst_n->type != NodeType::Plugin || !dst_n->plugin) {
+        return false;
+    }
+    if (!has_output_port(*src_n, connection.source_port)) {
+        return false;
+    }
+
+    for (const auto& pi : dst_n->plugin->parameters()) {
+        if (pi.id != connection.automation_param_id) continue;
+
+        lane = state::ModulationLane{
+            .source = {
+                .id = static_cast<state::ModulationSourceId>(connection.source_node),
+                .scope = state::ModulationScope::GraphNode,
+                .rate = state::ModulationRate::Audio,
+            },
+            .target = {
+                .param_id = pi.id,
+                .scope = state::ModulationScope::GraphNode,
+                .param_rate = pi.rate,
+                .modulatable = pi.flags.modulatable
+                    && pi.flags.automatable
+                    && !pi.flags.stepped,
+                .writable = !pi.flags.read_only,
+            },
+            .mix = modulation_mix_for(connection.automation_mix),
+            .depth = std::abs(connection.automation_range_hi
+                              - connection.automation_range_lo),
+        };
+        return state::validate_modulation_lane(lane).accepted;
+    }
+
+    return false;
+}
+
 bool SignalGraph::inject_midi(NodeId id, const midi::MidiBuffer& events) {
-    auto cg = std::atomic_load_explicit(&live_, std::memory_order_acquire);
+    auto* cg = live_raw_.load(std::memory_order_acquire);
     if (!cg) return false;
     auto it = cg->runtime.find(id);
     if (it == cg->runtime.end()) return false;
-    it->second.midi_out.clear();
-    for (const auto& ev : events) it->second.midi_out.add(ev);
-    return true;
+    auto shape_it = cg->shapes.find(id);
+    if (shape_it == cg->shapes.end()
+        || shape_it->second.type != NodeType::MidiInput
+        || !it->second.midi_input_mailbox) {
+        return false;
+    }
+
+    auto& mailbox = *it->second.midi_input_mailbox;
+    const uint64_t sequence =
+        mailbox.next_sequence.fetch_add(1, std::memory_order_relaxed) + 1;
+    const bool copied_all = mailbox.writer_scratch.set_from_midi(events, sequence);
+    mailbox.published.write(mailbox.writer_scratch);
+    return copied_all;
 }
 
 bool SignalGraph::extract_midi(NodeId id, midi::MidiBuffer& out) const {
-    auto cg = std::atomic_load_explicit(&live_, std::memory_order_acquire);
+    auto* cg = live_raw_.load(std::memory_order_acquire);
     if (!cg) return false;
     auto it = cg->runtime.find(id);
     if (it == cg->runtime.end()) return false;
-    for (const auto& ev : it->second.midi_in) out.add(ev);
-    return true;
+    auto shape_it = cg->shapes.find(id);
+    if (shape_it == cg->shapes.end()
+        || shape_it->second.type != NodeType::MidiOutput
+        || !it->second.midi_output_mailbox) {
+        return false;
+    }
+
+    const auto& snapshot = it->second.midi_output_mailbox->read();
+    return snapshot.copy_to_midi(out);
 }
 
 bool SignalGraph::connect_feedback(NodeId source, PortIndex source_port,
                                    NodeId dest, PortIndex dest_port) {
-    if (!node(source) || !node(dest)) return false;
+    const GraphNode* src_n = node(source);
+    const GraphNode* dst_n = node(dest);
+    if (!src_n || !dst_n) return false;
+    if (!has_output_port(*src_n, source_port)) return false;
+    if (!has_input_port(*dst_n, dest_port)) return false;
     Connection conn{source, source_port, dest, dest_port, true};
     for (auto& c : connections_) if (c == conn) return false;
     connections_.push_back(conn);
@@ -542,19 +760,144 @@ float SignalGraph::get_node_parameter(NodeId id, uint32_t param_id) const {
 }
 
 int SignalGraph::node_latency_samples(NodeId id) const {
-    auto cg = std::atomic_load_explicit(&live_, std::memory_order_acquire);
+    const auto* cg = live_raw_.load(std::memory_order_acquire);
     if (!cg) return 0;
     auto it = cg->runtime.find(id);
     if (it == cg->runtime.end()) return 0;
     return (int)it->second.input_latency;
 }
 
+SignalGraph::PreparedStats SignalGraph::prepared_stats() const {
+    return PreparedStats{
+        .node_count = prepared_node_count_.load(std::memory_order_relaxed),
+        .ordered_node_count =
+            prepared_ordered_node_count_.load(std::memory_order_relaxed),
+        .connection_count =
+            prepared_connection_count_.load(std::memory_order_relaxed),
+        .total_ports = prepared_total_ports_.load(std::memory_order_relaxed),
+        .max_block_size = prepared_max_block_size_.load(std::memory_order_relaxed),
+        .node_audio_buffer_bytes =
+            prepared_node_audio_buffer_bytes_.load(std::memory_order_relaxed),
+        .automation_buffer_bytes =
+            prepared_automation_buffer_bytes_.load(std::memory_order_relaxed),
+        .delay_buffer_bytes =
+            prepared_delay_buffer_bytes_.load(std::memory_order_relaxed),
+        .total_prepared_buffer_bytes =
+            prepared_total_buffer_bytes_.load(std::memory_order_relaxed),
+    };
+}
+
+SignalGraph::RuntimeBudgetReport
+SignalGraph::evaluate_optional_runtime_budget(
+    runtime::RuntimeBudgetFrame& frame,
+    runtime::RuntimeWorkLane lane,
+    bool required) const noexcept {
+    const auto stats = prepared_stats();
+    std::uint64_t estimated = 0;
+    estimated = saturating_add_u64(
+        estimated,
+        saturating_mul_u64(static_cast<std::uint64_t>(stats.node_count), 16));
+    estimated = saturating_add_u64(
+        estimated,
+        saturating_mul_u64(static_cast<std::uint64_t>(stats.connection_count), 8));
+    if (stats.max_block_size > 0) {
+        estimated = saturating_add_u64(
+            estimated,
+            saturating_mul_u64(
+                static_cast<std::uint64_t>(stats.total_ports),
+                static_cast<std::uint64_t>(stats.max_block_size)));
+    }
+    estimated = saturating_add_u64(
+        estimated,
+        static_cast<std::uint64_t>(
+            stats.total_prepared_buffer_bytes / sizeof(float)));
+
+    const auto decision = frame.evaluate(lane, estimated, required);
+    return {
+        .decision = decision,
+        .frame_stats = frame.stats(),
+        .estimated_cost = estimated,
+        .prepared = stats.node_count != 0,
+    };
+}
+
 void SignalGraph::invalidate_live_() {
     // Drop the live snapshot; process() will return silence until prepare()
     // is called again. This is the simple, safe semantic: UI-thread edits
     // always require a re-prepare before audio resumes.
-    std::atomic_store_explicit(&live_, std::shared_ptr<CompiledGraph>(nullptr), std::memory_order_release);
+    live_raw_.store(nullptr, std::memory_order_release);
+    retire_snapshot_(std::move(live_));
     total_latency_samples_.store(0, std::memory_order_relaxed);
+    clear_prepared_stats_();
+}
+
+void SignalGraph::clear_prepared_stats_() {
+    prepared_node_count_.store(0, std::memory_order_relaxed);
+    prepared_ordered_node_count_.store(0, std::memory_order_relaxed);
+    prepared_connection_count_.store(0, std::memory_order_relaxed);
+    prepared_total_ports_.store(0, std::memory_order_relaxed);
+    prepared_max_block_size_.store(0, std::memory_order_relaxed);
+    prepared_node_audio_buffer_bytes_.store(0, std::memory_order_relaxed);
+    prepared_automation_buffer_bytes_.store(0, std::memory_order_relaxed);
+    prepared_delay_buffer_bytes_.store(0, std::memory_order_relaxed);
+    prepared_total_buffer_bytes_.store(0, std::memory_order_relaxed);
+}
+
+void SignalGraph::publish_prepared_stats_(const CompiledGraph& cg) {
+    std::size_t total_ports = 0;
+    for (const auto& [_, shape] : cg.shapes) {
+        total_ports += static_cast<std::size_t>(std::max(0, shape.num_input_ports));
+        total_ports += static_cast<std::size_t>(std::max(0, shape.num_output_ports));
+    }
+
+    std::size_t node_audio_bytes = 0;
+    std::size_t automation_bytes = 0;
+    for (const auto& [_, rt] : cg.runtime) {
+        node_audio_bytes += (rt.output_data.size() + rt.input_data.size())
+            * sizeof(float);
+        automation_bytes += rt.audio_rate_param_data.size() * sizeof(float);
+    }
+
+    std::size_t delay_bytes = 0;
+    for (const auto& delay : cg.connection_delays) {
+        delay_bytes += (delay.ring.size() + delay.feedback_prev.size())
+            * sizeof(float);
+    }
+
+    const std::size_t total_buffer_bytes =
+        node_audio_bytes + automation_bytes + delay_bytes;
+
+    prepared_node_count_.store(cg.runtime.size(), std::memory_order_relaxed);
+    prepared_ordered_node_count_.store(cg.ordered_runtime.size(),
+                                       std::memory_order_relaxed);
+    prepared_connection_count_.store(cg.connections.size(), std::memory_order_relaxed);
+    prepared_total_ports_.store(total_ports, std::memory_order_relaxed);
+    prepared_max_block_size_.store(cg.max_block_size, std::memory_order_relaxed);
+    prepared_node_audio_buffer_bytes_.store(node_audio_bytes,
+                                            std::memory_order_relaxed);
+    prepared_automation_buffer_bytes_.store(automation_bytes,
+                                            std::memory_order_relaxed);
+    prepared_delay_buffer_bytes_.store(delay_bytes, std::memory_order_relaxed);
+    prepared_total_buffer_bytes_.store(total_buffer_bytes,
+                                       std::memory_order_relaxed);
+}
+
+void SignalGraph::retire_snapshot_(std::shared_ptr<CompiledGraph> snapshot) {
+    if (snapshot) retired_snapshots_.emplace_back(std::move(snapshot));
+    prune_retired_snapshots_();
+}
+
+void SignalGraph::prune_retired_snapshots_() {
+    if (active_process_readers_.load(std::memory_order_acquire) == 0) {
+        retired_snapshots_.clear();
+    }
+}
+
+void SignalGraph::wait_for_retired_snapshots_() {
+    while (active_process_readers_.load(std::memory_order_acquire) != 0) {
+        std::this_thread::yield();
+    }
+    retired_snapshots_.clear();
 }
 
 void SignalGraph::compute_latencies_for_(CompiledGraph& cg,
@@ -640,7 +983,7 @@ SignalGraph::compile_(double sample_rate, int max_block_size) {
             rt.input_ptrs[c] = rt.input_data.data() + static_cast<size_t>(c) * max_block_size;
             rt.input_const_ptrs[c] = rt.input_ptrs[c];
         }
-        rt.gain = n.gain;  // copy UI-thread scalar into per-snapshot runtime
+        rt.gain = std::make_unique<std::atomic<float>>(n.gain);
         if (n.plugin) {
             for (const auto& p : n.plugin->parameters()) {
                 rt.param_bounds.push_back({
@@ -650,7 +993,20 @@ SignalGraph::compile_(double sample_rate, int max_block_size) {
                 });
             }
         }
-        cg->runtime[n.id] = std::move(rt);
+        auto [runtime_it, inserted] = cg->runtime.emplace(n.id, std::move(rt));
+        (void)inserted;
+        prepare_midi_block_storage(runtime_it->second.midi_in,
+                                   runtime_it->second.midi_in_ump);
+        prepare_midi_block_storage(runtime_it->second.midi_out,
+                                   runtime_it->second.midi_out_ump);
+        if (n.type == NodeType::MidiInput) {
+            runtime_it->second.midi_input_mailbox =
+                std::make_unique<MidiInputMailbox>();
+        }
+        if (n.type == NodeType::MidiOutput) {
+            runtime_it->second.midi_output_mailbox =
+                std::make_unique<runtime::TripleBuffer<MidiBlockSnapshot>>();
+        }
 
         CompiledGraph::NodeShape shape{n.type, n.num_input_ports, n.num_output_ports};
         cg->shapes[n.id] = shape;
@@ -681,16 +1037,51 @@ SignalGraph::compile_(double sample_rate, int max_block_size) {
         }
     }
 
-    for (const auto& c : cg->connections) {
-        if (!c.audio_rate_modulation) continue;
+    for (size_t ci = 0; ci < cg->connections.size(); ++ci) {
+        const auto& c = cg->connections[ci];
         auto rt_it = cg->runtime.find(c.dest_node);
         if (rt_it == cg->runtime.end()) continue;
-        auto& ids = rt_it->second.audio_rate_param_ids;
-        if (std::find(ids.begin(), ids.end(), c.automation_param_id) == ids.end()) {
-            ids.push_back(c.automation_param_id);
-            rt_it->second.audio_rate_param_data.resize(
-                ids.size() * static_cast<size_t>(max_block_size), 0.0f);
+        auto src_rt_it = cg->runtime.find(c.source_node);
+        NodeRuntime* source_runtime =
+            src_rt_it == cg->runtime.end() ? nullptr : &src_rt_it->second;
+        auto& rt = rt_it->second;
+        NodeRuntime::EdgeRef edge_ref{ci, source_runtime};
+        if (c.feedback) cg->feedback_edges.push_back(edge_ref);
+        if (c.midi && !c.feedback) {
+            rt.inbound_midi_edges.push_back(edge_ref);
+        } else if (!c.midi && !c.automation && !c.audio_rate_modulation) {
+            rt.inbound_audio_edges.push_back(edge_ref);
         }
+        if (c.automation) {
+            rt.sparse_automation_edges.push_back(edge_ref);
+            auto& ids = rt.sparse_automation_param_ids;
+            if (std::find(ids.begin(), ids.end(), c.automation_param_id) == ids.end()) {
+                ids.push_back(c.automation_param_id);
+                rt.sparse_automation_accum.resize(ids.size());
+            }
+        }
+        if (c.audio_rate_modulation) {
+            rt.audio_rate_modulation_edges.push_back(edge_ref);
+            auto& ids = rt.audio_rate_param_ids;
+            if (std::find(ids.begin(), ids.end(), c.automation_param_id) == ids.end()) {
+                ids.push_back(c.automation_param_id);
+                rt.audio_rate_param_data.resize(
+                    ids.size() * static_cast<size_t>(max_block_size), 0.0f);
+                rt.audio_rate_accum.resize(ids.size());
+            }
+        }
+    }
+
+    cg->ordered_runtime.reserve(cg->order.size());
+    for (NodeId id : cg->order) {
+        auto rt_it = cg->runtime.find(id);
+        auto shape_it = cg->shapes.find(id);
+        if (rt_it == cg->runtime.end() || shape_it == cg->shapes.end()) continue;
+        cg->ordered_runtime.push_back({
+            id,
+            shape_it->second,
+            &rt_it->second,
+        });
     }
 
     compute_latencies_for_(*cg, connections_);
@@ -698,7 +1089,48 @@ SignalGraph::compile_(double sample_rate, int max_block_size) {
 }
 
 bool SignalGraph::prepare(double sample_rate, int max_block_size) {
-    if (max_block_size <= 0) return false;
+    live_raw_.store(nullptr, std::memory_order_release);
+    retire_snapshot_(std::move(live_));
+    total_latency_samples_.store(0, std::memory_order_relaxed);
+    clear_prepared_stats_();
+
+    const auto generated_validation = validate_generated_graph(max_block_size);
+    switch (generated_validation.reason) {
+    case GeneratedGraphValidationRejectReason::None:
+        break;
+    case GeneratedGraphValidationRejectReason::InvalidBlockSize:
+        return false;
+    case GeneratedGraphValidationRejectReason::MaxBlockSizeExceeded:
+        runtime::log_error(
+            "SignalGraph: max block size {} exceeds configured limit {}",
+            generated_validation.actual,
+            generated_validation.limit);
+        return false;
+    case GeneratedGraphValidationRejectReason::NodeLimitExceeded:
+        runtime::log_error(
+            "SignalGraph: node count {} exceeds configured limit {}",
+            generated_validation.actual,
+            generated_validation.limit);
+        return false;
+    case GeneratedGraphValidationRejectReason::ConnectionLimitExceeded:
+        runtime::log_error(
+            "SignalGraph: connection count {} exceeds configured limit {}",
+            generated_validation.actual,
+            generated_validation.limit);
+        return false;
+    case GeneratedGraphValidationRejectReason::PortLimitExceeded:
+        runtime::log_error(
+            "SignalGraph: port count {} exceeds configured limit {}",
+            generated_validation.actual,
+            generated_validation.limit);
+        return false;
+    case GeneratedGraphValidationRejectReason::EstimatedWorkExceeded:
+        runtime::log_error(
+            "SignalGraph: estimated work units {} exceed configured limit {}",
+            generated_validation.actual,
+            generated_validation.limit);
+        return false;
+    }
 
     std::unordered_map<NodeId, std::vector<uint32_t>> sparse_params_by_node;
     std::unordered_map<NodeId, std::vector<uint32_t>> audio_rate_params_by_node;
@@ -770,11 +1202,112 @@ bool SignalGraph::prepare(double sample_rate, int max_block_size) {
 
     auto cg = compile_(sample_rate, max_block_size);
     total_latency_samples_.store(cg->total_latency_samples, std::memory_order_relaxed);
-    std::atomic_store_explicit(&live_, std::move(cg), std::memory_order_release);
+    publish_prepared_stats_(*cg);
+    live_ = std::move(cg);
+    live_raw_.store(live_.get(), std::memory_order_release);
+    prune_retired_snapshots_();
     return true;
 }
 
+void SignalGraph::set_limits(GraphLimits limits) {
+    limits_ = limits;
+    invalidate_live_();
+}
+
+std::size_t SignalGraph::total_declared_ports_() const {
+    std::size_t port_count = 0;
+    for (const auto& n : nodes_) {
+        port_count += static_cast<std::size_t>(std::max(0, n.num_input_ports));
+        port_count += static_cast<std::size_t>(std::max(0, n.num_output_ports));
+    }
+    return port_count;
+}
+
+std::size_t
+SignalGraph::estimate_generated_graph_work_units(int max_block_size) const {
+    if (max_block_size <= 0) return 0;
+
+    const std::size_t block =
+        static_cast<std::size_t>(max_block_size);
+    const std::size_t port_count = total_declared_ports_();
+    std::size_t dense_edges = 0;
+    std::size_t sparse_edges = 0;
+    for (const auto& c : connections_) {
+        if (c.audio_rate_modulation) ++dense_edges;
+        if (c.automation && !c.audio_rate_modulation) ++sparse_edges;
+    }
+
+    std::size_t work = 0;
+    work = saturating_add(work, saturating_mul(nodes_.size(), 16));
+    work = saturating_add(work, saturating_mul(connections_.size(), 8));
+    work = saturating_add(work, saturating_mul(port_count, block));
+    work = saturating_add(work, saturating_mul(dense_edges, block));
+    work = saturating_add(work, saturating_mul(sparse_edges, 2));
+    return work;
+}
+
+SignalGraph::GeneratedGraphValidation
+SignalGraph::validate_generated_graph(int max_block_size) const {
+    if (max_block_size <= 0) {
+        return {
+            false,
+            GeneratedGraphValidationRejectReason::InvalidBlockSize,
+            max_block_size < 0 ? 0 : static_cast<std::size_t>(max_block_size),
+            1,
+        };
+    }
+    if (limits_.max_block_size > 0 && max_block_size > limits_.max_block_size) {
+        return {
+            false,
+            GeneratedGraphValidationRejectReason::MaxBlockSizeExceeded,
+            static_cast<std::size_t>(max_block_size),
+            static_cast<std::size_t>(limits_.max_block_size),
+        };
+    }
+    if (nodes_.size() > limits_.max_nodes) {
+        return {
+            false,
+            GeneratedGraphValidationRejectReason::NodeLimitExceeded,
+            nodes_.size(),
+            limits_.max_nodes,
+        };
+    }
+    if (connections_.size() > limits_.max_connections) {
+        return {
+            false,
+            GeneratedGraphValidationRejectReason::ConnectionLimitExceeded,
+            connections_.size(),
+            limits_.max_connections,
+        };
+    }
+    const std::size_t port_count = total_declared_ports_();
+    if (port_count > limits_.max_ports) {
+        return {
+            false,
+            GeneratedGraphValidationRejectReason::PortLimitExceeded,
+            port_count,
+            limits_.max_ports,
+        };
+    }
+    const std::size_t estimated_work =
+        estimate_generated_graph_work_units(max_block_size);
+    if (limits_.max_estimated_work_units > 0
+        && estimated_work > limits_.max_estimated_work_units) {
+        return {
+            false,
+            GeneratedGraphValidationRejectReason::EstimatedWorkExceeded,
+            estimated_work,
+            limits_.max_estimated_work_units,
+        };
+    }
+    return {};
+}
+
 void SignalGraph::release() {
+    live_raw_.store(nullptr, std::memory_order_release);
+    retire_snapshot_(std::move(live_));
+    wait_for_retired_snapshots_();
+
     for (auto& n : nodes_) if (n.plugin) n.plugin->release();
     // Phase 5 — release stateful custom instances (UI thread), mirroring the
     // plugin release above. The instance object stays alive until its snapshots
@@ -787,8 +1320,8 @@ void SignalGraph::release() {
             type->release(n.custom_instance.get());
         }
     }
-    std::atomic_store_explicit(&live_, std::shared_ptr<CompiledGraph>(nullptr), std::memory_order_release);
     total_latency_samples_.store(0, std::memory_order_relaxed);
+    clear_prepared_stats_();
 }
 
 std::vector<uint8_t> SignalGraph::custom_node_state(NodeId id) const {
@@ -828,7 +1361,17 @@ bool SignalGraph::set_custom_node_state(NodeId id,
 void SignalGraph::process(audio::BufferView<float>& output,
                           const audio::BufferView<const float>& input,
                           int num_samples) {
-    auto cg = std::atomic_load_explicit(&live_, std::memory_order_acquire);
+    struct ProcessReadGuard {
+        explicit ProcessReadGuard(SignalGraph& owner) noexcept : owner_(owner) {
+            owner_.active_process_readers_.fetch_add(1, std::memory_order_acq_rel);
+        }
+        ~ProcessReadGuard() noexcept {
+            owner_.active_process_readers_.fetch_sub(1, std::memory_order_acq_rel);
+        }
+        SignalGraph& owner_;
+    } read_guard{*this};
+
+    auto* cg = live_raw_.load(std::memory_order_acquire);
     // Negative or zero block sizes mean "nothing to do" — return without
     // touching output (a memset with size_t(negative) wraps to a huge size).
     if (num_samples <= 0) return;
@@ -858,43 +1401,47 @@ void SignalGraph::process(audio::BufferView<float>& output,
         }
     };
 
-    for (NodeId id : cg->order) {
-        auto shape_it = cg->shapes.find(id);
-        if (shape_it == cg->shapes.end()) continue;
-        const auto& shape = shape_it->second;
-        auto rt_it = cg->runtime.find(id);
-        if (rt_it == cg->runtime.end()) continue;
-        auto& rt = rt_it->second;
+    for (const auto& ordered : cg->ordered_runtime) {
+        const NodeId id = ordered.id;
+        const auto& shape = ordered.shape;
+        auto& rt = *ordered.runtime;
 
         // 1. Zero input scratch.
         if (!rt.input_data.empty()) {
             std::memset(rt.input_data.data(), 0, rt.input_data.size() * sizeof(float));
         }
-        rt.midi_in.clear();
-        if (shape.type != NodeType::MidiInput) rt.midi_out.clear();
+        rt.midi_in_incomplete = false;
+        clear_midi_block(rt.midi_in);
+        rt.midi_out_incomplete = false;
+        clear_midi_block(rt.midi_out);
+        if (shape.type == NodeType::MidiInput && rt.midi_input_mailbox) {
+            const auto& injected = rt.midi_input_mailbox->published.read();
+            if (injected.sequence != 0
+                && injected.sequence != rt.midi_input_sequence_seen) {
+                rt.midi_input_sequence_seen = injected.sequence;
+                if (!injected.copy_to_midi(rt.midi_out)) {
+                    rt.midi_out_incomplete = true;
+                }
+            }
+        }
 
         // 1b. Gather MIDI from MIDI-flagged inbound connections.
-        for (const auto& c : cg->connections) {
-            if (c.dest_node != id || !c.midi || c.feedback) continue;
-            auto src_it = cg->runtime.find(c.source_node);
-            if (src_it == cg->runtime.end()) continue;
-            for (const auto& ev : src_it->second.midi_out) rt.midi_in.add(ev);
+        for (const auto& edge : rt.inbound_midi_edges) {
+            if (!edge.source_runtime) continue;
+            if (!copy_midi_block(edge.source_runtime->midi_out, rt.midi_in)
+                || edge.source_runtime->midi_out_incomplete) {
+                rt.midi_in_incomplete = true;
+            }
         }
 
         // 2. Gather audio inbound with PDC/feedback delay lines.
-        for (size_t ci = 0; ci < cg->connections.size(); ++ci) {
+        for (const auto& edge : rt.inbound_audio_edges) {
+            const size_t ci = edge.connection_index;
             const auto& c = cg->connections[ci];
-            if (c.dest_node != id) continue;
-            if (c.midi) continue;
-            if (c.automation) continue;  // dispatched in the Plugin branch
-            if (c.audio_rate_modulation) continue;  // dense path is built separately
             const int dport = static_cast<int>(c.dest_port);
             if (dport < 0 || dport >= static_cast<int>(rt.input_ptrs.size())) continue;
-            if (c.source_node == 0) continue;
-
-            auto src_rt_it = cg->runtime.find(c.source_node);
-            if (src_rt_it == cg->runtime.end()) continue;
-            const auto& src_rt = src_rt_it->second;
+            if (!edge.source_runtime) continue;
+            const auto& src_rt = *edge.source_runtime;
             const int sport = static_cast<int>(c.source_port);
             if (sport < 0 || sport >= static_cast<int>(src_rt.output_ptrs.size())) continue;
 
@@ -958,11 +1505,11 @@ void SignalGraph::process(audio::BufferView<float>& output,
                 audio::BufferView<float> out_view(
                     rt.output_ptrs.data(), rt.output_ptrs.size(),
                     static_cast<std::size_t>(num_samples));
-                std::vector<const float*> in_const(rt.input_ptrs.begin(), rt.input_ptrs.end());
                 audio::BufferView<const float> in_c(
-                    in_const.data(), in_const.size(),
+                    rt.input_const_ptrs.data(), rt.input_const_ptrs.size(),
                     static_cast<std::size_t>(num_samples));
-                rt.midi_out.clear();
+                clear_midi_block(rt.midi_out);
+                rt.midi_out_incomplete = false;
 
                 // Build per-block automation event queue. For each
                 // (param_id) target, collect values from every automation
@@ -989,21 +1536,20 @@ void SignalGraph::process(audio::BufferView<float>& output,
                         };
                     };
 
-                    struct Accum {
-                        float v0 = 0.f, vN = 0.f;
-                        float lo = 0.f, hi = 1.f;
-                        bool has_add = false;
-                    };
-                    std::unordered_map<uint32_t, Accum> acc;
+                    for (auto& a : rt.sparse_automation_accum) {
+                        a = NodeRuntime::SparseAutomationAccum{};
+                    }
                     const int last = num_samples - 1;
-                    for (size_t ci = 0; ci < cg->connections.size(); ++ci) {
+                    for (const auto& edge : rt.sparse_automation_edges) {
+                        const size_t ci = edge.connection_index;
                         const auto& c = cg->connections[ci];
-                        if (!c.automation || c.dest_node != id) continue;
-                        auto src_it = cg->runtime.find(c.source_node);
-                        if (src_it == cg->runtime.end()) continue;
+                        if (!edge.source_runtime) continue;
                         const int sport = static_cast<int>(c.source_port);
-                        if (sport < 0 || sport >= (int)src_it->second.output_ptrs.size()) continue;
-                        const float* src = src_it->second.output_ptrs[sport];
+                        if (sport < 0
+                            || sport >= (int)edge.source_runtime->output_ptrs.size()) {
+                            continue;
+                        }
+                        const float* src = edge.source_runtime->output_ptrs[sport];
                         const float s0 = std::clamp(src[0], 0.0f, 1.0f);
                         const float sN = std::clamp(src[last < 0 ? 0 : last], 0.0f, 1.0f);
                         float m0 = c.automation_range_lo
@@ -1069,12 +1615,18 @@ void SignalGraph::process(audio::BufferView<float>& output,
                             mN = new_vN;
                         }
 
-                        auto& a = acc[c.automation_param_id];
+                        auto param_it = std::find(rt.sparse_automation_param_ids.begin(),
+                                                  rt.sparse_automation_param_ids.end(),
+                                                  c.automation_param_id);
+                        if (param_it == rt.sparse_automation_param_ids.end()) continue;
+                        auto& a = rt.sparse_automation_accum[static_cast<size_t>(
+                            std::distance(rt.sparse_automation_param_ids.begin(), param_it))];
                         const auto bounds = bounds_for_param(c.automation_param_id,
                                                              c.automation_range_lo,
                                                              c.automation_range_hi);
                         a.lo = bounds.first;
                         a.hi = bounds.second;
+                        a.touched = true;
                         if (c.automation_mix == AutomationMix::Replace) {
                             a.v0 = m0;
                             a.vN = mN;
@@ -1084,7 +1636,10 @@ void SignalGraph::process(audio::BufferView<float>& output,
                             a.has_add = true;
                         }
                     }
-                    for (auto& [pid, a] : acc) {
+                    for (size_t pi = 0; pi < rt.sparse_automation_accum.size(); ++pi) {
+                        auto& a = rt.sparse_automation_accum[pi];
+                        if (!a.touched) continue;
+                        const uint32_t pid = rt.sparse_automation_param_ids[pi];
                         float v0 = a.v0, vN = a.vN;
                         if (a.has_add) {
                             const float lo = std::min(a.lo, a.hi);
@@ -1105,33 +1660,17 @@ void SignalGraph::process(audio::BufferView<float>& output,
                                   rt.audio_rate_param_data.end(),
                                   0.0f);
 
-                        struct DenseAccum {
-                            float* values = nullptr;
-                            float lo = 0.0f;
-                            float hi = 1.0f;
-                            bool has_replace = false;
-                            bool has_add = false;
-                        };
-                        std::vector<DenseAccum> dense;
-                        dense.reserve(rt.audio_rate_param_ids.size());
-                        for (size_t pi = 0; pi < rt.audio_rate_param_ids.size(); ++pi) {
-                            dense.push_back({
-                                rt.audio_rate_param_data.data() + pi * block,
-                                0.0f,
-                                1.0f,
-                                false,
-                                false,
-                            });
+                        for (auto& d : rt.audio_rate_accum) {
+                            d = NodeRuntime::DenseAutomationAccum{};
                         }
 
-                        for (size_t ci = 0; ci < cg->connections.size(); ++ci) {
+                        for (const auto& edge : rt.audio_rate_modulation_edges) {
+                            const size_t ci = edge.connection_index;
                             const auto& c = cg->connections[ci];
-                            if (!c.audio_rate_modulation || c.dest_node != id) continue;
-                            auto src_it = cg->runtime.find(c.source_node);
-                            if (src_it == cg->runtime.end()) continue;
+                            if (!edge.source_runtime) continue;
                             const int sport = static_cast<int>(c.source_port);
                             if (sport < 0
-                                || sport >= (int)src_it->second.output_ptrs.size()) {
+                                || sport >= (int)edge.source_runtime->output_ptrs.size()) {
                                 continue;
                             }
 
@@ -1139,24 +1678,27 @@ void SignalGraph::process(audio::BufferView<float>& output,
                                                       rt.audio_rate_param_ids.end(),
                                                       c.automation_param_id);
                             if (param_it == rt.audio_rate_param_ids.end()) continue;
-                            auto& dst = dense[static_cast<size_t>(
-                                std::distance(rt.audio_rate_param_ids.begin(), param_it))];
+                            const size_t param_index = static_cast<size_t>(
+                                std::distance(rt.audio_rate_param_ids.begin(), param_it));
+                            auto& dst = rt.audio_rate_accum[param_index];
+                            float* dst_values =
+                                rt.audio_rate_param_data.data() + param_index * block;
                             const auto bounds = bounds_for_param(c.automation_param_id,
                                                                  c.automation_range_lo,
                                                                  c.automation_range_hi);
                             dst.lo = bounds.first;
                             dst.hi = bounds.second;
 
-                            const float* src = src_it->second.output_ptrs[sport];
+                            const float* src = edge.source_runtime->output_ptrs[sport];
                             auto& dl = cg->connection_delays[ci];
                             if (dl.delay_samples <= 0 || dl.ring.empty()) {
                                 for (int i = 0; i < num_samples; ++i) {
                                     const float value = map_modulation_sample(c, src[i]);
                                     if (c.automation_mix == AutomationMix::Replace) {
-                                        dst.values[static_cast<size_t>(i)] = value;
+                                        dst_values[static_cast<size_t>(i)] = value;
                                         dst.has_replace = true;
                                     } else {
-                                        dst.values[static_cast<size_t>(i)] += value;
+                                        dst_values[static_cast<size_t>(i)] += value;
                                         dst.has_add = true;
                                     }
                                 }
@@ -1171,10 +1713,10 @@ void SignalGraph::process(audio::BufferView<float>& output,
                                     const float value = map_modulation_sample(
                                         c, dl.ring[static_cast<size_t>(rp)]);
                                     if (c.automation_mix == AutomationMix::Replace) {
-                                        dst.values[static_cast<size_t>(i)] = value;
+                                        dst_values[static_cast<size_t>(i)] = value;
                                         dst.has_replace = true;
                                     } else {
-                                        dst.values[static_cast<size_t>(i)] += value;
+                                        dst_values[static_cast<size_t>(i)] += value;
                                         dst.has_add = true;
                                     }
                                     if (++wp == ring_size) wp = 0;
@@ -1184,14 +1726,16 @@ void SignalGraph::process(audio::BufferView<float>& output,
                             }
                         }
 
-                        for (size_t pi = 0; pi < dense.size(); ++pi) {
-                            const auto& d = dense[pi];
+                        for (size_t pi = 0; pi < rt.audio_rate_accum.size(); ++pi) {
+                            const auto& d = rt.audio_rate_accum[pi];
                             if (!d.has_replace && !d.has_add) continue;
                             const uint32_t param_id = rt.audio_rate_param_ids[pi];
+                            const float* values =
+                                rt.audio_rate_param_data.data() + pi * block;
                             const float lo = std::min(d.lo, d.hi);
                             const float hi = std::max(d.lo, d.hi);
                             for (int i = 0; i < num_samples; ++i) {
-                                float value = d.values[static_cast<size_t>(i)];
+                                float value = values[static_cast<size_t>(i)];
                                 if (d.has_add) value = std::clamp(value, lo, hi);
                                 if (!push_parameter_event(param_events, param_id, i, value)) {
                                     break;
@@ -1202,12 +1746,51 @@ void SignalGraph::process(audio::BufferView<float>& output,
                     param_events.sort();
                 }
 
-                pit->second->process(out_view, in_c, rt.midi_in, rt.midi_out,
+                std::array<format::ProcessBusBufferView<const float>, 1> input_buses{{
+                    {
+                        .info = {
+                            .name = "Graph Plugin In",
+                            .index = 0,
+                            .direction = format::BusDirection::Input,
+                            .role = format::BusRole::Main,
+                            .declared_channels =
+                                static_cast<int>(in_c.num_channels()),
+                            .optional = in_c.num_channels() == 0,
+                            .active = in_c.num_channels() > 0,
+                        },
+                        .buffer = in_c,
+                    },
+                }};
+                std::array<format::ProcessBusBufferView<float>, 1> output_buses{{
+                    {
+                        .info = {
+                            .name = "Graph Plugin Out",
+                            .index = 0,
+                            .direction = format::BusDirection::Output,
+                            .role = format::BusRole::Main,
+                            .declared_channels =
+                                static_cast<int>(out_view.num_channels()),
+                            .optional = false,
+                            .active = out_view.num_channels() > 0,
+                        },
+                        .buffer = out_view,
+                    },
+                }};
+                format::ProcessBuffers process_buffers{
+                    format::ProcessBusBufferSet<const float>{std::span(input_buses)},
+                    format::ProcessBusBufferSet<float>{std::span(output_buses)},
+                };
+
+                pit->second->process(process_buffers, rt.midi_in, rt.midi_out,
                                      param_events, num_samples);
+                rt.midi_out_incomplete =
+                    rt.midi_in_incomplete || midi_block_has_drops(rt.midi_out);
                 break;
             }
             case NodeType::Gain: {
-                const float g = rt.gain;
+                const float g = rt.gain
+                    ? rt.gain->load(std::memory_order_relaxed)
+                    : 1.0f;
                 const int chs = std::min(
                     static_cast<int>(rt.input_ptrs.size()),
                     static_cast<int>(rt.output_ptrs.size()));
@@ -1230,7 +1813,15 @@ void SignalGraph::process(audio::BufferView<float>& output,
                 break;
             }
             case NodeType::MidiInput:
+                break;
             case NodeType::MidiOutput:
+                if (rt.midi_output_mailbox) {
+                    cg->midi_publish_scratch.set_from_midi(
+                        rt.midi_in,
+                        0,
+                        rt.midi_in_incomplete);
+                    rt.midi_output_mailbox->write(cg->midi_publish_scratch);
+                }
                 break;
             case NodeType::Custom:
                 if (auto custom_it = cg->custom_processors.find(id);
@@ -1250,12 +1841,11 @@ void SignalGraph::process(audio::BufferView<float>& output,
     }
 
     // Capture each feedback source's current block for the *next* block.
-    for (size_t ci = 0; ci < cg->connections.size(); ++ci) {
+    for (const auto& edge : cg->feedback_edges) {
+        const size_t ci = edge.connection_index;
         const auto& c = cg->connections[ci];
-        if (!c.feedback) continue;
-        auto src_it = cg->runtime.find(c.source_node);
-        if (src_it == cg->runtime.end()) continue;
-        const auto& src_rt = src_it->second;
+        if (!edge.source_runtime) continue;
+        const auto& src_rt = *edge.source_runtime;
         const int sport = static_cast<int>(c.source_port);
         if (sport < 0 || sport >= static_cast<int>(src_rt.output_ptrs.size())) continue;
         auto& dl = cg->connection_delays[ci];
@@ -1265,13 +1855,13 @@ void SignalGraph::process(audio::BufferView<float>& output,
                     sizeof(float) * static_cast<size_t>(num_samples));
     }
 
-    // Drain MidiInput nodes' midi_out so events injected for THIS block
-    // don't get re-consumed next block. inject_midi() runs before the
-    // next process() call to refill them.
-    for (auto& [nid, rt] : cg->runtime) {
-        auto sit = cg->shapes.find(nid);
-        if (sit != cg->shapes.end() && sit->second.type == NodeType::MidiInput) {
-            rt.midi_out.clear();
+    // Drain MidiInput nodes' audio-thread scratch so events consumed for THIS
+    // block never carry over. inject_midi() publishes into the mailbox; the
+    // next process() call copies a new, unseen snapshot back into midi_out.
+    for (const auto& ordered : cg->ordered_runtime) {
+        if (ordered.shape.type == NodeType::MidiInput) {
+            clear_midi_block(ordered.runtime->midi_out);
+            ordered.runtime->midi_out_incomplete = false;
         }
     }
 }
@@ -1285,16 +1875,17 @@ void SignalGraph::clear() {
 
 bool SignalGraph::set_node_gain(NodeId id, float linear_gain) {
     // Write the UI-thread-owned scalar on GraphNode so it survives future
-    // compile_() calls. Also reflect into the live snapshot's runtime (safe:
-    // the audio thread reads it once per block as a plain float load) so the
-    // change takes effect without a re-prepare.
+    // compile_() calls. Also reflect into the live snapshot's runtime through
+    // a per-runtime atomic so the change takes effect without a re-prepare.
     auto* n = const_cast<GraphNode*>(node(id));
     if (!n) return false;
     n->gain = linear_gain;
-    auto cg = std::atomic_load_explicit(&live_, std::memory_order_acquire);
+    auto* cg = live_raw_.load(std::memory_order_acquire);
     if (cg) {
         auto it = cg->runtime.find(id);
-        if (it != cg->runtime.end()) it->second.gain = linear_gain;
+        if (it != cg->runtime.end() && it->second.gain) {
+            it->second.gain->store(linear_gain, std::memory_order_relaxed);
+        }
     }
     return true;
 }

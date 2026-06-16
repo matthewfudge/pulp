@@ -32,6 +32,6 @@ target_link_libraries(pulp-design-import-bench PRIVATE
 # skia::skia so the linker resolves SkFontMgr_New_FontConfig's Fc*
 # references. Caused v0.100.0 release-cli linux-x64 to fail; was
 # already in place for pulp-cli.
-include(${CMAKE_SOURCE_DIR}/tools/cmake/PulpLinkFontconfig.cmake)
+include(${Pulp_SOURCE_DIR}/tools/cmake/PulpLinkFontconfig.cmake)
 pulp_link_fontconfig_after_skia(pulp-import-design)
 pulp_link_fontconfig_after_skia(pulp-design-import-bench)

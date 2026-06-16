@@ -17,13 +17,62 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <pulp/format/au_v2_adapter.hpp>
+#include <pulp/format/au_v2_instrument.hpp>  // pulls the MusicDevice SDK (AUMusicLookup)
 #include <pulp/midi/buffer.hpp>
 #include <pulp/midi/message.hpp>
+
+#include <AudioUnitSDK/AUPlugInDispatch.h>
+#include <AudioToolbox/AudioUnit.h>
 
 #include <cstdint>
 
 using namespace pulp;
 using pulp::format::au::decode_midi_event;
+
+// Component-entry dispatch contract for MIDI-receiving effects (`aumf`).
+//
+// The bug this guards: PULP_AU_MIDI_PLUGIN must register through
+// ausdk::AUMIDIEffectFactory, NOT ausdk::AUBaseFactory. A factory only
+// dispatches the selectors its lookup table carries — AUBaseLookup has no
+// MusicDevice selectors, so a `MusicDeviceMIDIEvent` call on an aumf built
+// with the base factory returns -4 (unimpErr) and auval fails with
+// "-4 IN CALL MusicDeviceMIDIEvent" (the host never delivers a note). The
+// adapter class already implements HandleMIDIEvent; the *lookup table* is
+// what was wrong. This pins the exact selector the two factories' lookups
+// must (and must not) carry, so a regression to the base factory is caught
+// in CI instead of at auval/Logic time.
+TEST_CASE("AU v2 MIDI-effect lookup dispatches MusicDeviceMIDIEvent; "
+          "base lookup does not",
+          "[au][midi][au-v2][dispatch]")
+{
+    // AUMIDIEffectFactory (used by PULP_AU_MIDI_PLUGIN) routes the
+    // MusicDevice MIDIEvent selector to a real method.
+    REQUIRE(ausdk::AUMIDILookup::Lookup(kMusicDeviceMIDIEventSelect) != nullptr);
+    // The plain effect factory (PULP_AU_PLUGIN, aufx) does not — calling
+    // MusicDeviceMIDIEvent there is the unimplemented path that broke aumf.
+    REQUIRE(ausdk::AUBaseLookup::Lookup(kMusicDeviceMIDIEventSelect) == nullptr);
+    // Both still dispatch a core selector — sanity that the lookups are live.
+    REQUIRE(ausdk::AUMIDILookup::Lookup(kAudioUnitInitializeSelect) != nullptr);
+    REQUIRE(ausdk::AUBaseLookup::Lookup(kAudioUnitInitializeSelect) != nullptr);
+}
+
+// The INSTRUMENT (`aumu`) analogue of the dispatch bug above. PULP_AU_INSTRUMENT
+// registers through ausdk::AUMusicDeviceFactory (lookup = AUMusicLookup), which
+// carries the MusicDevice MIDI selector. The plain PULP_AU_PLUGIN (AUBaseFactory)
+// does NOT — so an instrument mistakenly built with the effect macro stamps an
+// `aumu` Info.plist but returns -4 (unimpErr) on MusicDeviceMIDIEvent: it loads,
+// plays UI-triggered audio, and silently ignores all host MIDI. That is exactly
+// the "AU plays slice taps but not MIDI" bug (PulpTempoSampler used PULP_AU_PLUGIN
+// before this fix). This pins the selector the instrument factory must carry.
+TEST_CASE("AU v2 instrument lookup dispatches MusicDeviceMIDIEvent; "
+          "base lookup does not",
+          "[au][midi][au-v2][dispatch]")
+{
+    REQUIRE(ausdk::AUMusicLookup::Lookup(kMusicDeviceMIDIEventSelect) != nullptr);
+    REQUIRE(ausdk::AUBaseLookup::Lookup(kMusicDeviceMIDIEventSelect) == nullptr);
+    // Sanity: the instrument lookup also dispatches a core selector.
+    REQUIRE(ausdk::AUMusicLookup::Lookup(kAudioUnitInitializeSelect) != nullptr);
+}
 
 TEST_CASE("AU v2 effect: Control Change decode round-trips channel + data",
           "[au][midi][au-v2][issue-pending]")
@@ -162,4 +211,19 @@ TEST_CASE("AU v2 effect: sysex routing lands in MidiBuffer's sysex sidecar",
     REQUIRE(buf.sysex_size() == 1);
     REQUIRE(buf.sysex()[0].data == payload);
     REQUIRE(buf.sysex()[0].sample_offset == 0);
+}
+
+TEST_CASE("AU v2 render context is explicit realtime for effects and instruments",
+          "[au][au-v2][runtime-mode][phase2]")
+{
+    const auto ctx = pulp::format::au::make_render_process_context(
+        /*sample_rate=*/48000.0, /*num_samples=*/128);
+
+    REQUIRE(ctx.sample_rate == 48000.0);
+    REQUIRE(ctx.num_samples == 128);
+    REQUIRE(ctx.process_mode == pulp::format::ProcessMode::Realtime);
+    REQUIRE(ctx.render_speed_hint == pulp::format::RenderSpeedHint::Realtime);
+    REQUIRE_FALSE(ctx.is_offline());
+    REQUIRE_FALSE(ctx.allows_offline_quality_work());
+    REQUIRE_FALSE(ctx.is_maintenance_render());
 }

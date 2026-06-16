@@ -18,7 +18,12 @@ import type {
   ExtractedDiagnostic,
 } from "./extract-model";
 import { AssetCache } from "./assets";
-import { parseFrameKnobs, decodeSvgBytes } from "./faithful-vector";
+import {
+  parseFrameKnobs,
+  parsePanelBounds,
+  detectOverlayControls,
+  decodeSvgBytes,
+} from "./faithful-vector";
 import { extractTokens, type ExtractedTokens } from "./tokens";
 import {
   widgetKindByLibraryKey,
@@ -105,7 +110,11 @@ export async function extractScene(
   const cfg = {
     includeHidden: opts.includeHidden ?? false,
     maxNodes: opts.maxNodes ?? 5000,
-    faithfulVector: opts.faithfulVector ?? false,
+    // Faithful-vector is the DEFAULT import lane (matches the REST exporter's
+    // --faithful-vector default-on): the frame renders its own SVG pixel-
+    // faithfully with auto-detected INTERACTIVE overlays. Pass
+    // `faithfulVector: false` for the legacy flat, static node tree.
+    faithfulVector: opts.faithfulVector ?? true,
   };
   const diagnostics: ExtractedDiagnostic[] = [];
   const assets = new AssetCache();
@@ -698,8 +707,19 @@ async function applyFaithfulVector(
   node.svg_asset_id = res.assetId;
   const entry = ctx.assets.entries().find((e) => e.asset_id === res.assetId);
   if (entry) {
-    const knobs = parseFrameKnobs(decodeSvgBytes(entry.bytes));
-    if (knobs.length > 0) node.interactive_elements = knobs;
+    const svg = decodeSvgBytes(entry.bytes);
+    // Geometry knobs from the SVG + source-metadata overlays from the node tree
+    // (search/dropdown/stepper/tabs), mapped into the SVG's panel space — kept in
+    // lockstep with the REST lane (figma_rest_export.py).
+    const knobs = parseFrameKnobs(svg);
+    const panel = parsePanelBounds(svg);
+    const overlays = detectOverlayControls(
+      node,
+      [node.absolute_bounds.x, node.absolute_bounds.y],
+      [panel[0], panel[1]],
+    );
+    const all = knobs.concat(overlays);
+    if (all.length > 0) node.interactive_elements = all;
   }
 }
 

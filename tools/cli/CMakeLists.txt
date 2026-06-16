@@ -61,21 +61,34 @@ add_executable(pulp-cli
     cmd_validate.cpp
     cmd_sdk.cpp
     cmd_audio.cpp
+    cmd_audio_validate.cpp
     cmd_version.cpp
     cmd_dev.cpp
     cmd_loop.cpp
     cmd_host.cpp
+    au_info_plist.cpp
+    cmd_import.cpp
+    import_run.cpp
+    import_detect.cpp
+    import_spi.cpp
+    import_emit.cpp
+    import_emit_scan.cpp
+    import_terms.cpp
+    content_commands.cpp
+    kit_commands.cpp
     cmd_pr.cpp
     cmd_inspect.cpp
     cmd_tweaks.cpp
     design_binding.cpp
     create_targets.cpp
     package_registry.cpp
+    package_analyzer_descriptors.cpp
     package_commands.cpp
     package_commands_util.cpp
     package_commands_search.cpp
     package_commands_add.cpp
     tool_registry.cpp
+    importer_install.cpp
     version_diag.cpp
     projects_registry.cpp
     fetchcontent_cache.cpp
@@ -102,7 +115,7 @@ add_executable(pulp-cli
 # basename — so all ctest entries below keep working.
 set_target_properties(pulp-cli PROPERTIES OUTPUT_NAME "pulp-cpp")
 target_compile_features(pulp-cli PRIVATE cxx_std_20)
-target_link_libraries(pulp-cli PRIVATE pulp::runtime pulp::tool-audio pulp::ship pulp::view pulp::format pulp::inspect pulp::host)
+target_link_libraries(pulp-cli PRIVATE pulp::runtime pulp::tool-audio pulp::audio-analysis pulp::ship pulp::view pulp::format pulp::inspect pulp::host)
 
 # Link-order fix for libskia.a → fontconfig on Linux+GNU ld (#1962).
 #
@@ -158,6 +171,15 @@ install(TARGETS pulp-cli RUNTIME DESTINATION "${_pulp_cli_install_bindir}")
 
 # Integration tests for CLI commands
 if(PULP_BUILD_TESTS)
+    add_executable(pulp-test-cli-au-info-plist
+        ${CMAKE_SOURCE_DIR}/test/test_cli_au_info_plist.cpp
+        au_info_plist.cpp)
+    target_include_directories(pulp-test-cli-au-info-plist PRIVATE
+        ${CMAKE_SOURCE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(pulp-test-cli-au-info-plist PRIVATE Catch2::Catch2WithMain)
+    add_test(NAME pulp-test-cli-au-info-plist COMMAND pulp-test-cli-au-info-plist)
+
     set(_pulp_cli_doctor_ctest_env
         "PULP_UPDATE_CHECK_DISABLED=1"
         "PULP_HOME=${CMAKE_BINARY_DIR}/test-tmp/pulp-home-doctor")

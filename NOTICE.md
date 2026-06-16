@@ -3,6 +3,16 @@
 Pulp includes or depends on the following third-party software.
 Entries are listed in alphabetical order (case-insensitive).
 
+This file covers code that Pulp **redistributes** (bundles, vendors, or fetches
+into a shipped artifact). Operating-system libraries, services, and frameworks
+that Pulp merely links dynamically, `dlopen`s at runtime, talks to over D-Bus
+IPC, or invokes as a subprocess — e.g. ALSA, JACK, D-Bus, BlueZ,
+xdg-desktop-portal, AT-SPI2, the WinRT/Windows SDK system APIs, and Apple's
+system frameworks — are **not** redistributed by Pulp and so are not listed
+here. They are recognized in `DEPENDENCIES.md` ("System / OS-Provided
+Dependencies") and on the public licensing page
+(`docs/reference/licensing.md` → generouscorp.com/pulp/licensing).
+
 ---
 
 ## AudioUnitSDK
@@ -504,7 +514,7 @@ theme are redistributed in the generated docs site (generouscorp.com/pulp/).
 
 Copyright (c) 2016-2024 Viktor Chlumský
 
-MIT License — used (planned) for multi-channel signed distance field
+MIT License — reserved for multi-channel signed distance field
 generation. Source: https://github.com/Chlumsky/msdfgen
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -863,7 +873,7 @@ Sjaak Smetsers.
 Public domain (the TweetNaCl authors disclaim all copyright; see
 https://tweetnacl.cr.yp.to/). Used for Ed25519 sign/verify per RFC 8032,
 wired into `pulp::runtime::ed25519_*` for Sparkle appcast signatures
-and future v2 license-key payloads. `randombytes()` is supplied by
+and signed node/package metadata. `randombytes()` is supplied by
 `core/runtime/src/crypto.cpp` and routes to the runtime's mbedTLS
 CTR-DRBG instance.
 

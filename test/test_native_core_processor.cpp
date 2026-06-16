@@ -14,11 +14,23 @@
 #include <pulp/state/parameter_event_queue.hpp>
 #include <pulp/state/store.hpp>
 
+#if PULP_NATIVE_CORE_PROCESS_RT_TRAP_TESTS
+#include "native_components/rt_test_scope.hpp"
+#endif
+
 #include <catch2/catch_test_macros.hpp>
 
+#include <csignal>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <vector>
+
+#if PULP_NATIVE_CORE_PROCESS_RT_TRAP_TESTS
+#include <pthread.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 using namespace pulp;
 
@@ -66,6 +78,10 @@ pulp_native_param_v1 g_param = [] {
     return p;
 }();
 
+uint32_t g_last_param_view_count = 0;
+uint32_t g_last_param_view_capacity = 0;
+uint32_t g_last_param_view_overflowed = 0;
+
 const pulp_native_descriptor_v1* gain_descriptor() { return &g_desc; }
 const pulp_native_param_v1* gain_parameters(uint32_t* count) {
     if (count) *count = 1;
@@ -103,12 +119,19 @@ pulp_native_status gain_process(pulp_native_instance* inst,
     // Apply the last automation event for our parameter (offset-aware handling
     // is a DSP concern; this fixture just takes the final value for the block).
     if (io->params != nullptr && io->params->events != nullptr) {
+        g_last_param_view_count = io->params->count;
+        g_last_param_view_capacity = io->params->capacity;
+        g_last_param_view_overflowed = io->params->overflowed;
         for (uint32_t e = 0; e < io->params->count; ++e) {
             const auto& ev = io->params->events[e];
             if (ev.param_id_hash == g_param.id_hash) {
                 self->gain = static_cast<float>(ev.value);
             }
         }
+    } else {
+        g_last_param_view_count = 0;
+        g_last_param_view_capacity = 0;
+        g_last_param_view_overflowed = 0;
     }
     const auto* audio = io->audio;
     for (uint32_t b = 0; b < audio->output_bus_count; ++b) {
@@ -206,6 +229,35 @@ struct Block {
     }
 };
 
+void prepare_gain_processor(format::NativeCoreProcessor& proc,
+                            state::StateStore& store,
+                            std::size_t frames) {
+    proc.define_parameters(store);
+    format::PrepareContext ctx;
+    ctx.sample_rate = 48000.0;
+    ctx.max_buffer_size = static_cast<int>(frames);
+    ctx.input_channels = 2;
+    ctx.output_channels = 2;
+    proc.prepare(ctx);
+}
+
+#if PULP_NATIVE_CORE_PROCESS_RT_TRAP_TESTS
+void require_child_traps_in_rt_scope(void (*body)()) {
+    std::fflush(nullptr);
+    const pid_t pid = ::fork();
+    REQUIRE(pid >= 0);
+    if (pid == 0) {
+        body();
+        _exit(0);
+    }
+    int status = 0;
+    REQUIRE(::waitpid(pid, &status, 0) == pid);
+    INFO("child status=" << status);
+    REQUIRE(WIFSIGNALED(status));
+    REQUIRE((WTERMSIG(status) == SIGABRT || WTERMSIG(status) == SIGTRAP));
+}
+#endif
+
 }  // namespace
 
 TEST_CASE("NativeCoreProcessor mirrors the native descriptor",
@@ -236,16 +288,9 @@ TEST_CASE("NativeCoreProcessor bridges automation and processes audio",
           "[native-core-processor]") {
     format::NativeCoreProcessor proc(&g_core);
     state::StateStore store;
-    proc.define_parameters(store);
-
-    format::PrepareContext ctx;
-    ctx.sample_rate = 48000.0;
-    ctx.max_buffer_size = 64;
-    ctx.input_channels = 2;
-    ctx.output_channels = 2;
-    proc.prepare(ctx);
 
     constexpr std::size_t frames = 64;
+    prepare_gain_processor(proc, store, frames);
     Block in(frames, 1.0f);
     Block out(frames, 0.0f);
     audio::BufferView<float> out_view(out.ptrs.data(), 2, frames);
@@ -267,6 +312,95 @@ TEST_CASE("NativeCoreProcessor bridges automation and processes audio",
     REQUIRE(out.l[0] == 0.5f);
     REQUIRE(out.r[frames - 1] == 0.5f);
 }
+
+TEST_CASE("NativeCoreProcessor forwards parameter-event overflow to native cores",
+          "[native-core-processor][params][overflow]") {
+    format::NativeCoreProcessor proc(&g_core);
+    state::StateStore store;
+
+    constexpr std::size_t frames = 16;
+    prepare_gain_processor(proc, store, frames);
+    Block in(frames, 1.0f);
+    Block out(frames, 0.0f);
+    audio::BufferView<float> out_view(out.ptrs.data(), 2, frames);
+    audio::BufferView<const float> in_view(
+        const_cast<const float* const*>(in.ptrs.data()), 2, frames);
+
+    state::ParameterEventQueue queue;
+    for (std::size_t i = 0; i < queue.capacity(); ++i) {
+        REQUIRE(queue.push({/*param_id=*/0,
+                            /*offset=*/0,
+                            /*value=*/0.25f,
+                            /*ramp=*/0}));
+    }
+    REQUIRE_FALSE(queue.push({/*param_id=*/0,
+                              /*offset=*/0,
+                              /*value=*/0.75f,
+                              /*ramp=*/0}));
+    REQUIRE(queue.overflowed());
+    proc.set_param_events(&queue);
+
+    midi::MidiBuffer min, mout;
+    format::ProcessContext pctx;
+    pctx.sample_rate = 48000.0;
+    pctx.num_samples = frames;
+    proc.process(out_view, in_view, min, mout, pctx);
+
+    REQUIRE(g_last_param_view_count == queue.capacity());
+    REQUIRE(g_last_param_view_capacity == queue.capacity());
+    REQUIRE(g_last_param_view_overflowed == 1);
+}
+
+#if PULP_NATIVE_CORE_PROCESS_RT_TRAP_TESTS
+TEST_CASE("NativeCoreProcessor process path is no-alloc and no-lock after prepare",
+          "[native-core-processor][rt-safety]") {
+    format::NativeCoreProcessor proc(&g_core);
+    state::StateStore store;
+
+    constexpr std::size_t frames = 64;
+    prepare_gain_processor(proc, store, frames);
+    Block in(frames, 1.0f);
+    Block out(frames, 0.0f);
+    audio::BufferView<float> out_view(out.ptrs.data(), 2, frames);
+    audio::BufferView<const float> in_view(
+        const_cast<const float* const*>(in.ptrs.data()), 2, frames);
+    state::ParameterEventQueue queue;
+    queue.push({/*param_id=*/0, /*offset=*/0, /*value=*/0.25f, /*ramp=*/0});
+    proc.set_param_events(&queue);
+    midi::MidiBuffer min, mout;
+    format::ProcessContext pctx;
+    pctx.sample_rate = 48000.0;
+    pctx.num_samples = frames;
+
+    {
+        native_components::test::RtNoAllocScope guard;
+        proc.process(out_view, in_view, min, mout, pctx);
+    }
+
+    REQUIRE(out.l[0] == 0.25f);
+    REQUIRE(out.r[frames - 1] == 0.25f);
+}
+
+TEST_CASE("NativeCoreProcessor RT harness traps C++ allocation",
+          "[native-core-processor][rt-safety]") {
+    require_child_traps_in_rt_scope([] {
+        native_components::test::RtNoAllocScope guard;
+        void* leak = ::operator new(sizeof(int));
+        (void)leak;
+    });
+}
+
+TEST_CASE("NativeCoreProcessor RT harness traps blocking locks",
+          "[native-core-processor][rt-safety]") {
+    require_child_traps_in_rt_scope([] {
+        pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+        native_components::test::RtNoAllocScope guard;
+        (void)::pthread_mutex_lock(&mutex);
+        (void)::pthread_mutex_unlock(&mutex);
+        (void)::pthread_mutex_destroy(&mutex);
+    });
+}
+#endif
 
 TEST_CASE("NativeCoreProcessor drives suspend/resume/release/latency",
           "[native-core-processor]") {

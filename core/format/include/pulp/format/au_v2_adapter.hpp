@@ -1,16 +1,26 @@
 #pragma once
 
+// The AU v2 effect adapter wraps Apple's AudioUnitSDK (Apple-only,
+// developer-supplied). The whole header is gated on __APPLE__ so it stays
+// self-contained — an empty no-op — on the Linux header-hygiene check and any
+// non-Apple TU.
+#if defined(__APPLE__)
+
 #include <AudioUnitSDK/AUMIDIEffectBase.h>
+#include <mach/mach_time.h>
 
 #include <pulp/format/processor.hpp>
 #include <pulp/format/host_quirks.hpp>
 #include <pulp/format/detail/playhead_diff.hpp>
 #include <pulp/midi/buffer.hpp>
 #include <pulp/midi/message.hpp>
+#include <pulp/runtime/spsc_queue.hpp>
 #include <pulp/state/parameter_event_queue.hpp>
 
+#include <array>
+#include <cstdint>
+#include <limits>
 #include <memory>
-#include <mutex>
 #include <vector>
 
 namespace pulp::format::au {
@@ -73,6 +83,83 @@ midi::MidiEvent decode_midi_event(uint8_t inStatus,
                                   uint8_t inData1,
                                   uint8_t inData2) noexcept;
 
+/// Build the AU v2 render-path ProcessContext fields that are independent of
+/// host callbacks. AU v2 render callbacks are always realtime; offline bounce
+/// intent is not surfaced by the v2 SDK, so hosts that need explicit offline
+/// hints should use AU v3 or another adapter that provides that signal.
+inline ProcessContext make_render_process_context(double sample_rate,
+                                                  int num_samples) noexcept {
+    ProcessContext ctx;
+    ctx.sample_rate = sample_rate;
+    ctx.num_samples = num_samples;
+    ctx.process_mode = ProcessMode::Realtime;
+    ctx.render_speed_hint = RenderSpeedHint::Realtime;
+    return ctx;
+}
+
+/// Populate AU v2 render-context transport metadata from host callbacks and
+/// derive per-block playhead change flags. The AU v2 SDK only exposes these
+/// callbacks through AUBase during render, but keeping the mapping here lets
+/// effect/instrument adapters share one contract and lets tests install
+/// HostCallbackInfo without constructing a full AudioComponentInstance.
+inline void apply_host_callbacks_to_process_context(
+    ProcessContext& ctx,
+    const ausdk::AUBase& unit,
+    detail::PlayheadSnapshot& previous) noexcept {
+    Float64 beat = 0.0;
+    Float64 tempo = 0.0;
+    if (unit.CallHostBeatAndTempo(&beat, &tempo) == noErr) {
+        ctx.position_beats = beat;
+        if (tempo > 0.0) ctx.tempo_bpm = tempo;
+    }
+
+    UInt32 delta_samples = 0;
+    Float32 ts_num = 0.0f;
+    UInt32 ts_denom = 0;
+    Float64 current_measure_downbeat = 0.0;
+    if (unit.CallHostMusicalTimeLocation(&delta_samples, &ts_num, &ts_denom,
+                                         &current_measure_downbeat) == noErr) {
+        if (ts_num > 0.0f) ctx.time_sig_numerator = static_cast<int>(ts_num);
+        if (ts_denom > 0) ctx.time_sig_denominator = static_cast<int>(ts_denom);
+    }
+
+    Boolean is_playing = false;
+    Boolean transport_state_changed = false;
+    Float64 current_sample_in_timeline = 0.0;
+    Boolean is_cycling = false;
+    Float64 cycle_start = 0.0;
+    Float64 cycle_end = 0.0;
+    if (unit.CallHostTransportState(&is_playing, &transport_state_changed,
+                                    &current_sample_in_timeline, &is_cycling,
+                                    &cycle_start, &cycle_end) == noErr) {
+        ctx.is_playing = (is_playing != 0);
+        ctx.position_samples = static_cast<int64_t>(current_sample_in_timeline);
+        ctx.is_looping = (is_cycling != 0);
+        if (ctx.is_looping) {
+            ctx.loop_start_beats = cycle_start;
+            ctx.loop_end_beats = cycle_end;
+        }
+    }
+
+    static mach_timebase_info_data_t timebase = {0, 0};
+    if (timebase.denom == 0) mach_timebase_info(&timebase);
+    if (timebase.denom != 0) {
+        const uint64_t now = mach_absolute_time();
+        ctx.host_time_ns = static_cast<int64_t>(
+            (now * timebase.numer) / timebase.denom);
+    }
+
+    detail::derive_bar_from_beats(ctx);
+    detail::compute_playhead_changes(ctx, previous);
+}
+
+inline Float64 tail_samples_to_seconds(int tail_samples,
+                                       double sample_rate) noexcept {
+    if (tail_samples < 0) return std::numeric_limits<Float64>::infinity();
+    if (tail_samples == 0 || sample_rate <= 0.0) return 0.0;
+    return static_cast<Float64>(tail_samples) / sample_rate;
+}
+
 class PulpAUEffect : public ausdk::AUMIDIEffectBase {
 public:
     explicit PulpAUEffect(AudioComponentInstance ci);
@@ -86,6 +173,18 @@ public:
     OSStatus GetParameterValueStrings(AudioUnitScope inScope,
                                       AudioUnitParameterID inParameterID,
                                       CFArrayRef* outStrings) override;
+
+    // Single-source-of-truth parameter access. The plugin's
+    // StateStore IS the parameter store: the host reads it via GetParameter and
+    // writes it via SetParameter, so there is no separate AUElement/Globals
+    // copy to reconcile each block (that split caused the UI snap-back / render
+    // stalls). process() reads the same store; UI edits notify the host via a
+    // main-thread listener. See the au_v2_adapter.cpp definitions.
+    OSStatus GetParameter(AudioUnitParameterID inID, AudioUnitScope inScope,
+                          AudioUnitElement inElement, Float32& outValue) override;
+    OSStatus SetParameter(AudioUnitParameterID inID, AudioUnitScope inScope,
+                          AudioUnitElement inElement, Float32 inValue,
+                          UInt32 inBufferOffsetInFrames) override;
 
     OSStatus GetPropertyInfo(AudioUnitPropertyID inID, AudioUnitScope inScope,
                              AudioUnitElement inElement, UInt32& outDataSize,
@@ -111,8 +210,8 @@ public:
 protected:
     /// Called by the AU host for every short MIDI message (status has
     /// already been split into ``inStatus`` / ``inChannel``). Converts the
-    /// bytes to a ``midi::MidiEvent`` and pushes it onto the pending
-    /// buffer under ``midi_mutex_``. Drained in ``ProcessBufferLists``.
+    /// bytes to a ``midi::MidiEvent`` and pushes it onto the lock-free
+    /// render queue. Drained in ``ProcessBufferLists``.
     ///
     /// Note: DAW hosts only route MIDI to an AU v2 effect when the
     /// bundle's component ``type`` is ``aumf`` (kAudioUnitType_MusicEffect).
@@ -140,6 +239,11 @@ private:
     std::unique_ptr<Processor> processor_;
     state::StateStore store_;
 
+    // Main-thread listener that pushes editor parameter edits to the host
+    // (AudioUnitSetParameter), kept alive for the adapter's lifetime so host
+    // param writes/notifications never run on the render thread. See ctor.
+    state::ListenerToken ui_push_listener_;
+
     // Sample-accurate parameter-event sidecar, set on the Processor each block
     // so the param-events contract is uniform across formats (VST3/CLAP/AUv3
     // already provide it). AU v2's AUEffectBase has no scheduled/ramped
@@ -160,9 +264,6 @@ private:
     state::ParamID bypass_param_id_ = 0;
     std::vector<const float*> input_ptrs_;
     std::vector<float*> output_ptrs_;
-    // Pre-process snapshot of parameter values; used to diff plugin-side
-    // changes back to the host's parameter system (workstream 01 slice 1.3).
-    std::vector<float> param_snapshot_;
 
     // Item 1.3 — previous-block transport snapshot used to derive the
     // change flags (tempo_changed / time_sig_changed /
@@ -171,16 +272,23 @@ private:
     // no changes.
     detail::PlayheadSnapshot playhead_prev_{};
 
-    // MIDI input path — AU v2 effects that declare accepts_midi are
-    // packaged as aumf (kAudioUnitType_MusicEffect). The host then
-    // routes inbound MIDI through AUMIDIBase::MIDIEvent / SysEx, which
-    // dispatches to HandleMIDIEvent / HandleSysEx. We stash events into
-    // ``pending_midi_`` under ``midi_mutex_`` and drain them into the
-    // block-local MidiBuffer at the top of ProcessBufferLists. The
-    // mutex is only contended on the main/MIDI thread; the audio
-    // thread grabs it once per block to swap pending_midi_ out.
-    std::mutex midi_mutex_;
-    midi::MidiBuffer pending_midi_;
+    // MIDI input path — AU v2 effects that declare accepts_midi are packaged as
+    // aumf (kAudioUnitType_MusicEffect). The host routes inbound MIDI through
+    // AUMIDIBase::MIDIEvent / SysEx → HandleMIDIEvent / HandleSysEx. Those are
+    // LOCK-FREE single-producer (host MIDI/render thread) queues drained by the
+    // single consumer (ProcessBufferLists) — no mutex on the audio thread, the
+    // same atomic/wait-free discipline as the parameter store. Short messages
+    // are allocation-free; under flood, excess events are dropped rather than
+    // blocking the render (lossy, like the RT parameter notify path). aufx
+    // effects never receive MIDI, so the queues stay empty.
+    runtime::SpscQueue<midi::MidiEvent, 1024> midi_in_queue_;
+    struct SysexChunk {
+        std::array<uint8_t, 512> bytes{};
+        uint16_t length = 0;
+    };
+    runtime::SpscQueue<SysexChunk, 32> sysex_in_queue_;
 };
 
 } // namespace pulp::format::au
+
+#endif // defined(__APPLE__)

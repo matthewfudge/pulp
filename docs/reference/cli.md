@@ -24,11 +24,14 @@ pulp create "My Project" --type bare               # minimal skeleton
 pulp create "My FX" --manufacturer "Acme Audio"    # custom manufacturer
 pulp create "My FX" --output ~/projects/my-fx      # custom output directory
 pulp create "Debug Knob" --in-tree                 # add an example under examples/
+pulp create "Kit Gain" --template ./my-template-kit # scaffold from a local template kit
 pulp create "My FX" --no-build                     # scaffold only, skip build
 pulp create "My FX" --no-interactive               # CI/scripting mode (no prompts)
 ```
 
-Available types: `effect` (default), `instrument`, `app`, `bare`. Templates are in `tools/templates/<type>/`.
+Available types: `effect` (default), `instrument`, `app`, `bare`. Built-in templates are in `tools/templates/<type>/`.
+
+`--template <name-or-kit-dir>` accepts either a built-in template name or an explicit local template kit directory containing `pulp.package.json`. Local template kits are validated before scaffolding, must declare kind `template`, and must export exactly one safe template directory. They do not execute package CMake, JavaScript, scripts, or dynamic libraries. If a template kit declares dependency packages, install those curated dependencies explicitly with `pulp add <id>` first; `pulp create` will not widen the trust boundary by adding them implicitly. A template kit only builds format targets for entry templates it exports, so a small CLAP/Standalone starter does not pretend to support VST3/AU.
 
 Default output location resolution:
 1. `--output <dir>`
@@ -55,7 +58,7 @@ Mode truth:
 What it does:
 1. Runs `pulp doctor` checks (fails fast if environment is broken)
 2. In standalone product mode: if run from inside a Pulp checkout, prepares pinned dependencies from that checkout and caches a local SDK install; otherwise downloads and caches the SDK release
-3. Scaffolds source files from templates (processor, format entries, test, CMakeLists.txt)
+3. Scaffolds source files from built-in templates or an explicitly named local template kit (processor, format entries, test, CMakeLists.txt)
 4. In in-tree mode: adds the project to `examples/CMakeLists.txt`
 5. In standalone product mode: generates `pulp.toml` with pinned SDK version and local SDK hints when created from a checkout
 6. Configures, builds the generated test target plus the default platform outputs, and runs tests
@@ -207,11 +210,20 @@ pulp run MyApp -- --arg1                            # pass arguments to the laun
 pulp run --headless --screenshot ui.png             # CI: render offscreen, save PNG
 pulp run --headless --screenshot ui.png --frames 60 # render N frames before capture
 pulp run --watch                                    # re-launch on source-file changes
+pulp run --audio-inspector                          # open the live Audio Inspector window
+pulp run --audio-probe-json probe.json              # dump live probe metrics as JSON, then exit
+pulp run --audio-scope-json scope.json              # dump live scope acquisition/measurements JSON
 ```
 
 Searches the active project's build output:
 - standalone projects: `build/bin/`
 - in-repo examples: `build/examples/`
+
+`pulp run` launches a standalone host, so it may activate the system audio
+output even when the UI is headless. The CLI prints a pre-launch notice by
+default; set `PULP_RUN_AUDIO_NOTICE=0` only for deliberate quiet automation.
+For no-speaker signal evidence, prefer the offline `HeadlessHost` / Audio
+Doctor paths under `pulp audio validate`.
 
 #### Headless / screenshot flags
 
@@ -232,6 +244,47 @@ These flags are intended for CI auto-validation: any plugin standalone
 that respects `PULP_HEADLESS` / `PULP_SCREENSHOT` / `PULP_FRAMES` (or
 the matching argv flags) can be exercised end-to-end on every PR
 without a real window or virtual display.
+
+#### Live Audio Inspector flags
+
+The live Audio Inspector is a floating developer window that observes the
+realtime output-boundary probe (peak/RMS/dBFS, clip/NaN counts, silence
+runs). See the [Audio Inspector guide](../guides/audio-inspector.md) for
+the full picture, including the in-app `Cmd/Ctrl+Shift+A` chord and the
+dev-on/ship-off `PULP_ENABLE_AUDIO_PROBES` gating.
+
+- `--audio-inspector` — open the live Audio Inspector window. Forwarded
+  as `--audio-inspector` and via `PULP_AUDIO_INSPECTOR=1`. Does not imply
+  `--headless` (a dev may want the visible window); composes with
+  `--screenshot`, which then also captures the panel as
+  `<stem>.audio-inspector.png`.
+- `--audio-probe-json <file>` — the programmatic readout: after the
+  frame delay, write the live probe's latest snapshot as a flat JSON
+  object to `<file>`, then exit. Implies `--headless`. Forwarded as
+  `--audio-probe-json <file>` and via `PULP_AUDIO_PROBE_JSON=<file>`.
+  This is visually headless, but it still launches the standalone host and
+  may open the live audio device. It is distinct from the offline
+  `pulp audio validate` Doctor: the Inspector reads *live* metrics from a
+  running host, the Doctor analyses a rendered WAV offline without speakers.
+- `--audio-scope-json <file>` — the programmatic Scope readout: after the
+  frame delay, write versioned `pulp.audio.scope.v1` JSON containing a copied
+  sample-window acquisition plus measurements such as peak-to-peak, RMS, DC
+  offset, crest factor, and conservative rising-zero frequency. Implies
+  `--headless`, but still launches the standalone host and may open the live
+  audio device. It cannot be combined with `--audio-inspector` because both are
+  single consumers of the live capture FIFO.
+- `--audio-scope-window <samples>` / `--audio-scope-trigger <none|raw|off|rising-zero>` /
+  `--audio-scope-channel <index>` — acquisition controls for
+  `--audio-scope-json`.
+
+Display-only waveform controls:
+
+- `PULP_AUDIO_INSPECTOR_TRIGGER=rising-zero` — opt into rising-zero-crossing
+  trace alignment for a more stable visual display. Raw buffer display remains
+  the default.
+- `PULP_AUDIO_INSPECTOR_GRID=0` — hide the waveform grid.
+- `PULP_AUDIO_INSPECTOR_SCALE=<n>` — zoom the horizontal window over the copied
+  real samples (`1.0` shows the full captured buffer).
 
 ### cache
 
@@ -575,6 +628,49 @@ Runs from inside a Pulp checkout (it resolves `tools/ci/setup-ci-host.sh`). For 
 from-scratch host recipe and gotchas, see
 [mac-ci-host-setup.md](../guides/mac-ci-host-setup.md) and the `tart-ci` skill.
 
+### macos
+
+**Status**: experimental
+
+Retarget just the macOS leg of a PR without disturbing the Linux/Windows matrix.
+This is an operator command for cases where a PR should move between local,
+Namespace, or GitHub-hosted macOS capacity.
+
+```bash
+pulp macos status --pr 1910
+pulp macos retarget --pr 1910 --to local
+pulp macos retarget --pr 1910 --to namespace
+pulp macos retarget --pr 1910 --to github-hosted
+```
+
+`retarget` cancels in-flight macOS-bearing runs for that PR and dispatches
+`build-macos.yml` on the selected runner pool. Branch protection is satisfied by
+the latest workflow that publishes the required `macos` check. See
+[local-ci.md](../guides/local-ci.md#per-pr-macos-retargeting-pulp-macos) for the
+runner variables and operator workflow.
+
+### overflow
+
+**Status**: experimental
+
+Configure the macOS overflow routing variables read by `build.yml`. This is a
+repo-operator surface for deciding where new macOS jobs go when local capacity is
+busy; it does not cancel in-flight jobs.
+
+```bash
+pulp overflow status
+pulp overflow enable
+pulp overflow enable --to '"namespace-profile-generouscorp-macos"'
+pulp overflow disable
+pulp overflow threshold
+pulp overflow threshold 1
+```
+
+`enable` sets the overflow target, `disable` removes it for future dispatches,
+and `threshold` gets or sets the busy-run count that trips overflow. See
+[local-ci.md](../guides/local-ci.md#pulp-overflow--operator-surface) for the
+exact repository variables and rollback notes.
+
 ### ci-local
 
 **Status**: legacy (prefer [Shipyard](https://github.com/danielraffel/Shipyard))
@@ -733,7 +829,7 @@ pulp ship share MyApp.app --identity "..."         # one-shot: sign+notarize+ver
 |------------|-------------|
 | `sign`     | Code-sign all built plugin bundles (VST3, CLAP, AU), or one `--path` artifact |
 | `notarize` | Submit signed bundles (or `--path` artifacts) to Apple notarytool (macOS) |
-| `package`  | Create `.pkg`/`.dmg` installers in `artifacts/` |
+| `package`  | Create macOS `.pkg`/`.dmg` installers or Linux `.deb`/`.tar.gz` packages in `artifacts/` |
 | `release`  | macOS one-command pipeline: sign → package → **notarize the .pkg/.dmg it builds** → staple |
 | `share`    | One-shot for sharing a single artifact: sign → wrap `.app` in DMG → notarize → staple → Gatekeeper-verify |
 | `check`    | Check signing status of all built plugins |
@@ -742,7 +838,7 @@ pulp ship share MyApp.app --identity "..."         # one-shot: sign+notarize+ver
 `--path` signs exactly one `.app`, `.dmg`, or plugin bundle instead of scanning the build dirs;
 `.pkg` installers are signed at creation time with a Developer ID **Installer** identity, not here.
 
-`package` creates per-format `.pkg` files using `pkgbuild` (or `.dmg` with `--dmg`). macOS only.
+`package` creates per-format `.pkg` files using `pkgbuild` on macOS, or `.dmg` files with `--dmg`. On Linux, it packages VST3/CLAP/LV2 bundles as a `.deb` using `dpkg-deb`, with a `.tar.gz` fallback when `dpkg-deb` is unavailable. If no Linux plugin bundles are present, it reports `no VST3/CLAP/LV2 plugins found` instead of creating an empty macOS-style artifact summary.
 
 #### `pulp ship share` — one-off "sign it for a friend"
 
@@ -1182,6 +1278,12 @@ pulp audio model status [--json]                # Show configured + resolved mod
 pulp audio model activate <model-id> [--json]   # Pick the active model
 pulp audio excerpt-find --text "warm analog pad" --input /path/to/corpus [options]
 pulp audio read-bundle <path-to-bundle> [--json]
+pulp audio scope [target] --window 2048 --trigger rising-zero --channel 0 [--json scope.json]
+pulp audio scope --input-wav tone.wav --window 2048 [--json scope.json] [--png scope.png]
+pulp audio validate summarize <file.wav> [--json]
+pulp audio validate doctor <file.wav> [--thd] [--response f1,f2,...] [--fundamental <hz>]
+pulp audio validate compare <a.wav> <b.wav> [--mode null|spectral] [--tolerance <dbfs>]
+pulp audio validate assert <audio-run-dir-or-assertions.json>
 ```
 
 **Subcommands**:
@@ -1193,8 +1295,23 @@ pulp audio read-bundle <path-to-bundle> [--json]
 | `model activate <id>` | Select the active model and persist the state file |
 | `excerpt-find` | Score audio files (or a directory) against a text query and emit an excerpt bundle |
 | `read-bundle` | Pretty-print a previously emitted excerpt bundle |
+| `scope` | Capture `pulp.audio.scope.v1` JSON from a live standalone target or a speakerless offline WAV; offline mode can also write a PNG trace artifact |
+| `validate summarize` | Decode a WAV and print an agent-readable signal summary (peak/RMS/DC/dominant pitch); `--json` for machine output |
+| `validate doctor` | Offline Audio Doctor over a WAV: THD/THD+N (`--thd`) and/or spectrum magnitude at checkpoints (`--response`); writes a JSON curve artifact |
+| `validate compare` | Sample-residual (null) verdict between two WAVs; exits nonzero past tolerance. `--mode spectral` currently applies a looser default tolerance to the same residual (a true spectral-distance metric is a later slice) |
+| `validate assert` | Re-check a stored `assertions.json` (or an `audio-run/` dir holding one); exits nonzero on any failing assertion |
 
-Useful `excerpt-find` flags: `--text`, `--input`, `--model`, `--recursive`, `--top`, `--window-ms`, `--hop-ms`, `--min-score`, `--max-candidates-per-file`, `--bundle-out`, `--dry-run`. All subcommands accept `--json` for machine-readable output.
+Useful `excerpt-find` flags: `--text`, `--input`, `--model`, `--recursive`, `--top`, `--window-ms`, `--hop-ms`, `--min-score`, `--max-candidates-per-file`, `--bundle-out`, `--dry-run`. The `model`/`excerpt-find`/`read-bundle` subcommands accept `--json` for machine-readable output.
+
+The `validate` subcommands are the offline harness CLI over captured audio (Phase 7). They analyze WAVs and stored artifact bundles with the reusable `pulp::audio-analysis` library — they do **not** instantiate a plugin (the generic CLI is not tied to a `Processor`; controlled-stimulus render is the test-side `RenderScenario`). The `assertions.json` schema is a `{"schema_version", "assertions": [...]}` document where each entry names a `check` (`not_silent`, `silent`, `no_nan_inf`, `peak_below`, `frequency_near`), a `file` (relative to the JSON), and the check's named tolerance.
+
+`pulp audio scope` is the lower-level sample-window view. Live mode wraps
+`pulp run --audio-scope-json` and may open the audio device; use
+`--input-wav <path>` for speakerless offline analysis. Both paths emit the same
+versioned JSON schema so CLI, MCP, and plugin agents can compare live and
+offline captures without duplicating trigger or measurement logic. `--png` is
+offline-only and writes a deterministic trace image of the acquired real
+samples.
 
 ### sdk
 
@@ -1250,28 +1367,26 @@ Flags:
 
 **Status**: experimental
 
-Leveraged-prototype focus mode. `pulp loop` is the explicit "I'm in single-platform iteration mode" switch. It records the focus platform in `~/.pulp/config.toml` under `[loop]` so the user can leave the mode and return to cross-platform iteration deliberately, and drives the same watch + rebuild + screencap loop as `pulp dev` — but pinned to one platform's toolchain so the slow cross-platform configure paths (Skia/Dawn/threejs FetchContent) can be skipped when other platforms add unrelated cost.
+Leveraged-prototype focus mode. `pulp loop` is the explicit "I'm in single-platform iteration mode" switch. It records the focus platform in `~/.pulp/config.toml` under `[loop]` so the user can leave the mode and return to cross-platform iteration deliberately, then drives the same watch + rebuild + screencap loop as `pulp dev` using the current project's normal build configuration. Surrounding tooling can read the focus marker when it needs platform-specific behavior.
 
 ```bash
 pulp loop                           # Enter focus mode on the auto-detected host
-pulp loop --platform=macos          # Pin to macOS explicitly
-pulp loop --platform=linux --test   # Pin + run tests on every save
+pulp loop --platform=macos          # Mark macOS focus explicitly
+pulp loop --platform=linux --test   # Mark Linux focus + run tests on every save
 pulp loop --status                  # Print the current focus state
 pulp loop --off                     # Restore cross-platform mode
-pulp loop --watch-issues 924,927    # Poll PR state for named issues (deferred)
-pulp loop --ar-swap-from feat/x     # ABI-checked .o swap (deferred)
 ```
 
 Flags:
 
 | Flag | Description |
 |------|-------------|
-| `--platform=<macos\|linux\|windows>` | Override the auto-detected host platform |
+| `--platform=<macos\|linux\|windows>` | Override the auto-detected focus marker |
 | `--off` | Restore cross-platform mode by clearing the focus marker |
 | `--status` | Print the current focus state and exit |
 | `--no-watch` | Persist focus state and exit without entering the watch loop |
-| `--watch-issues N1,N2,...` | Deferred: poll `gh pr list` for state flips on PRs referencing the named issues |
-| `--ar-swap-from <ref>` | Deferred: ABI-checked `.o` swap from another worktree |
+| `--watch-issues N1,N2,...` | Recognized compatibility flag; prints a diagnostic and continues the normal loop unless `--no-watch` is also passed |
+| `--ar-swap-from <ref>` | Recognized compatibility flag; prints a diagnostic and continues the normal loop unless `--no-watch` is also passed |
 | `--test`, `-t` | Run tests after each successful build |
 | `--test-filter=PATTERN` | Run only tests matching PATTERN (implies `--test`) |
 | `--validate` | Run quick plugin dlopen validation after build |
@@ -1332,6 +1447,49 @@ Flags:
 
 Prints plug-in metadata (name, vendor, version, format, parameter count) and the peak output level from a 256-sample synthetic block at 48 kHz. Exit code 0 on success, 1 if the bundle could not be loaded, 2 if `prepare()` failed.
 
+### import
+
+**Status**: experimental
+
+Read an existing audio-plugin project read-only and emit a Pulp migration scaffold. Framework importers are vendor-specific add-on tools that live in their own private repos; the Pulp SDK owns only the generalized substrate — a discovery index of known frameworks, a JSON-over-stdio service-provider interface (SPI) to drive an installed importer, and the emission step (the SDK writes files; the importer only proposes a plan).
+
+The command is **vendor-agnostic**: framework identity is runtime DATA loaded from `tools/import/known-frameworks.json`, the one place real source-framework markers appear. The SDK code names no framework and no vendor.
+
+```bash
+pulp import detect ./MyProject                                  # Rank candidates; print install hint
+pulp import ./MyProject                                         # Alias for detect
+pulp import inspect --from <framework> ./MyProject -o ir.json   # Resolve importer → SPI analyze → ProjectIR
+pulp import inspect --from <framework> ./MyProject --importer-cmd "python3 spi.py"
+pulp import emit --from <framework> ./MyProject --output ./scaffold
+```
+
+Subcommands:
+
+| Subcommand | Description |
+|------------|-------------|
+| `detect <dir>` | Scan the directory against the known-frameworks markers and print ranked candidates (framework id + confidence + evidence) plus the install hint for the top match. Works with **no importer installed**. |
+| `inspect --from <fw> <dir>` | Resolve the importer (tool registry or `--importer-cmd`) and run its SPI `analyze` verb to produce a ProjectIR. When no importer is resolvable, prints the install hint and exits non-zero. |
+| `emit --from <fw> <dir> --output <out>` | Resolves the importer, runs its SPI `analyze` then `emit` verbs to get an **EmissionManifest**, then the **SDK writes** a buildable Pulp migration scaffold under `<out>`. The importer only proposes files (generated/stub carry inline content; verbatim portable-core copies carry an absolute `copy_from`); the SDK materialises them, runs a clean-room output scan over every generated file, and writes `migration_status.json` + a `.pulp-import-provenance.json` marker. Skewed/symmetric source parameter curves emit as shaped `ParamRange`s (skew + symmetric fields), no longer downgraded to linear. |
+
+`inspect` / `emit` flags:
+
+| Flag | Description |
+|------|-------------|
+| `--from <framework>` | Framework id (see `pulp import detect`) |
+| `--framework-path <path>` | The user's own framework checkout (read-only; never vendored) |
+| `--extra-include <dir>` | Extra include directory passed to the importer (repeatable) |
+| `-o`, `--output-ir <file>` | `inspect`: write the ProjectIR JSON to a file |
+| `--report <file.md>` | `inspect`: write a human-readable report |
+| `--output <dir>` | `emit`: scaffold output directory |
+| `--importer-cmd <cmd>` | Override importer resolution with an explicit command string |
+| `--accept-importer-terms` | Accept the importer's terms of use non-interactively (CI). The acceptance is still recorded under `~/.pulp`. |
+
+**Accept-to-run terms gate.** Before `inspect` / `emit` drives an importer, the user must give explicit affirmative acceptance of that importer's terms of use (mirrors `pulp add --accept-license`). The terms body is runtime DATA carried by the add-on importer (the SDK names no vendor and ships no terms body of its own); the SDK surfaces it, then records acceptance under `~/.pulp/importer-terms-accepted.json` keyed by importer id + a hash of the terms text. A changed terms version (new hash) re-prompts. Interactively the gate is a type-to-accept prompt; in CI pass `--accept-importer-terms`. Without a terminal and without the flag, the gate blocks with a non-zero exit rather than hanging. An importer that declares no terms passes the gate transparently.
+
+The importer is resolved against `tools/packages/tool-registry.json`: an importer tool declares the `frameworks` it handles plus `spi_min` / `spi_max` (the SPI version window) and `sdk_min` / `sdk_max`. The SDK negotiates the SPI version on every call and fails loudly on a mismatch ("upgrade Pulp" / "upgrade the importer") rather than misbehaving silently. The data contracts are `tools/import/schemas/project-import-ir-v0.schema.json` and `tools/import/schemas/import-spi-v0.schema.json`.
+
+**Who writes what (clean-room boundary).** The importer is a separate add-on and never writes into the user's tree — it returns an EmissionManifest over the SPI `emit` verb. The **SDK** writes every file, and before writing each `generated` file it runs a clean-room output denylist scan (sourced from the known-frameworks content markers) that rejects framework source or vendor banners; a `copied-user-file` is the user's own DSP, copied verbatim and recorded in provenance, so it is exempt. A misbehaving importer therefore cannot smuggle framework code into the scaffold. The SDK also writes `migration_status.json` (the migration verdict + TODO list) and `.pulp-import-provenance.json` (importer id, framework, SPI version, emit timestamp, source-tree hash, per-file provenance).
+
 ### identity
 
 **Status**: experimental
@@ -1360,13 +1518,19 @@ pulp tool list                      # Show every registered tool and its install
 pulp tool install clap-validator    # Download and install one tool
 pulp tool install --all             # Install every tool available on the current platform
 pulp tool install <id> --force      # Reinstall even if already present
-pulp tool uninstall <id>            # Remove a pulp-managed tool install
+pulp tool install <importer>        # Install a framework importer add-on (checksummed, version-window-checked)
+pulp tool install <importer> --from <path|file://...>  # Install from a local package (offline / pinned artifact)
+pulp tool uninstall <id>            # Remove a pulp-managed tool, or an importer (also removes its skill)
 pulp tool path <id>                 # Print the absolute path to the installed tool's binary
 pulp tool run <id> [args...]        # Run the installed tool with pass-through arguments
 pulp tool doctor                    # Health check: which tools are installed, which are missing, which are unavailable on this platform
+
+pulp add <importer>                 # Alias for `pulp tool install <importer>`
 ```
 
-Install methods come from the registry — today `binary_download` (pinned release artifact) and `python_pip` (pipx-style isolated install). `pulp tool doctor` is the per-platform companion to `pulp doctor`.
+Install methods come from the registry — today `binary_download` (pinned release artifact), `python_pip` (pipx-style isolated install), and `importer_package` (a checksummed, per-platform framework-importer archive). `pulp tool doctor` is the per-platform companion to `pulp doctor`.
+
+**Framework importers.** An importer is a vendor-specific add-on (described in the tool-registry with `category: "importer"`) that drives Pulp's JSON-over-stdio import SPI. Installing one is gated three ways: the importer's `[sdk_min, sdk_max]` must include the running SDK and its `[spi_min, spi_max]` window must overlap the SDK's supported import-SPI window (a mismatch fails loudly with an "upgrade Pulp" / "upgrade the importer" message); the fetched or local package's `sha256` must match the digest pinned in the registry (a mismatch refuses to install); and the importer's bundled `SKILL.md` is installed into `~/.agents/skills/<importer>/` on install and removed on uninstall. Each install is recorded under `~/.pulp/importers/<id>.json` (id, version, sha256, SDK version, SPI window, paths, terms metadata) so uninstall and version checks work, and so the importer-terms accept-gate composes with the same record. `pulp add <importer>` routes to the same install path. Use `--from <path|file://...>` to install from a local package rather than the registry URL (offline installs, pinned artifacts, CI). The producer side — how prebuilt per-platform artifacts are built, hosted, pinned per SDK release, and signed/notarized, and the bundled-libclang choice — is documented in [framework-importer-packaging.md](framework-importer-packaging.md); this CLI consumes that contract, it does not decide it.
 
 ### upgrade
 
@@ -1403,6 +1567,7 @@ pulp config set update.mode manual
 pulp config set update.check_interval_hours 12
 pulp config set import_design.default_mode baked
 pulp config set import_design.default_emit ir-json
+pulp config set claude.send_user_file off
 pulp config list
 ```
 
@@ -1437,6 +1602,16 @@ Supported import-design keys:
   `--emit`. `PULP_IMPORT_DESIGN_DEFAULT_EMIT` overrides this value for one
   environment/session. If the default mode is `baked` and this key is unset,
   Pulp implies `ir-json`.
+
+Supported Claude Code plugin keys:
+
+- `claude.send_user_file` — `on | off` (default `on`). When `on`, the Pulp
+  Claude Code plugin's `SessionStart` hook injects a preference telling the
+  agent to surface generated image/file artifacts (screenshots, rendered
+  designs, diagrams, build outputs) with the `SendUserFile` tool so they embed
+  in the Claude app, instead of only printing a path. Set `off` to suppress the
+  injection. Read at session start by
+  `hooks/scripts/inject-claude-prefs.sh`.
 
 ### clean
 
@@ -1496,11 +1671,159 @@ The `check` subcommand verifies:
 - AU Info.plist template uses a computed version integer (not hardcoded)
 - CHANGELOG latest heading matches CMakeLists.txt
 
+### kit
+
+**Status**: experimental
+
+Share reusable Pulp code, UI, and templates with a review step before they touch a project.
+
+Use `pulp kit` for Pulp-native building blocks: DSP source, UI widgets, design tokens, templates, validation fixtures, and graph/native components. The value is practical:
+
+- developers package real Pulp pieces once instead of copying example folders between projects;
+- users and reviewers see the files, licenses, capabilities, and project changes before approval;
+- agents can inspect structured metadata without running untrusted package code.
+
+This is intentionally separate from `pulp add`. `pulp add rubberband` means "add a curated dependency from Pulp registry metadata." `pulp kit validate ./thing` or `pulp kit validate ./thing.pulpkit` means "inspect this local artifact before trusting or applying it."
+
+The workflow is inspect, plan, verify, approve, apply:
+
+1. `validate` / `inspect` read `pulp.package.json` and declared files only.
+2. `plan` previews the project changes without writing files.
+3. `verify` runs declared validation-profile checks after the plan has been reviewed; optional screenshot execution requires an explicit flag.
+4. `apply --yes` writes only reviewed, owned project files and records the reviewed manifest digest.
+5. `remove --yes` deletes only constrained lock-recorded kit paths under `pulp-kits/<kit-id>/...` plus the known generated lock/CMake files.
+
+Trust rules:
+
+- metadata commands never run package CMake, JavaScript, shell scripts, dynamic libraries, remote search, or content installers;
+- `.pulpkit` and `.pulpcontent` archives must include `files.sha256.json`, and every payload file must be listed and hash-matched before the manifest is trusted;
+- validation checks manifest shape, licenses, `requires.pulp`, `requires.cpp`, known Pulp module dependencies, and declared evidence hashes before plan/apply;
+- `content-pack` manifests can be searched, validated, and inspected, but `pulp kit plan/apply/publish` rejects them; use `pulp content ...` for data-only packs;
+- dependency packages declared by a kit resolve only through the existing curated `pulp add <id>` machinery.
+
+```bash
+pulp kit search basic --root ./fixtures/packages --lane kit --json
+pulp kit search content --root ./fixtures/packages --lane content --json
+pulp kit validate ./fixtures/packages/gain-dsp-kit
+pulp kit validate ./fixtures/packages/basic-ui-kit --json
+pulp kit inspect ./fixtures/packages/simple-plugin-template --json
+pulp kit plan ./fixtures/packages/gain-dsp-kit --project .
+pulp kit verify ./fixtures/packages/basic-ui-kit --project . --json
+pulp kit verify ./fixtures/packages/basic-ui-kit --project . --execute-screenshots --json
+pulp kit apply ./fixtures/packages/basic-ui-kit --project . --yes
+pulp kit remove dev.pulp.fixtures.basic-ui-kit --project . --yes
+pulp kit pack ./fixtures/packages/basic-ui-kit --output ./dist/basic-ui-kit.pulpkit
+pulp kit publish ./fixtures/packages/basic-ui-kit --dry-run --json
+pulp kit publish ./fixtures/packages/basic-ui-kit --dry-run --registry-manifest ./registry/pulp-registry-manifest.json --json
+pulp kit init --kind source --id com.example.my-kit --dir ./my-kit
+pulp create "Kit Gain" --template ./fixtures/packages/simple-plugin-template --no-build --ci
+pulp create "Kit Gain" --template ./fixtures/packages/simple-plugin-template --ci
+```
+
+Package-backed templates can include generated-project tests, but those tests
+are optional in standalone SDK builds unless the generated project can find
+Catch2. The required review artifact is the declared generated-project diff;
+the required build proof is the exported plugin/app format targets.
+
+Subcommands:
+
+| Subcommand | What it does |
+|------------|--------------|
+| `search [query]` | Search local `pulp.package.json`, `.pulpkit`, and `.pulpcontent` artifacts without executing package code; archives must pass `files.sha256.json` checks before their manifest is indexed, and results are classified as `kit` or `content` lanes |
+| `validate <path>` | Validate a kit directory, content-pack directory, `pulp.package.json`, `.pulpkit`, or `.pulpcontent` archive without executing package code |
+| `inspect <path>` | Print the manifest summary, capabilities, dependency package ids, and validation issues |
+| `plan <path>` | Produce a reviewable project-mutation plan from a kit directory, manifest, or `.pulpkit` archive without writing files; rejects `content-pack` manifests, and dependency packages are resolved only by curated `pulp add <id>` ids |
+| `verify <path>` | Run declared validation-profile checks after plan review; default mode is metadata-only, and `--execute-screenshots` explicitly renders Pulp screenshot profiles through the project screenshot tool and compares `expectedImage` baselines when declared, honoring optional `visualToleranceBytes` |
+| `apply <path> --yes` | Apply a reviewed local kit plan from a kit directory, manifest, or `.pulpkit` archive: rejects `content-pack` manifests, writes `.pulp/kits.lock.json` with `manifest_sha256`, generated `cmake/pulp-kits.cmake`, declared copied files, and UI-kit interface metadata |
+| `remove <kit-id> --yes` | Remove an installed kit using only `.pulp/kits.lock.json` ownership records |
+| `pack <path>` | Create a `.pulpkit` or `.pulpcontent` archive with `files.sha256.json` |
+| `publish <path> --dry-run` | Run the metadata-only kit publish gate: rejects `content-pack` manifests, strict manifest validation, license inventory, NOTICE-compatible license files via `exports.licenses`, human review, validation profiles, kind-specific evidence, local quality badges, compatibility summary, and optional signed canonical registry-manifest verification. Remote publishing is still disabled. |
+| `init` | Scaffold a developer-oriented fixture manifest for `source`, `ui-kit`, or `template` |
+
+Developer notes:
+
+- `search` is local discovery only. It never fetches from a registry and never makes a result safe to apply.
+- Template kits can seed a project with `pulp create "<name>" --template <kit-dir>`. The template is validated, exported files are copied, and dependency packages are never installed implicitly.
+- UI kits copy scripts, tokens, and assets under `pulp-kits/<kit-id>/`. After review, attach one reviewed UI script and optional tokens/assets with `pulp_use_kit_ui(...)`; apply alone does not attach UI code.
+- Graph/native kits use the same inspect/plan/apply flow. Validation requires explicit realtime claims, and signed `node-pack` kits cannot claim iOS/AUv3 support.
+- Agent-authored kits need `authoring.humanReview.reviewed = true` before publish dry-run can pass.
+- `pulp kit publish --dry-run` is local readiness only. It checks NOTICE-compatible license exports, validation evidence, compatibility, local quality badges, and optional signed `pulp-registry-manifest-v1`; remote publishing is disabled.
+
+### content
+
+**Status**: experimental
+
+Validate and install data-only content packs for installed plugins.
+
+Use `pulp content` for end-user data such as presets, themes, samples, and wavetables. Plugin authors get a standard expansion-pack format instead of custom installers. Users get validation, an explicit install target, and removal that leaves their own presets alone. Agents can reject mismatched packs before install because plugins declare the content kinds they actually support.
+
+Keep the three lanes distinct:
+
+- `pulp add <name>` adds curated developer dependencies from the Pulp registry.
+- `pulp kit ...` reviews artifacts that may transform a project.
+- `pulp content ...` installs read-only data into a plugin-specific content directory.
+
+The workflow is validate, preview, approve, install/update. Install, update, and remove require `--yes`. `.pulpcontent` archives must include `files.sha256.json`; every payload file must be listed and hash-matched before preview, install, or update.
+
+`preview` reads the trusted `pulp.plugin-runtime.json` emitted by the plugin and reports compatibility, target plugin, accepted content kinds, and hot-reload/rescan/restart policy. `update` takes an explicit local path, not a registry name or URL, and rolls back a replaced version on failure. Content commands copy data only; they never run package CMake, JavaScript, scripts, dynamic libraries, or remote fetches. Removal deletes only the installed content-pack root, not user-created presets or edits.
+
+Plugins opt in with `ContentRegistry` or `PresetManager`. Prefer declaring content support in CMake with `pulp_add_plugin(... CONTENT_CAPABILITIES ... CONTENT_KINDS ...)`; that generates the `pulp.plugin-runtime.json` used by agents, previews, and `ValidationHarness::validate_plugin_runtime_manifest(...)`.
+
+```cmake
+pulp_add_plugin(MySynth
+    ...
+    CONTENT_CAPABILITIES content.presets.v1 content.samples.v1
+    CONTENT_KINDS presets samples
+    CONTENT_HOT_RELOAD_KINDS presets)
+```
+
+```json
+{
+  "schema": "pulp.plugin-runtime.v1",
+  "pluginId": "dev.example.synth",
+  "content": {
+    "capabilities": ["content.presets.v1", "content.samples.v1"],
+    "kinds": ["presets", "samples"],
+    "reload": {
+      "hotReloadKinds": ["presets"],
+      "manualRescanKinds": []
+    }
+  }
+}
+```
+
+```bash
+pulp content validate ./fixtures/packages/basic-content-pack --json
+pulp content preview ./fixtures/packages/basic-content-pack --plugin-runtime ./build/PulpSynth.pulp.plugin-runtime.json --plugin dev.example.synth --json
+pulp kit pack ./fixtures/packages/basic-content-pack --output ./dist/basic-content-pack.pulpcontent
+pulp content install ./dist/basic-content-pack.pulpcontent --plugin dev.example.synth --yes
+pulp content update ./dist/basic-content-pack.pulpcontent --plugin dev.example.synth --yes
+pulp content list --plugin dev.example.synth --json
+pulp content rescan --json
+pulp content reveal dev.pulp.fixtures.basic-content-pack --plugin dev.example.synth --version 0.1.0
+pulp content remove dev.pulp.fixtures.basic-content-pack --plugin dev.example.synth --version 0.1.0 --yes
+```
+
+Subcommands:
+
+| Subcommand | What it does |
+|------------|--------------|
+| `validate <path>` | Validate a `.pulpcontent` archive or `content-pack` directory without executing package code |
+| `preview <path> --plugin-runtime <manifest>` | Preview compatibility and reload/restart policy without installing anything |
+| `install <path> --plugin <id> --yes` | Copy a validated content pack into the plugin-specific user content root and update the content index with `plugin_id` and `manifest_sha256` |
+| `update <path> --plugin <id> --yes` | Replace or add a validated local content pack, write the target plugin id and new manifest digest, and roll back a replaced version on failure |
+| `list [--plugin <id>]` | List installed content packs |
+| `rescan` | Rebuild `Content/index.json` from installed local manifests without copying, deleting, fetching, or executing package code; index entries include `plugin_id` and `manifest_sha256` |
+| `reveal <package-id> --plugin <id>` | Print the installed content path |
+| `remove <package-id> --plugin <id> --yes` | Remove an installed content-pack root |
+
 ### add
 
 **Status**: usable
 
-Add a third-party package from the Pulp package registry.
+Add a curated third-party dependency from the Pulp package registry.
+
+`pulp add` is intentionally narrow. Package names resolve through Pulp-controlled registry metadata, not arbitrary GitHub/GitLab URLs or manifest-bearing local paths. Use `pulp kit validate/plan/apply` for local or external Pulp-native artifacts that can transform a project.
 
 ```bash
 pulp add signalsmith-stretch                       # add a package

@@ -11,7 +11,12 @@ target_sources(pulp-format PRIVATE
     src/format.cpp
     src/registry.cpp
     src/headless.cpp
+    src/offline_render_host.cpp
+    src/offline_sample_bounce.cpp
+    src/offline_sample_slot_bounce.cpp
+    src/graph_runtime_executor.cpp
     src/plugin_state_io.cpp
+    src/processor_block_adapter.cpp
     src/validation_harness.cpp
     src/aax_model.cpp
     src/host_type.cpp
@@ -35,12 +40,14 @@ target_sources(pulp-format PRIVATE
     src/view_bridge.cpp
     src/remote_view_session.cpp
     src/native_core_processor.cpp
+    src/transport_quantizer.cpp
 )
 
 target_link_libraries(pulp-format
     PUBLIC
         pulp::audio
         pulp::events
+        pulp::graph
         pulp::midi
         pulp::state
         pulp::view
@@ -70,6 +77,20 @@ if(PULP_ENABLE_INSPECTOR)
     target_compile_definitions(pulp-format PRIVATE PULP_ENABLE_INSPECTOR=1)
 else()
     target_compile_definitions(pulp-format PRIVATE PULP_ENABLE_INSPECTOR=0)
+endif()
+
+# PULP_ENABLE_AUDIO_PROBES wires the RT output-boundary probe into the
+# standalone host (the dev Audio Inspector's data source). Unlike the
+# inspector flag, this one gates MEMBER declarations in the PUBLIC
+# standalone.hpp (output_probe_ / output_probe_ptrs_ / output_probe()), so it
+# is defined PUBLIC — every target that includes standalone.hpp must see the
+# same value or sizeof(StandaloneApp) diverges (ODR). Defined unconditionally
+# as 0/1 so source can `#if PULP_ENABLE_AUDIO_PROBES`. Default ON for
+# dev/examples; release/standalone-ship builds configure OFF.
+if(PULP_ENABLE_AUDIO_PROBES)
+    target_compile_definitions(pulp-format PUBLIC PULP_ENABLE_AUDIO_PROBES=1)
+else()
+    target_compile_definitions(pulp-format PUBLIC PULP_ENABLE_AUDIO_PROBES=0)
 endif()
 
 # Host-quirks default policy (host-quirks enforcement plan).

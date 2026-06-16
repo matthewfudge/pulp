@@ -1,7 +1,7 @@
 {
   "$schema": "./skill_path_map.schema.json",
   "schema_version": 1,
-  "_comment": "Skill name -> glob patterns. When a diff touches any pattern, the corresponding SKILL.md must be updated in the same diff or a Skill-Update: skip trailer must appear on the tip commit. Paired with tools/scripts/versioning.json. Every subdir under .agents/skills/ MUST have an entry here; skill_sync_check.py fails if one is missing. Dual/triple ownership is permitted — and expected — for files that span multiple domains: e.g. core/format/src/au_adapter.mm is owned by both `auv3` (the adapter) and `view-bridge` (editor attach lifecycle), because a change to that file reasonably requires guidance updates on both sides. Dual ownership is not a mistake to collapse; use it when a single file legitimately teaches two skills.",
+  "_comment": "Skill name -> glob patterns. When a diff touches any pattern, the corresponding SKILL.md must be updated in the same diff or a Skill-Update: skip trailer must appear on the tip commit. Paired with tools/scripts/versioning.json. Every subdir under .agents/skills/ MUST have an entry here; skill_sync_check.py fails if one is missing. Dual/triple ownership is permitted \u2014 and expected \u2014 for files that span multiple domains: e.g. core/format/src/au_adapter.mm is owned by both `auv3` (the adapter) and `view-bridge` (editor attach lifecycle), because a change to that file reasonably requires guidance updates on both sides. Dual ownership is not a mistake to collapse; use it when a single file legitimately teaches two skills.",
   "skills": {
     "aax": {
       "paths": [
@@ -11,7 +11,7 @@
         "tools/cmake/PulpAAX.cmake"
       ],
       "_doc": {
-        "empty-ok": "external/AAX-SDK/** intentionally empty — AAX SDK is developer-supplied per docs/guides/ship.md and the aax skill"
+        "empty-ok": "external/AAX-SDK/** intentionally empty \u2014 AAX SDK is developer-supplied per docs/guides/ship.md and the aax skill"
       }
     },
     "ara": {
@@ -22,8 +22,19 @@
         "external/ara-sdk/**"
       ],
       "_doc": {
-        "empty-ok": "external/ara-sdk/** intentionally empty — ARA SDK is developer-supplied per the ara skill"
+        "empty-ok": "external/ara-sdk/** intentionally empty \u2014 ARA SDK is developer-supplied per the ara skill"
       }
+    },
+    "audio-harness": {
+      "paths": [
+        "test/support/audio_signal_generators.*",
+        "test/support/audio_test_signals.*",
+        "test/support/render_scenario.*",
+        "test/support/audio_contracts.*",
+        "test/support/audio_doctor.*",
+        "test/support/README.md",
+        "tools/audio/analysis/**"
+      ]
     },
     "auv3": {
       "paths": [
@@ -78,6 +89,9 @@
         "tools/scripts/macos_reroute_watcher.py",
         "tools/scripts/node_abi_gate.py",
         "tools/scripts/test_node_abi_gate.py",
+        "tools/scripts/hotspot_size_guard.py",
+        "tools/scripts/hotspot_size_guard.json",
+        "tools/scripts/test_hotspot_size_guard.py",
         "tools/scripts/gates.sh",
         "tools/launchd/**",
         ".githooks/**"
@@ -102,6 +116,26 @@
         ".claude/commands/**"
       ]
     },
+    "kits": {
+      "paths": [
+        "tools/kits/**",
+        "fixtures/packages/**",
+        "tools/cli/kit_commands.*",
+        "planning/2026-06-11-pulp-package-format-proposal.md",
+        "docs/reference/cli.md",
+        "docs/status/cli-commands.yaml"
+      ]
+    },
+    "content": {
+      "paths": [
+        "tools/kits/**",
+        "fixtures/packages/basic-content-pack/**",
+        "tools/cli/content_commands.*",
+        "planning/2026-06-11-pulp-package-format-proposal.md",
+        "docs/reference/cli.md",
+        "docs/status/cli-commands.yaml"
+      ]
+    },
     "cmajor-external": {
       "paths": [
         "tools/scripts/cmajor_external.py",
@@ -119,7 +153,7 @@
         "external/quickjs*/**"
       ],
       "_doc": {
-        "empty-ok": "external/quickjs*/** intentionally empty — QuickJS is fetched at configure time, not vendored"
+        "empty-ok": "external/quickjs*/** intentionally empty \u2014 QuickJS is fetched at configure time, not vendored"
       }
     },
     "faust": {
@@ -311,6 +345,41 @@
     "webview-ui": {
       "paths": [
         "examples/webview-*/**"
+      ]
+    },
+    "audio-headless-debug": {
+      "paths": [
+        "tools/audio/analysis/**",
+        "core/format/include/pulp/format/headless.hpp",
+        ".agents/skills/audio-headless-debug/**"
+      ]
+    },
+    "video-proof": {
+      "paths": [
+        ".agents/skills/video-proof/**",
+        "docs/reference/desktop-video-proofs.md",
+        "tools/local-ci/video_artifacts.py",
+        "tools/local-ci/mobile_video_composition.py",
+        "tools/local-ci/reaper_video_recipe.py",
+        "tools/local-ci/simulator_video_commands_cli.py",
+        "tools/local-ci/android_video_commands_cli.py",
+        "tools/local-ci/pack_video_proof_tool.py",
+        "tools/local-ci/macos_terminal_runner.py",
+        "tools/local-ci/macos_terminal_proof.py",
+        "tools/local-ci/macos_window_video_select.py",
+        "tools/local-ci/macos_desktop_video.py",
+        "tools/local-ci/macos_desktop_action_video.py",
+        "tools/local-ci/macos_video_bindings.py",
+        "tools/local-ci/macos_desktop_smoke_video_dependency_bindings.py",
+        "tools/local-ci/reporting_video.py",
+        "tools/local-ci/reporting_review.py",
+        "tools/local-ci/io_utils_design_parity.py",
+        "tools/local-ci/cli_parser_video.py",
+        "tools/local-ci/desktop_review_commands_cli.py",
+        "tools/local-ci/desktop_review_command_bindings.py",
+        "tools/local-ci/remotion-proof/**",
+        "tools/local-ci/scripts/compose-video-proof.mjs",
+        "tools/local-ci/scripts/smoke-video-proof.mjs"
       ]
     }
   }

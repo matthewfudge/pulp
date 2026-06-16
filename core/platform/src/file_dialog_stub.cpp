@@ -2,9 +2,9 @@
 //
 // The backend registration API (set_backend/clear_backend/has_backend)
 // is compiled on every platform — on mac/iOS it's a no-op since those
-// platforms have a native built-in impl in file_dialog_mac.mm / the
-// iOS UIDocumentPicker backend. On non-Apple platforms (Windows,
-// Linux, Android) the open/save/folder dialog methods route through
+// platforms have a native built-in impl in file_dialog_mac.mm. On
+// non-Apple platforms (Windows, Linux, Android) the open/save/folder
+// dialog methods route through
 // the registered backend; without one every call returns an explicit
 // "no selection" (#301 P1 — replaces the old silent-nullopt stubs
 // so the JS bridge can distinguish "user cancelled" from "platform
@@ -14,6 +14,17 @@
 
 #include <mutex>
 
+// On Linux a real built-in backend exists: the xdg-desktop-portal bridge
+// (file_dialog_portal_linux.cpp). A host opts in by calling
+// FileDialog::install_native_backend() at startup — we do NOT auto-install,
+// because a portal call raises a real (blocking) dialog and unit tests /
+// headless callers must keep the documented "no backend → no selection"
+// contract. install_native_backend() references the portal factory, which
+// also force-links that TU.
+#if defined(__linux__) && !defined(__ANDROID__)
+#include <pulp/platform/dbus.hpp>
+#endif
+
 // TargetConditionals provides TARGET_OS_OSX / TARGET_OS_IOS macros
 // so has_backend() can narrow its unconditional-true to macOS only
 // (Apple has no built-in file_dialog impl on iOS yet — #316 P2).
@@ -22,6 +33,16 @@
 #endif
 
 namespace pulp::platform {
+
+#if defined(__linux__) && !defined(__ANDROID__)
+// Defined in platform/linux/file_dialog_portal_linux.cpp. Referencing it here
+// forces that TU to link (static-lib object files with only static
+// initializers can otherwise be dropped).
+FileDialog::Backend make_linux_portal_backend();
+#elif defined(_WIN32)
+// Defined in platform/win/file_dialog_win.cpp (IFileDialog COM backend).
+FileDialog::Backend make_win_file_dialog_backend();
+#endif
 
 namespace {
     std::mutex           g_backend_mu;
@@ -35,11 +56,54 @@ void FileDialog::set_backend(Backend backend) {
     g_backend_installed = true;
 }
 
+bool FileDialog::install_native_backend() {
+    // Opt-in install of the platform's built-in backend. Linux: the
+    // xdg-desktop-portal bridge, available only when libdbus is loadable.
+    // Windows: the IFileDialog COM backend.
+    // Idempotent — leaves an already-installed (incl. host-set) backend in
+    // place. No-op elsewhere (macOS has a compiled-in native impl; iOS
+    // and Android have no built-in backend yet).
+#if defined(__linux__) && !defined(__ANDROID__)
+    std::lock_guard lock(g_backend_mu);
+    if (g_backend_installed) return true;
+    if (!DBus::library_available()) return false;
+    g_backend = make_linux_portal_backend();
+    g_backend_installed = true;
+    return true;
+#elif defined(_WIN32)
+    std::lock_guard lock(g_backend_mu);
+    if (g_backend_installed) return true;   // leave a host-set backend in place
+    g_backend = make_win_file_dialog_backend();
+    g_backend_installed = true;
+    return true;
+#else
+    return has_backend();
+#endif
+}
+
 void FileDialog::clear_backend() {
     std::lock_guard lock(g_backend_mu);
     g_backend = {};
     g_backend_installed = false;
 }
+
+namespace detail {
+// True if a host/explicitly-set Backend handled open_file (result in `out`);
+// false means "use the platform-native dialog". The macOS impl consults this
+// FIRST so the Backend seam (host overrides + headless test mocks) works there
+// too — without it, file_dialog_mac.mm went straight to a blocking NSOpenPanel
+// and ignored set_backend(). The compiled-in native panel remains the default
+// when no explicit backend is installed.
+bool file_dialog_open_file_via_backend(const std::string& title,
+                                       const std::vector<FileFilter>& filters,
+                                       const std::string& default_path,
+                                       std::optional<std::string>& out) {
+    std::lock_guard lock(g_backend_mu);
+    if (!g_backend_installed || !g_backend.open_file) return false;
+    out = g_backend.open_file(title, filters, default_path);
+    return true;
+}
+}  // namespace detail
 
 bool FileDialog::has_backend() {
     // #312 + #316 Codex P2s: report "true" only on platforms where a

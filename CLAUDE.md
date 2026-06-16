@@ -881,8 +881,10 @@ Several Pulp dev workflows can produce host audio out of the user's
 speakers without warning: `xcrun simctl launch` of an iOS Sim app that
 opens a virtual coreaudio device, `auval` validating an AU plug-in,
 loading any AUv3/VST3/CLAP into a host (Logic, GarageBand, REAPER,
-AUM, Cubasis) for scan or validation, or any test that exercises the
-audio render path with non-zero gain on an unmuted bus. If the user
+AUM, Cubasis) for scan or validation, `pulp run` of a standalone target
+(including visually headless live-probe commands such as
+`--audio-probe-json`), or any test that exercises the audio render path
+with non-zero gain on an unmuted bus. If the user
 is listening to music, on a call, near sleeping people, or just away
 from the desk, mystery audio is at minimum confusing and at worst
 embarrassing or harmful.
@@ -896,7 +898,10 @@ for every agent (Claude Code, Codex, human-driven scripts) is:
    dispatches the work, include a one-liner naming the source and an
    expected duration: "heads up — about to launch the iOS Sim with
    the demo plugin; audio may be active for ~30s while the cube
-   renders." Same for `auval`, host launches, etc.
+   renders." Same for `pulp run`, `--audio-inspector`,
+   `--audio-probe-json`, `auval`, host launches, etc. Prefer
+   `HeadlessHost`, the audio observability harness, or Audio Doctor for
+   no-speaker checks whenever the live device is not the thing being tested.
 2. **Cap the duration.** Pre-PR / pre-merge verification steps that
    open an audio device should have a hard wall-clock cap. Don't let
    a verify wait hang an open coreaudio session for hours; terminate
@@ -941,6 +946,7 @@ Alphabetical. One line of purpose per skill. Each directory at `.agents/skills/<
 |-------|---------|
 | `aax` | Optional AAX format: developer-supplied Avid SDK, CMake enablement, DigiShell/AAX Validator workflows |
 | `android` | Android NDK builds, Oboe audio, Dawn/Skia GPU, JNI bridge, emulator smoke, platform gotchas |
+| `audio-harness` | Prove/debug what a Processor emits: signal generators, metrics, assertions, RenderScenario, contracts + offline Audio Doctor (response, THD) |
 | `ara` | Optional ARA support: developer-supplied SDK, companion APIs, adapter wiring, validation |
 | `auv2` | AU v2 adapter: aufx/aumf/aumi/aumu component types, MIDI input wiring, DAW cache gotchas |
 | `auv3` | AU v3 adapter: AUAudioUnit render block, parameter tree, UMP / sysex, sidechain, iOS extension |
@@ -964,15 +970,16 @@ Alphabetical. One line of purpose per skill. Each directory at `.agents/skills/<
 | `tart-ci` | Tart golden-VM macOS CI: layered goldens, ephemeral per-job runners, vm-image manifest, caching/rebake, host-keychain safety |
 | `threejs-bridge` | Native Dawn-backed Three.js: three.webgpu.js renderer, bridge tests, native demo capture |
 | `upgrade` | `pulp upgrade` guidance: release discovery, migration notes, breaking-change fixes |
+| `video-proof` | Desktop validation videos: record raw proof, render Remotion context, publish/serve report, prepare review issue body |
 | `view-bridge` | Editor lifecycle and multi-view attach — `Processor::create_view()`, open/notify/resize/close protocol |
 | `vst3` | VST3 adapter: SingleComponentEffect, bus arrangement, param/MIDI routing, state, Steinberg SDK traps |
 | `webview-ui` | WebView UI: native bridge, embedded assets, directory-backed dev resources, WebView validation |
 
-27 skills as of 2026-06-02. When adding a new skill, append its row here and register the subsystem in `tools/scripts/skill_path_map.json`.
+29 skills as of 2026-06-15. When adding a new skill, append its row here and register the subsystem in `tools/scripts/skill_path_map.json`.
 
 ### Claude Code Plugin
 
-Pulp ships as a Claude Code plugin with slash commands (`/build`, `/test`, `/create`, `/status`, `/validate`, `/design`, `/ship`, `/import-design`), skills, and hooks. The plugin manifest is at `.claude-plugin/plugin.json`. See `docs/guides/claude-code-plugin.md` for installation and full details.
+Pulp ships as a Claude Code plugin with slash commands (`/build`, `/test`, `/create`, `/status`, `/validate`, `/design`, `/ship`, `/import-design`, `/audio-harness`), skills, and hooks. The plugin manifest is at `.claude-plugin/plugin.json`. See `docs/guides/claude-code-plugin.md` for installation and full details.
 
 ### CI Workflow
 
@@ -1044,22 +1051,40 @@ advisory unless explicitly required by branch protection.
 
 #### Runner priority (hard rule)
 
-Pulp's macOS leg is local-first with Namespace overflow (Plan B,
-`planning/2026-05-13-namespace-overflow-implementation.md`). The
-`resolve-provider` job in `build.yml` routes the macOS matrix leg to
-Namespace when the local self-hosted Mac runner has >= 2 busy workers
-AND `PULP_NAMESPACE_BUILD_MACOS_RUNS_ON_JSON` is set. Otherwise it
-stays local. Linux and Windows continue to route via the existing
-provider machinery (default `github-hosted`). The `macos` wrapper job
-that branch protection requires is unchanged.
+**No Namespace.** Namespace cloud macOS runners are a *paid* overflow we do NOT
+use (cost). The capability stays wired in Shipyard / `build.yml` as an explicit,
+operator-dispatched break-glass option, but it is OFF by default and must never
+be auto-routed. Keep `PULP_NAMESPACE_BUILD_MACOS_RUNS_ON_JSON` (and the
+Linux/Windows equivalents) **UNSET**, and **never hijack that variable to point
+at self-hosted runners** — doing so dumps the high-volume sanitizer/coverage
+lanes onto the Mac Studio runners that host the required `macos` gate and breaks
+it across PRs (the 2026-06-07 lesson). This matches `.shipyard/config.toml`
+("Namespace macOS routing is disabled for cost control").
 
-1. **macOS local runner**: primary required gate when local has capacity.
-2. **Namespace macOS cloud**: automatic overflow when local is saturated. See `docs/guides/local-ci.md` § "macOS overflow routing".
-3. **GitHub-hosted Linux/Windows**: advisory cross-platform signal.
-4. **SSH Ubuntu/Windows**: use only when a human explicitly asks for those local hosts.
+macOS runs on **local Macs + GitHub-hosted**, in this order:
 
-If Shipyard tries to probe SSH Ubuntu or Windows for a macOS-focused PR where
-those hosts are not in scope, use `--skip-target ubuntu --skip-target windows`
-and file a Shipyard issue if the CLI should have inferred that from config.
+1. **Mac Studio** (`pulp-studio-01/02/03`, `PULP_LOCAL_MACOS_RUNS_ON_JSON`) — the
+   primary required `macos` gate.
+2. **M5 Mac** (`pulp-build-m5`, `PULP_OVERFLOW_BUILD_MACOS_RUNS_ON_JSON`) — local
+   overflow when the Studio runners are saturated
+   (>= `PULP_LOCAL_MAC_OVERFLOW_THRESHOLD` busy).
+3. **GitHub-hosted `macos-15`** — sanitizers, coverage, release-cli, and the
+   build-overflow fallback (each via its own `PULP_SANITIZER_*` /
+   `PULP_COVERAGE_MACOS` var, all `macos-15`). Clean per run, so the ODR-prone
+   lanes stay OFF the warm self-hosted build dirs.
+4. **Namespace macOS cloud** — break-glass ONLY, operator-dispatched, never
+   automatic.
+
+Linux and Windows use GitHub-hosted runners (advisory). SSH Ubuntu/Windows only
+when a human explicitly asks. If Shipyard probes SSH Ubuntu/Windows for a
+macOS-focused PR where they're out of scope, use
+`--skip-target ubuntu --skip-target windows`.
+
+**Future (deliberate, not automatic):** using the local Macs (Studio/M5) for the
+heavier lanes (release-cli, sanitizers) means wiring each lane its OWN dedicated
+`runs-on` var pointing at the local labels — **not** the Namespace var — paired
+with auto-cleaning the warm `build-<key>` dirs on churn (see the
+`pulp-runner-ops` skill, since warm-dir ODR is why those lanes stay on
+GitHub-hosted today). Until that lands, they stay on `macos-15`.
 
 See `docs/guides/local-ci.md` for setup.

@@ -1,8 +1,8 @@
 # Pulp test suite — Catch2
 
 include(${CMAKE_SOURCE_DIR}/tools/cmake/PulpTestSuite.cmake)
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/dsp_rt_contract_tests.cmake")
 find_package(Python3 COMPONENTS Interpreter QUIET)
-
 # Build check (no Catch2 dependency)
 add_executable(pulp-test-build-check test_build_check.cpp)
 target_link_libraries(pulp-test-build-check PRIVATE pulp::platform pulp::runtime)
@@ -28,12 +28,10 @@ if(Python3_Interpreter_FOUND)
             --boundary-verifier
             "${CMAKE_SOURCE_DIR}/tools/scene3d/verify_scene3d_cmake_boundary.py"
             --build-dir "${CMAKE_BINARY_DIR}")
-    set_tests_properties(scene3d-cmake-boundary-negative-contract
-        PROPERTIES
-        PASS_REGULAR_EXPRESSION
-            "scene3d_cmake_boundary_contract_case=valid-current-${PULP_SCENE3D_CMAKE_EXPECT}.*scene3d_cmake_boundary_contract_case=expect-mismatch.*scene3d_cmake_boundary_contract_case=enabled-missing-build-path.*scene3d_cmake_boundary_contract_case=enabled-missing-link-file.*scene3d_cmake_boundary_contract_case=valid-disabled.*scene3d_cmake_boundary_contract_case=disabled-build-path-present.*scene3d_cmake_boundary_contract_case=disabled-link-file-present.*scene3d_cmake_boundary_contract_case=disabled-target-present.*scene3d_cmake_boundary_contract_verified=true")
+    set_tests_properties(scene3d-cmake-boundary-negative-contract PROPERTIES
+        PASS_REGULAR_EXPRESSION "scene3d_cmake_boundary_contract_case=valid-current-${PULP_SCENE3D_CMAKE_EXPECT}.*scene3d_cmake_boundary_contract_case=expect-mismatch.*scene3d_cmake_boundary_contract_case=enabled-missing-build-path.*scene3d_cmake_boundary_contract_case=enabled-missing-link-file.*scene3d_cmake_boundary_contract_case=valid-enabled-gpu-off.*scene3d_cmake_boundary_contract_case=enabled-gpu-off-render-target-present.*scene3d_cmake_boundary_contract_case=valid-disabled.*scene3d_cmake_boundary_contract_case=disabled-build-path-present.*scene3d_cmake_boundary_contract_case=disabled-link-file-present.*scene3d_cmake_boundary_contract_case=disabled-target-present.*scene3d_cmake_boundary_contract_verified=true")
+    include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/refactor_baseline_tests.cmake")
 endif()
-
 # iOS AUv3 helper configure smoke (macOS host only; skipped when iOS SDK absent).
 # A fresh checkout pays the FetchContent bootstrap cost (~5–7 min on CI macs).
 # Local self-hosted runners can exceed that during cache churn, so leave
@@ -98,6 +96,16 @@ set_tests_properties(cmake-pulp-add-binary-data-encoder PROPERTIES
     # all three platforms. Excluded from PR fast-CI.
     LABELS "cmake;binary-data;issue-898;slow"
     TIMEOUT 60)
+
+# Windows FetchContent base-dir smoke — guards the WebGPU prebuilt
+# subbuild path from exceeding MSBuild's MAX_PATH limit in deep Actions
+# workspaces. Runs under `cmake -P`, so it does not need a Windows host.
+add_test(NAME cmake-fetchcontent-base-dir
+    COMMAND ${CMAKE_COMMAND} -P
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/test_fetchcontent_base_dir.cmake)
+set_tests_properties(cmake-fetchcontent-base-dir PROPERTIES
+    LABELS "cmake;fetchcontent;windows;issue-4039"
+    TIMEOUT 30)
 
 # Install-layout regression for issue-905 follow-up: when the SDK is
 # installed via `cmake --install`, the Python encoder MUST be bundled
@@ -223,6 +231,14 @@ if(UNIX)
     add_test(NAME check-pulp-cli-hook
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/test_check_pulp_cli_hook.sh)
     set_tests_properties(check-pulp-cli-hook PROPERTIES TIMEOUT 15)
+
+    # inject-claude-prefs.sh — the SessionStart hook that reads
+    # claude.send_user_file from ~/.pulp/config.toml and injects the
+    # SendUserFile preference. Hermetic: each case points PULP_CONFIG_FILE
+    # at a staged config. Like the cli hook it must always exit 0.
+    add_test(NAME inject-claude-prefs-hook
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/test_inject_claude_prefs_hook.sh)
+    set_tests_properties(inject-claude-prefs-hook PROPERTIES TIMEOUT 15)
 endif()
 
 # pulp #2087 (slice 1) — install.sh must install CLI + matching SDK in one
@@ -346,6 +362,73 @@ target_compile_definitions(pulp-test-cli-create-shellout PRIVATE
     PULP_BUILD_DIR="${CMAKE_BINARY_DIR}"
     PULP_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 catch_discover_tests(pulp-test-cli-create-shellout)
+
+# CLI import substrate tests — detection engine, JSON-over-stdio SPI runner,
+# install-hint path, and the vendor-agnostic source guard. Links the import
+# logic directly (pure functions) and shells out to the built CLI for the
+# install-hint / detect / end-to-end paths.
+add_executable(pulp-test-cli-import
+    test_cli_import.cpp
+    ${CMAKE_SOURCE_DIR}/tools/cli/import_detect.cpp
+    ${CMAKE_SOURCE_DIR}/tools/cli/import_spi.cpp
+)
+target_include_directories(pulp-test-cli-import PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(pulp-test-cli-import PRIVATE
+    pulp::platform
+    Catch2::Catch2WithMain)
+if(TARGET pulp-cli)
+    add_dependencies(pulp-test-cli-import pulp-cli)
+    target_compile_definitions(pulp-test-cli-import PRIVATE
+        PULP_CLI_BINARY="$<TARGET_FILE:pulp-cli>")
+endif()
+target_compile_definitions(pulp-test-cli-import PRIVATE
+    PULP_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+catch_discover_tests(pulp-test-cli-import
+    PROPERTIES LABELS "parser-import")
+
+# CLI import EMIT materialisation — manifest parse, write-plan, the clean-room
+# output denylist scan (all pure), plus an end-to-end shell-out through a mock
+# emit responder. Links the pure import-emit logic directly.
+add_executable(pulp-test-cli-import-emit
+    test_cli_import_emit.cpp
+    ${CMAKE_SOURCE_DIR}/tools/cli/import_emit.cpp
+    ${CMAKE_SOURCE_DIR}/tools/cli/import_emit_scan.cpp
+    ${CMAKE_SOURCE_DIR}/tools/cli/import_detect.cpp
+)
+target_include_directories(pulp-test-cli-import-emit PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(pulp-test-cli-import-emit PRIVATE
+    pulp::platform
+    Catch2::Catch2WithMain)
+if(TARGET pulp-cli)
+    add_dependencies(pulp-test-cli-import-emit pulp-cli)
+    target_compile_definitions(pulp-test-cli-import-emit PRIVATE
+        PULP_CLI_BINARY="$<TARGET_FILE:pulp-cli>")
+endif()
+target_compile_definitions(pulp-test-cli-import-emit PRIVATE
+    PULP_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+catch_discover_tests(pulp-test-cli-import-emit
+    PROPERTIES LABELS "parser-import")
+
+# CLI import IMPORTER_TERMS accept-gate + provenance PR-check. Links the pure
+# acceptance-store logic directly, shells out to the built CLI for the
+# accept-to-run gate behaviour, and shells out to the Python provenance audit.
+add_executable(pulp-test-cli-import-terms
+    test_cli_import_terms.cpp
+    ${CMAKE_SOURCE_DIR}/tools/cli/import_terms.cpp
+)
+target_include_directories(pulp-test-cli-import-terms PRIVATE ${CMAKE_SOURCE_DIR})
+target_link_libraries(pulp-test-cli-import-terms PRIVATE
+    pulp::platform
+    Catch2::Catch2WithMain)
+if(TARGET pulp-cli)
+    add_dependencies(pulp-test-cli-import-terms pulp-cli)
+    target_compile_definitions(pulp-test-cli-import-terms PRIVATE
+        PULP_CLI_BINARY="$<TARGET_FILE:pulp-cli>")
+endif()
+target_compile_definitions(pulp-test-cli-import-terms PRIVATE
+    PULP_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+catch_discover_tests(pulp-test-cli-import-terms
+    PROPERTIES LABELS "parser-import")
 
 # pulp #914 — `pulp run` flag parser unit tests. Pure parser, no I/O,
 # no project resolution. The shell-out CLI behaviour for the same
@@ -672,11 +755,9 @@ catch_discover_tests(pulp-test-cli-sdk-tarball-filename)
 
 # CLI package commands (#643): local-only tests for target/search/list/
 # update/suggest/audit/add/remove behavior against staged project files
-# and registry fixtures. Stays off remote fetch / archive extraction /
-# install branches; links the package_commands_* TUs + package_registry.cpp
-# directly so the command surface can be exercised without shelling out
-# to the built binary. Roadmap item P11-2 split the sub-command bodies
-# out of package_commands.cpp into _util / _search / _add sibling TUs.
+# and registry fixtures. Stays off remote fetch / archive extraction; links
+# package_commands_* + package_registry.cpp directly without shelling out.
+# Roadmap item P11-2 split subcommands into _util / _search / _add TUs.
 add_executable(pulp-test-cli-package-commands
     test_cli_package_commands.cpp
     ${CMAKE_SOURCE_DIR}/tools/cli/package_commands.cpp
@@ -684,6 +765,10 @@ add_executable(pulp-test-cli-package-commands
     ${CMAKE_SOURCE_DIR}/tools/cli/package_commands_search.cpp
     ${CMAKE_SOURCE_DIR}/tools/cli/package_commands_add.cpp
     ${CMAKE_SOURCE_DIR}/tools/cli/package_registry.cpp
+    # cmd_add routes `pulp add <importer>` through the importer install path.
+    ${CMAKE_SOURCE_DIR}/tools/cli/tool_registry.cpp
+    ${CMAKE_SOURCE_DIR}/tools/cli/importer_install.cpp
+    ${CMAKE_SOURCE_DIR}/tools/cli/import_spi.cpp
 )
 target_include_directories(pulp-test-cli-package-commands PRIVATE
     ${CMAKE_SOURCE_DIR}
@@ -692,6 +777,8 @@ target_link_libraries(pulp-test-cli-package-commands PRIVATE
     pulp::platform
     Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-cli-package-commands)
+
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/content_workflow_tests.cmake")
 
 # CLI package registry (#643): pure local tests for registry parsing,
 # lock-file round trips, target TOML parsing/writing, semver, quality
@@ -708,7 +795,7 @@ target_link_libraries(pulp-test-cli-package-registry PRIVATE
     pulp::platform
     Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-cli-package-registry)
-
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/package_analyzer_tests.cmake")
 # CLI versioned import-design detection (#1031): unit + fixture-driven
 # tests for the three-layer (parser-version, format-version,
 # compat-schema-version) detector behind `pulp import-design
@@ -739,6 +826,8 @@ catch_discover_tests(pulp-test-cli-import-detect
 add_executable(pulp-test-cli-tool-registry
     test_cli_tool_registry.cpp
     ${CMAKE_SOURCE_DIR}/tools/cli/tool_registry.cpp
+    ${CMAKE_SOURCE_DIR}/tools/cli/importer_install.cpp
+    ${CMAKE_SOURCE_DIR}/tools/cli/import_spi.cpp
 )
 target_include_directories(pulp-test-cli-tool-registry PRIVATE
     ${CMAKE_SOURCE_DIR}
@@ -747,6 +836,23 @@ target_link_libraries(pulp-test-cli-tool-registry PRIVATE
     pulp::platform
     Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-cli-tool-registry)
+
+# Importer install mechanism (#19): version-window enforcement, sha256
+# verification, skill install/uninstall, install records, and the `pulp tool
+# install` / `pulp add` alias dispatch. Mock-local-package driven — no network.
+add_executable(pulp-test-cli-importer-install
+    test_cli_importer_install.cpp
+    ${CMAKE_SOURCE_DIR}/tools/cli/importer_install.cpp
+    ${CMAKE_SOURCE_DIR}/tools/cli/tool_registry.cpp
+    ${CMAKE_SOURCE_DIR}/tools/cli/import_spi.cpp
+)
+target_include_directories(pulp-test-cli-importer-install PRIVATE
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/tools/cli)
+target_link_libraries(pulp-test-cli-importer-install PRIVATE
+    pulp::platform
+    Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-cli-importer-install)
 
 # CLI project bump (#499 Slice 7 / #564): pure-logic tests for the
 # CMakeLists pin parser, rewriter, refuse-dynamic-pin gate, semver /
@@ -918,11 +1024,11 @@ pulp_add_test_suite(pulp-test-native-core-ffi
     SOURCES test_native_core_ffi.cpp
     LIBRARIES pulp::native-components)
 
-# Seam test: the C++ NativeCoreProcessor adapter driving an in-test C-ABI gain
-# core (no Rust). Proves descriptor/param/automation/audio/state bridging.
+# NativeCoreProcessor seam + RT-safety harnesses; no Rust required.
 pulp_add_test_suite(pulp-test-native-core-processor
-    SOURCES test_native_core_processor.cpp
-    LIBRARIES pulp::format)
+    SOURCES test_native_core_processor.cpp test_rt_safety.cpp $<$<BOOL:${UNIX}>:${CMAKE_CURRENT_SOURCE_DIR}/native_components/rt_intercept_test_support.cpp> $<$<NOT:$<BOOL:${UNIX}>>:${CMAKE_CURRENT_SOURCE_DIR}/harness/rt_allocation_probe.cpp>
+    LIBRARIES pulp::format ${CMAKE_DL_LIBS}
+    COMPILE_DEFINITIONS $<$<BOOL:${UNIX}>:PULP_NATIVE_CORE_PROCESS_RT_TRAP_TESTS=1>)
 
 # Public node ABI (pulp_node_v1) conformance — always built, no Rust. Pins the
 # ABI shape, version negotiation, and a C node's full lifecycle.
@@ -998,9 +1104,9 @@ pulp_add_test_suite(pulp-test-audio-focus LIBRARIES pulp::audio)
 # Header-only math, so no library link required beyond Catch2.
 pulp_add_test_suite(pulp-test-frame-fill LIBRARIES pulp::audio)
 
-# #86: SysExAccumulator — cross-platform MIDI SysEx aggregation state
-# machine shared by Android/ALSA/Windows/iOS MIDI backends. Header-only.
-pulp_add_test_suite(pulp-test-sysex-accumulator LIBRARIES pulp::midi)
+# #3327 L4: MonotonicMidiClock — seconds-since-open MIDI input timestamps,
+# the cross-platform helper that replaced ALSA's hardcoded 0.0 stamps.
+pulp_add_test_suite(pulp-test-midi-monotonic-clock LIBRARIES pulp::midi)
 
 # planning/2026-05-24 gap-doc row "BLE MIDI" — BLE-MIDI 1.0 packet
 # codec + cross-platform BleMidiCentral factory contract. The
@@ -1008,10 +1114,6 @@ pulp_add_test_suite(pulp-test-sysex-accumulator LIBRARIES pulp::midi)
 # manually (requires a real adapter + a paired peripheral); these
 # tests pin the deterministic codec + the stub central behaviour.
 pulp_add_test_suite(pulp-test-ble-midi LIBRARIES pulp::midi)
-
-# macOS plan 8.2: UmpSysex7Reassembler — shared UMP type-0x3 reassembler
-# extracted from the inline AUv3 / CoreMIDI state machines. Header-only.
-pulp_add_test_suite(pulp-test-ump-sysex7-reassembler LIBRARIES pulp::midi)
 
 # macOS plan 8.1: UmpSession + UmpEndpoint + VirtualUmpEndpoint —
 # headless tests for the cross-platform session + virtual-endpoint
@@ -1043,6 +1145,7 @@ pulp_add_test_suite(pulp-test-validation-harness LIBRARIES pulp::format)
 pulp_add_test_suite(pulp-test-settings-sections LIBRARIES pulp::standalone)
 
 pulp_add_test_suite(pulp-test-plugin-state-io LIBRARIES pulp::format)
+pulp_add_test_suite(pulp-test-plugin-state-restore-diagnostics LIBRARIES pulp::format)
 
 # AAX metadata/model tests
 pulp_add_test_suite(pulp-test-aax-model LIBRARIES pulp::format)
@@ -1153,8 +1256,6 @@ pulp_add_test_suite(pulp-test-processor-ara-hook LIBRARIES pulp::format)
 # Processor bus-layout validation + processBlock precision contract +
 # latency / tail change notification (workstream 03 items 3.7, 3.8, 3.11).
 pulp_add_test_suite(pulp-test-processor-layout-latency LIBRARIES pulp::format)
-# Processor and descriptor default contracts
-pulp_add_test_suite(pulp-test-processor-defaults LIBRARIES pulp::format)
 # Item 1.3 AudioPlayHead transport-extension helpers used by every
 # format adapter (VST3, AU v2 / v3, CLAP) to derive `ProcessContext::bar`
 # and the three change flags (tempo_changed / time_sig_changed /
@@ -1185,13 +1286,13 @@ pulp_add_test_suite(pulp-test-lasso LIBRARIES pulp::view)
 pulp_add_test_suite(pulp-test-split-view LIBRARIES pulp::view)
 # CommandRegistry + KeyMappingEditor (Pulp-native names — planning slice 6.4)
 pulp_add_test_suite(pulp-test-command-registry LIBRARIES pulp::view pulp::state)
+# Audio Inspector developer tool window (audio observability harness Phase 6)
+pulp_add_test_suite(pulp-test-audio-inspector-window LIBRARIES pulp::view pulp::audio)
 # PluginDescriptor vendor_url + vendor_email (workstream 01 slice 1.8)
 pulp_add_test_suite(pulp-test-vendor-url LIBRARIES pulp::format)
-# Image cache (workstream 07 slice 7.4)
+# Image cache + ImageView↔ImageCache wiring (workstream 07 slices 7.4, B4)
 pulp_add_test_suite(pulp-test-image-cache LIBRARIES pulp::view)
-# ImageView ↔ ImageCache wiring (workstream 07 B4)
 pulp_add_test_suite(pulp-test-image-view-cache LIBRARIES pulp::view)
-
 # Accessibility tree snapshot (workstream 04 slice 4.4)
 pulp_add_test_suite(pulp-test-accessibility-tree LIBRARIES pulp::view)
 # Text-accessibility scaffold (font v2 Slice 2.6)
@@ -1222,15 +1323,15 @@ pulp_add_test_suite(pulp-test-view-size-aspect LIBRARIES pulp::format)
 pulp_add_test_suite(pulp-test-view-design-viewport LIBRARIES pulp::view)
 
 # PluginViewHost design-viewport wiring (mac CPU + GPU). The pure
-# math is already pinned by `pulp-test-view-design-viewport`; this
-# target covers the new PluginViewHost virtuals (set_design_viewport,
-# set_fixed_aspect_ratio, window_to_root_point) and that the mac CPU
-# host inverse-maps mouse coords before hit_test. GPU section soft-
-# skips without Dawn / a window server. Foundation for CLAP
-# gui_get_resize_hints + VST3 checkSizeConstraint resize negotiation.
+# math is already pinned by `pulp-test-view-design-viewport`; covers the
+# PluginViewHost virtuals + CPU-host inverse mouse mapping (GPU section
+# soft-skips without Dawn; foundation for CLAP/VST3 resize negotiation)
+# and the keyboard-focus host-etiquette contract (prior-responder
+# restore, host-grab ends text input — keeps Musical Typing alive).
 if(APPLE AND NOT PULP_IOS)
     add_executable(pulp-test-plugin-view-host-design-viewport
-        test_plugin_view_host_design_viewport.mm)
+        test_plugin_view_host_design_viewport.mm
+        test_plugin_view_host_key_focus.mm)
     target_link_libraries(pulp-test-plugin-view-host-design-viewport PRIVATE
         pulp::view pulp::canvas Catch2::Catch2WithMain "-framework AppKit")
     if(PULP_HAS_SKIA)
@@ -1319,24 +1420,19 @@ pulp_add_test_suite(pulp-test-ios-background-audio-flag LIBRARIES pulp::format)
 pulp_add_test_suite(pulp-test-midi-buffer-ump LIBRARIES pulp::midi)
 # MidiBuffer SysEx sidecar (workstream 01 — full MIDI vocabulary)
 pulp_add_test_suite(pulp-test-midi-buffer-sysex LIBRARIES pulp::midi)
-# Raw MIDI byte-stream parser — shared by ALSA raw-midi and any future
-# raw-byte MIDI transport. Tests aborted-sysex recovery (#406 codex P2),
-# realtime-inside-sysex passthrough (#239), runaway cap, and multi-read
-# accumulator state.
-pulp_add_test_suite(pulp-test-raw-midi-parser LIBRARIES pulp::midi)
-# Win MIDI MIM_LONGDATA SysEx + QPC timestamps (#19 / #245 partial).
-# Cross-platform — compiles everywhere; Windows-specific cases are
-# guarded behind #ifdef _WIN32.
+# Win MIDI MIM_LONGDATA SysEx + QPC timestamps (#19 / #245 partial; cross-platform, Win cases #ifdef _WIN32).
 pulp_add_test_suite(pulp-test-winmidi-sysex LIBRARIES pulp::midi)
+# WinRT MIDI 2.0 (UMP) backend — W3 (UMP↔MIDI1 + shared sysex7 reassembly + F0..F7 framing; WinRT TU opt-in via PULP_HAS_WINRT_MIDI, #error-guarded off non-Windows).
+pulp_add_test_suite(pulp-test-winrt-midi LIBRARIES pulp::midi)
 # Accessibility provider cross-platform entry (workstream 04 slices 4.1 + 4.2)
 pulp_add_test_suite(pulp-test-accessibility-provider LIBRARIES pulp::view)
 # PluginDescriptor validation (workstream 01 slice 1.9)
 pulp_add_test_suite(pulp-test-descriptor-validation LIBRARIES pulp::format)
 # PluginInfo metadata shape (workstream 03 slice 3.7)
 pulp_add_test_suite(pulp-test-plugin-info-metadata LIBRARIES pulp::host)
-# UIA mapping (workstream 04 slice 4.1a)
+# A11y role mapping tables — UIA (slice 4.1a) + AT-SPI (slice L7a-2)
 pulp_add_test_suite(pulp-test-uia-mapping LIBRARIES pulp::view)
-
+pulp_add_test_suite(pulp-test-atspi-mapping LIBRARIES pulp::view)
 # AudioSystem hotplug base plumbing (workstream 02 slice 2.7)
 pulp_add_test_suite(pulp-test-audio-system-hotplug LIBRARIES pulp::audio)
 
@@ -1363,18 +1459,34 @@ add_executable(pulp-test-alsa-input test_alsa_input.cpp)
 target_link_libraries(pulp-test-alsa-input PRIVATE pulp::audio Catch2::Catch2WithMain)
 target_include_directories(pulp-test-alsa-input PRIVATE ${CMAKE_SOURCE_DIR})
 catch_discover_tests(pulp-test-alsa-input)
+
+# Cross-platform device-hotplug monitor (#3327 / L4). Lives in pulp::runtime so
+# both audio (AlsaSystem) and MIDI (AlsaMidiSystem) share it; libudev is the
+# Linux backend, no-op elsewhere — so this test runs on every platform.
+add_executable(pulp-test-udev-monitor test_udev_monitor.cpp)
+target_link_libraries(pulp-test-udev-monitor PRIVATE pulp::runtime Catch2::Catch2WithMain)
+target_include_directories(pulp-test-udev-monitor PRIVATE ${CMAKE_SOURCE_DIR})
+catch_discover_tests(pulp-test-udev-monitor)
+
+# JACK device-enumeration contract (#3327 / L5a). Registered only when CMake
+# detected a JACK dev package and compiled the backend into pulp-audio — the
+# test calls JackSystem symbols that exist only in that configuration, and it
+# is the regression guard for the enumerate_devices() build break.
+if(PULP_JACK_AVAILABLE)
+    add_executable(pulp-test-jack-device test_jack_device.cpp)
+    target_link_libraries(pulp-test-jack-device PRIVATE pulp::audio Catch2::Catch2WithMain)
+    target_include_directories(pulp-test-jack-device PRIVATE ${CMAKE_SOURCE_DIR})
+    target_compile_definitions(pulp-test-jack-device PRIVATE PULP_HAS_JACK=1)
+    catch_discover_tests(pulp-test-jack-device)
+endif()
 # Processor on_host_tempo_changed hook (workstream 01 slice 1.10)
 pulp_add_test_suite(pulp-test-tempo-hook LIBRARIES pulp::format)
 # Resizable plugin shell (workstream 07 slice 7.5)
 pulp_add_test_suite(pulp-test-resizable-shell LIBRARIES pulp::view)
 # ATK / AT-SPI mapping (workstream 04 slice 4.2a)
 pulp_add_test_suite(pulp-test-atk-mapping LIBRARIES pulp::view)
-# Running-status MIDI parser (workstream 02 slice 2.5)
-pulp_add_test_suite(pulp-test-running-status LIBRARIES pulp::midi)
 # Background scanner (workstream 03 slice 3.2)
 pulp_add_test_suite(pulp-test-background-scanner LIBRARIES pulp::host)
-# Host parameter-event queue
-pulp_add_test_suite(pulp-test-parameter-event-queue LIBRARIES pulp::host)
 
 # TextShaper (PreText-style measure-once-reflow-forever)
 pulp_add_test_suite(pulp-test-text-shaper LIBRARIES pulp::canvas)
@@ -1684,7 +1796,7 @@ pulp_add_test_suite(pulp-test-properties SOURCES test_properties_file.cpp LIBRAR
 
 # AudioDeviceManager — persistence + MIDI hub (macOS plan item 1.2a)
 pulp_add_test_suite(pulp-test-audio-device-manager
-    SOURCES test_audio_device_manager.cpp
+    SOURCES test_audio_device_manager.cpp harness/rt_allocation_probe.cpp
     LIBRARIES pulp::audio pulp::midi pulp::state pulp::runtime)
 
 # DSP enhancement tests (dry/wet mixer, processor duplicator, matrix, special functions)
@@ -1722,6 +1834,7 @@ pulp_add_test_suite(pulp-test-simd LIBRARIES pulp::runtime pulp::signal)
 
 # Drag-and-drop tests
 pulp_add_test_suite(pulp-test-dnd SOURCES test_drag_drop.cpp LIBRARIES pulp::view)
+pulp_add_test_suite(pulp-test-musical-typing SOURCES test_musical_typing.cpp LIBRARIES pulp::view)
 
 # OSC tests
 pulp_add_test_suite(pulp-test-osc LIBRARIES pulp::osc)
@@ -1750,33 +1863,32 @@ pulp_add_test_suite(pulp-test-effects LIBRARIES pulp::canvas)
 
 # Signal/DSP tests
 pulp_add_test_suite(pulp-test-signal LIBRARIES pulp::signal)
-
 # Signal filter tests (P5 test-split — extracted from test_signal.cpp).
 # Biquad / SVF / LadderFilter / LinkwitzRiley TEST_CASE clusters moved
 # verbatim into a sibling TU to keep test_signal.cpp under ~1,200 lines.
 pulp_add_test_suite(pulp-test-signal-filters LIBRARIES pulp::signal)
-
 # Signal spectral tests (P5 test-split — extracted from test_signal.cpp).
 # WindowFunction / FFT / Convolver TEST_CASE clusters moved verbatim.
 pulp_add_test_suite(pulp-test-signal-spectral LIBRARIES pulp::signal)
-
+# Spectral primitives: STFT/WOLA engine, pitch/time, formant, smoothing.
+pulp_add_test_suite(pulp-test-spectral-primitives SOURCES test_spectral_frame_engine.cpp test_realtime_pitch_time.cpp test_transient_freeze_delay.cpp test_spectral_matrix.cpp test_stn_stretch.cpp test_sinc_pitch.cpp LIBRARIES pulp::signal)
+pulp_add_test_suite(pulp-test-stn-decomposer LIBRARIES pulp::signal)
+# Offline time-stretch/pitch engine (orchestrates the spectral primitives).
+pulp_add_test_suite(pulp-test-offline-stretch LIBRARIES pulp::signal)
+pulp_add_test_suite(pulp-test-noise-morpher LIBRARIES pulp::signal)
+pulp_add_test_suite(pulp-test-sinc-resampler LIBRARIES pulp::signal)
+pulp_add_test_suite(pulp-test-freeze-loop-sampler LIBRARIES pulp::signal)
 # Multi-backend FFT facade (vdsp / kissfft / fftw3 / mkl). Verifies
 # selector helpers, env-var routing, round-trip on each available
 # backend, and cross-backend numerical equivalence.
 pulp_add_test_suite(pulp-test-fft-backends LIBRARIES pulp::signal-fft-backend)
-
 # Signal meter tests (P5 test-split — extracted from test_signal.cpp).
 # MultiChannelMeter / MultiChannelBallistics TEST_CASE clusters moved
 # verbatim. Distinct from pulp-test-multi-channel-meter (test_multi_
 # channel_meter.cpp), which keeps its own #645 edge-case coverage.
 pulp_add_test_suite(pulp-test-signal-meter LIBRARIES pulp::signal)
-
 # Biquad filter tests
 pulp_add_test_suite(pulp-test-biquad LIBRARIES pulp::signal)
-
-# Multi-channel meter edge tests (#645)
-pulp_add_test_suite(pulp-test-multi-channel-meter LIBRARIES pulp::signal)
-
 # DSL processor contract tests (FaustProcessor + PulpFaustUI + PulpFaustMeta)
 add_executable(pulp-test-dsl-processor test_dsl_processor.cpp)
 target_link_libraries(pulp-test-dsl-processor PRIVATE
@@ -1810,11 +1922,11 @@ pulp_add_test_suite(pulp-test-standalone-apply-config LIBRARIES pulp::standalone
     PROPERTIES PROCESSORS 8)
 pulp_add_test_suite(pulp-test-standalone-transport-midi LIBRARIES pulp::standalone
     PROPERTIES PROCESSORS 8)
-
+pulp_add_test_suite(pulp-test-standalone-audio-inspector
+    LIBRARIES pulp::standalone pulp::view PROPERTIES PROCESSORS 8)
 # Headless screenshot capture state machine (pulp #468)
 pulp_add_test_suite(pulp-test-screenshot-capture LIBRARIES pulp::standalone
     PROPERTIES PROCESSORS 8)
-
 # STFT and audio visualization signal tests
 pulp_add_test_suite(pulp-test-stft LIBRARIES pulp::signal)
 
@@ -1830,6 +1942,9 @@ catch_discover_tests(pulp-test-clipboard
 # FileDialog backend-registration tests (#301)
 pulp_add_test_suite(pulp-test-file-dialog LIBRARIES pulp::platform)
 
+# D-Bus client + Linux xdg-desktop-portal file-dialog backend (#301 / L6)
+pulp_add_test_suite(pulp-test-dbus LIBRARIES pulp::platform)
+
 # Platform tests
 pulp_add_test_suite(pulp-test-platform LIBRARIES pulp::platform)
 
@@ -1840,7 +1955,9 @@ pulp_add_test_suite(pulp-test-permissions LIBRARIES pulp::platform)
 pulp_add_test_suite(pulp-test-environment LIBRARIES pulp::platform)
 
 # Runtime tests
-pulp_add_test_suite(pulp-test-runtime LIBRARIES pulp::runtime)
+pulp_add_test_suite(pulp-test-runtime
+    SOURCES test_runtime.cpp harness/rt_allocation_probe.cpp
+    LIBRARIES pulp::runtime)
 
 # AbstractFifo (index-pair SPSC FIFO management)
 pulp_add_test_suite(pulp-test-abstract-fifo LIBRARIES pulp::runtime)
@@ -1886,11 +2003,14 @@ catch_discover_tests(pulp-test-events-timer-helpers PROPERTIES LABELS slow)
 
 # Audio file I/O tests
 pulp_add_test_suite(pulp-test-audio-file LIBRARIES pulp::audio)
+pulp_add_test_suite(pulp-test-sample-resource
+    SOURCES test_sample_resource.cpp harness/rt_allocation_probe.cpp
+    LIBRARIES pulp::audio pulp::runtime)
 
 # AudioThumbnail + AudioThumbnailCache (item 6.12).
 # Links pulp::view so the WaveformView integration smoke compiles.
 pulp_add_test_suite(pulp-test-audio-thumbnail LIBRARIES pulp::audio pulp::view)
-
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/sampler_runtime_tests.cmake")
 # WAV metadata round-trip tests (BWAV / iXML / ASWG / ACID — item 6.11)
 pulp_add_test_suite(pulp-test-wav-metadata LIBRARIES pulp::audio)
 
@@ -1938,14 +2058,16 @@ pulp_add_test_suite(pulp-test-midi LIBRARIES pulp::midi)
 pulp_add_test_suite(pulp-test-midi-file LIBRARIES pulp::midi)
 
 # State tests
-pulp_add_test_suite(pulp-test-state LIBRARIES pulp::state pulp::events)
+pulp_add_test_suite(pulp-test-state
+    SOURCES test_state.cpp harness/rt_allocation_probe.cpp
+    LIBRARIES pulp::state pulp::events)
 
 # Binding tests
 pulp_add_test_suite(pulp-test-binding LIBRARIES pulp::state)
 
 # Headless adapter tests
 pulp_add_test_suite(pulp-test-headless LIBRARIES pulp::format)
-
+pulp_add_test_suite(pulp-test-audio-inspector-demo-processor SOURCES test_audio_inspector_demo_processor.cpp LIBRARIES pulp::format pulp::audio pulp::midi)
 # .pulpset render/replay harness (G4)
 pulp_add_test_suite(pulp-test-pulpset-replay SOURCES test_pulpset_replay.cpp LIBRARIES pulp::format)
 
@@ -1961,9 +2083,7 @@ if(PULP_HAS_CLAP)
     target_compile_definitions(pulp-test-clap-entry PRIVATE PULP_CLAP_GUI=1)
     catch_discover_tests(pulp-test-clap-entry)
 
-    # CLAP inbound/outbound MIDI event coverage — pins the CLAP_EVENT_MIDI,
-    # CLAP_EVENT_NOTE_EXPRESSION, CLAP_EVENT_NOTE_CHOKE, CLAP_EVENT_MIDI2
-    # handlers added alongside feature/clap-midi-cc-coverage.
+    # CLAP inbound/outbound MIDI event coverage + steady-state RT process guard.
     #
     # Unlike `pulp-test-clap-entry` above, this test DOES NOT re-compile
     # clap_adapter.cpp into its own TU. The test drives the adapter via
@@ -1975,8 +2095,9 @@ if(PULP_HAS_CLAP)
     # gate reads — avoids the split-TU problem that produced "96% local
     # / 62% CI" reports on PR #627.
     add_executable(pulp-test-clap-midi-events test_clap_midi_events.cpp)
-    target_link_libraries(pulp-test-clap-midi-events PRIVATE pulp::format clap Catch2::Catch2WithMain)
-    target_compile_definitions(pulp-test-clap-midi-events PRIVATE PULP_CLAP_GUI=1)
+    target_sources(pulp-test-clap-midi-events PRIVATE $<$<BOOL:${UNIX}>:${CMAKE_CURRENT_SOURCE_DIR}/native_components/rt_intercept_test_support.cpp>)
+    target_link_libraries(pulp-test-clap-midi-events PRIVATE pulp::format clap Catch2::Catch2WithMain ${CMAKE_DL_LIBS})
+    target_compile_definitions(pulp-test-clap-midi-events PRIVATE PULP_CLAP_GUI=1 $<$<BOOL:${UNIX}>:PULP_CLAP_PROCESS_RT_TRAP_TESTS=1>)
     catch_discover_tests(pulp-test-clap-midi-events)
 
     # Item 3.4 (macOS plan) — pin the CLAP host-facing API contract that
@@ -2134,6 +2255,8 @@ if(PULP_ENABLE_SCENE3D)
     target_compile_definitions(pulp-test-scene3d PRIVATE
         PULP_TEST_SCENE3D_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d")
     catch_discover_tests(pulp-test-scene3d)
+
+    pulp_add_test_suite(pulp-test-scene3d-renderer-characterization SOURCES test_scene3d_renderer_characterization.cpp LIBRARIES pulp::scene)
 
     add_test(NAME scene3d-inspect-boxtextured-stats
         COMMAND $<TARGET_FILE:pulp-scene3d-inspect>
@@ -2718,7 +2841,7 @@ if(PULP_ENABLE_SCENE3D)
                 --repo-root "${CMAKE_SOURCE_DIR}")
         set_tests_properties(scene3d-public-boundary PROPERTIES
             PASS_REGULAR_EXPRESSION
-                "public_scene3d_boundary_verified=10 headers")
+                "public_scene3d_boundary_verified=11 headers")
 
         add_test(NAME scene3d-public-boundary-negative-contract
             COMMAND ${Python3_EXECUTABLE}
@@ -2798,7 +2921,7 @@ if(PULP_ENABLE_SCENE3D)
                 --repo-root "${CMAKE_SOURCE_DIR}")
         set_tests_properties(scene3d-native-source-boundary PROPERTIES
             PASS_REGULAR_EXPRESSION
-                "native_source_boundary_verified=13 sources")
+                "native_source_boundary_verified=14 sources")
 
         add_test(NAME scene3d-native-source-boundary-negative-contract
             COMMAND ${Python3_EXECUTABLE}
@@ -2815,7 +2938,7 @@ if(PULP_ENABLE_SCENE3D)
             COMMAND ${Python3_EXECUTABLE}
                 "${CMAKE_SOURCE_DIR}/tools/scene3d/validate_renderer_golden_manifest.py"
                 "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/renderer3d-goldens.json"
-                --cpp-test "${CMAKE_CURRENT_SOURCE_DIR}/test_renderer3d.cpp")
+                --cpp-test "${CMAKE_CURRENT_SOURCE_DIR}/test_renderer3d_shared.hpp")
         set_tests_properties(scene3d-renderer-golden-manifest PROPERTIES
             PASS_REGULAR_EXPRESSION "Renderer3D golden manifest entries=2")
 
@@ -2826,7 +2949,7 @@ if(PULP_ENABLE_SCENE3D)
                 "${CMAKE_SOURCE_DIR}/tools/scene3d/validate_renderer_golden_manifest.py"
                 --manifest
                 "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/renderer3d-goldens.json"
-                --cpp-test "${CMAKE_CURRENT_SOURCE_DIR}/test_renderer3d.cpp")
+                --cpp-test "${CMAKE_CURRENT_SOURCE_DIR}/test_renderer3d_shared.hpp")
         set_tests_properties(scene3d-renderer-golden-manifest-malformed
             PROPERTIES
             PASS_REGULAR_EXPRESSION
@@ -2841,7 +2964,7 @@ if(PULP_ENABLE_SCENE3D)
                 ${Python3_EXECUTABLE}
                 "${CMAKE_SOURCE_DIR}/tools/scene3d/validate_renderer_golden_manifest.py"
                 "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d/renderer3d-goldens.json"
-                --cpp-test "${CMAKE_CURRENT_SOURCE_DIR}/test_renderer3d.cpp"
+                --cpp-test "${CMAKE_CURRENT_SOURCE_DIR}/test_renderer3d_shared.hpp"
                 --require-pixel-software-adapter)
         set_tests_properties(scene3d-renderer-golden-software-adapter-required
             PROPERTIES
@@ -2974,22 +3097,19 @@ if(PULP_ENABLE_GPU)
     catch_discover_tests(pulp-test-gpu-compute ${PULP_GPU_TEST_DISCOVERY_ARGS})
 
     if(PULP_ENABLE_SCENE3D)
-        add_executable(pulp-test-renderer3d test_renderer3d.cpp)
-        target_link_libraries(pulp-test-renderer3d PRIVATE
-            pulp::render pulp::scene Catch2::Catch2WithMain)
-        target_compile_definitions(pulp-test-renderer3d PRIVATE
-            PULP_TEST_SCENE3D_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d")
+        set(_pulp_renderer3d_test_libs pulp::render pulp::scene)
+        set(_pulp_renderer3d_test_definitions PULP_TEST_SCENE3D_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/scene3d")
         if(PULP_HAS_DRACO)
-            target_link_libraries(pulp-test-renderer3d PRIVATE draco::draco)
-            target_compile_definitions(pulp-test-renderer3d PRIVATE
-                PULP_TEST_HAS_DRACO=1)
-            target_include_directories(pulp-test-renderer3d PRIVATE
-                "${draco_SOURCE_DIR}/src"
-                "${draco_BINARY_DIR}"
-                "${CMAKE_BINARY_DIR}")
+            list(APPEND _pulp_renderer3d_test_libs draco::draco)
+            list(APPEND _pulp_renderer3d_test_definitions PULP_TEST_HAS_DRACO=1)
+            list(APPEND _pulp_renderer3d_test_includes "${draco_SOURCE_DIR}/src" "${draco_BINARY_DIR}" "${CMAKE_BINARY_DIR}")
         endif()
-        catch_discover_tests(pulp-test-renderer3d
-            ${PULP_GPU_TEST_DISCOVERY_ARGS})
+        pulp_add_test_suite(pulp-test-renderer3d
+            SOURCES test_renderer3d_loading.cpp test_renderer3d_scene.cpp test_renderer3d_materials.cpp
+            LIBRARIES ${_pulp_renderer3d_test_libs}
+            COMPILE_DEFINITIONS ${_pulp_renderer3d_test_definitions}
+            INCLUDE_DIRS ${_pulp_renderer3d_test_includes}
+            DISCOVERY_ARGS ${PULP_GPU_TEST_DISCOVERY_ARGS})
 
         if(PULP_HAS_SKIA AND TARGET pulp-renderer3d-probe)
             add_test(NAME scene3d-renderer-probe-hardcoded
@@ -3954,12 +4074,49 @@ if(_PULP_NODE_FOR_TESTS)
         LABELS "ios-d3b;node;threejs")
 endif()
 
-# Screenshot tests (macOS only — uses CoreGraphics bitmap context)
-if(APPLE)
+# Screenshot tests. macOS uses the CoreGraphics bitmap context; non-Apple
+# builds with Skia use the built-in cross-platform Skia raster backend
+# (#3329 Win/Linux parity), so the test runs there too and proves the
+# headless render_to_png/rgba path the foreign-host embed depends on. A
+# non-Apple build WITHOUT Skia has no backend, so skip there.
+if(APPLE OR PULP_HAS_SKIA)
     add_executable(pulp-test-screenshot test_screenshot.cpp)
     target_link_libraries(pulp-test-screenshot PRIVATE pulp::view Catch2::Catch2WithMain)
     catch_discover_tests(pulp-test-screenshot)
+endif()
 
+# #3329 — native PluginViewHost factory + headless-capture proof on non-Apple.
+# Built where core/view compiled a platform host: Windows+Skia or non-Android
+# UNIX+Skia+X11. Degrades to capture-only with no display server (headless VM);
+# capture_back_buffer_png() still yields a frame. On Linux+X11 the same binary
+# also runs the XDND synthetic-source handshake under xvfb (#3645): it links
+# Xlib directly to act as an XDND source against the host's child window, gated
+# by PULP_TEST_HAS_X11 so the handshake TEST_CASE is compiled only there.
+if(PULP_HAS_SKIA AND NOT APPLE AND NOT ANDROID)
+    set(_pulp_has_platform_pvh OFF)
+    set(_pulp_pvh_x11 OFF)
+    if(WIN32)
+        set(_pulp_has_platform_pvh ON)
+    elseif(UNIX)
+        find_package(X11 QUIET)
+        if(X11_FOUND)
+            set(_pulp_has_platform_pvh ON)
+            set(_pulp_pvh_x11 ON)
+        endif()
+    endif()
+    if(_pulp_has_platform_pvh)
+        add_executable(pulp-test-plugin-view-host-factory test_plugin_view_host_factory.cpp)
+        target_link_libraries(pulp-test-plugin-view-host-factory PRIVATE pulp::view Catch2::Catch2WithMain)
+        if(_pulp_pvh_x11)
+            target_link_libraries(pulp-test-plugin-view-host-factory PRIVATE ${X11_LIBRARIES})
+            target_include_directories(pulp-test-plugin-view-host-factory PRIVATE ${X11_INCLUDE_DIR})
+            target_compile_definitions(pulp-test-plugin-view-host-factory PRIVATE PULP_TEST_HAS_X11=1)
+        endif()
+        catch_discover_tests(pulp-test-plugin-view-host-factory)
+    endif()
+endif()
+
+if(APPLE)
     # P1 — smart capture (capture_view) + offscreen-GPU path (render_to_png_gpu).
     add_executable(pulp-test-screenshot-gpu test_screenshot_gpu.cpp)
     target_link_libraries(pulp-test-screenshot-gpu PRIVATE pulp::view Catch2::Catch2WithMain)
@@ -3983,11 +4140,7 @@ if(APPLE)
     # verify CGContextClearRect actually clears destination pixels.
     # pulp #1524 adds ImageIO for CGImageDestinationCreateWithURL (PNG
     # encode of a pattern fixture) and CoreServices for the public.png UTI.
-    target_link_libraries(pulp-test-canvas PRIVATE
-        "-framework CoreGraphics"
-        "-framework ImageIO"
-        "-framework CoreServices"
-    )
+    target_link_libraries(pulp-test-canvas PRIVATE "-framework CoreGraphics" "-framework ImageIO" "-framework CoreServices")
 endif()
 # pulp #1150 — public font-registration API tests use a bundled .ttf as a
 # fixture. external/fonts/Inter-Regular.ttf is the canonical "always
@@ -4008,11 +4161,7 @@ catch_discover_tests(pulp-test-canvas)
 add_executable(pulp-test-canvas-cg-paths test_canvas_cg_paths.cpp)
 target_link_libraries(pulp-test-canvas-cg-paths PRIVATE pulp::canvas Catch2::Catch2WithMain)
 if(APPLE)
-    target_link_libraries(pulp-test-canvas-cg-paths PRIVATE
-        "-framework CoreGraphics"
-        "-framework ImageIO"
-        "-framework CoreServices"
-    )
+    target_link_libraries(pulp-test-canvas-cg-paths PRIVATE "-framework CoreGraphics" "-framework ImageIO" "-framework CoreServices")
 endif()
 catch_discover_tests(pulp-test-canvas-cg-paths)
 
@@ -4033,7 +4182,10 @@ if(PULP_HAS_SKIA)
     target_include_directories(pulp-test-canvas-fonts PRIVATE ${SKIA_INCLUDE_DIRS})
 endif()
 target_compile_definitions(pulp-test-canvas-fonts PRIVATE
-    "PULP_TEST_FONT_PATH=\"${CMAKE_SOURCE_DIR}/external/fonts/Inter-Regular.ttf\"")
+    "PULP_TEST_FONT_PATH=\"${CMAKE_SOURCE_DIR}/external/fonts/Inter-Regular.ttf\""
+    # Deterministic variable font (wght axis 300-800) for the variable-font
+    # weight-instancing regression tests. Test-only; not in bundled_blobs().
+    "PULP_TEST_VARIABLE_FONT_PATH=\"${CMAKE_SOURCE_DIR}/external/fonts/FunnelDisplay-VariableFont_wght.ttf\"")
 catch_discover_tests(pulp-test-canvas-fonts)
 
 # CG-degraded gradient + pattern cluster (P5-2 follow-up — extracted from
@@ -4292,9 +4444,6 @@ pulp_add_test_suite(pulp-test-ump-extensions LIBRARIES pulp::midi)
 # macOS plan Batch D (partial) — HMAC + AEAD primitives
 pulp_add_test_suite(pulp-test-hmac-aead LIBRARIES pulp::runtime)
 
-# macOS plan Batch C (partial) — MidiMessageCollector (UI→audio MIDI hub)
-pulp_add_test_suite(pulp-test-midi-message-collector LIBRARIES pulp::midi)
-
 # macOS plan Batch G (partial) — Compressor sidechain HPF + lookahead
 pulp_add_test_suite(pulp-test-compressor-sidechain LIBRARIES pulp::signal)
 
@@ -4321,7 +4470,9 @@ pulp_add_test_suite(pulp-test-resampler LIBRARIES pulp::signal)
 pulp_add_test_suite(pulp-test-halfband-iir LIBRARIES pulp::signal)
 
 # macOS plan Batch G — Generic Synthesiser polyphony (item 2.5)
-pulp_add_test_suite(pulp-test-synthesiser LIBRARIES pulp::midi)
+pulp_add_test_suite(pulp-test-synthesiser
+    SOURCES test_synthesiser.cpp harness/rt_allocation_probe.cpp
+    LIBRARIES pulp::midi)
 
 # macOS plan Batch C — SampleConverter (item 1.5)
 pulp_add_test_suite(pulp-test-sample-converter LIBRARIES pulp::audio)
@@ -4341,17 +4492,17 @@ pulp_add_test_suite(pulp-test-platform-maturity LIBRARIES pulp::view)
 
 # Audio bridge tests
 pulp_add_test_suite(pulp-test-audio-bridge LIBRARIES pulp::view)
-
 # Widget tests
 pulp_add_test_suite(pulp-test-widgets LIBRARIES pulp::view)
-
+pulp_add_test_suite(pulp-test-parameter-edit LIBRARIES pulp::view pulp::state)
+pulp_add_test_suite(pulp-test-param-host-sync LIBRARIES pulp::state INCLUDE_DIRS ${PROJECT_SOURCE_DIR}/core/format/include)
+pulp_add_test_suite(pulp-test-midi-binding LIBRARIES pulp::view pulp::state pulp::midi)
 # Widget tests — Label cluster (P5-3 follow-up — extracted from
 # test_widgets.cpp). Label intrinsic_width / intrinsic_height /
 # line-height multiplier (#76) / line_clamp / measured_height under
 # bounded width / baseline_y from text metrics / vertical text
 # direction / letter_spacing glyph counting (#928 + #1407 + #76).
 pulp_add_test_suite(pulp-test-widgets-label LIBRARIES pulp::view)
-
 # Hot-reload tests
 add_executable(pulp-test-hot-reload test_hot_reload.cpp)
 target_link_libraries(pulp-test-hot-reload PRIVATE pulp::view Catch2::Catch2WithMain)
@@ -4374,7 +4525,7 @@ add_executable(pulp-test-inspector-domain-helpers
 target_include_directories(pulp-test-inspector-domain-helpers PRIVATE
     ${CMAKE_SOURCE_DIR}/inspect/include)
 target_link_libraries(pulp-test-inspector-domain-helpers PRIVATE
-    pulp::canvas pulp::state pulp::runtime Catch2::Catch2WithMain)
+    pulp::audio pulp::canvas pulp::state pulp::runtime Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-inspector-domain-helpers)
 
 # Inspector tests — only when GPU is enabled (pulp-inspect requires GPU stack).
@@ -4469,9 +4620,9 @@ if(TARGET pulp-render)
 endif()
 pulp_add_test_suite(pulp-test-widget-bridge LIBRARIES ${_pulp_widget_bridge_test_libs})
 
-# Widget bridge — source-level API contract. Keeps JS-native function
-# registrations unique so late registrations cannot silently replace
-# earlier behavior.
+# Widget bridge — source-level API contract. Keeps JS-native registrations
+# unique and matched to the reviewed bridge API manifest so future registrar
+# splits cannot add unclassified bridge entries.
 pulp_add_test_suite(pulp-test-widget-bridge-api-contracts
     COMPILE_DEFINITIONS PULP_REPO_ROOT="${CMAKE_SOURCE_DIR}")
 
@@ -4647,6 +4798,9 @@ pulp_add_test_suite(pulp-test-input-events LIBRARIES pulp::view)
 
 # Text editor tests
 pulp_add_test_suite(pulp-test-text-editor LIBRARIES pulp::view)
+pulp_add_test_suite(pulp-test-text-editor-mouse LIBRARIES pulp::view PROPERTIES RESOURCE_LOCK system-clipboard)
+pulp_add_test_suite(pulp-test-text-editor-paint LIBRARIES pulp::view)
+pulp_add_test_suite(pulp-test-text-editor-policy LIBRARIES pulp::view PROPERTIES RESOURCE_LOCK system-clipboard)
 
 # TextEditor multi-line coverage (audit P3: wrap, click-to-caret in
 # wrapped rows, caret_rect pixel positioning, single-vs-multi Enter
@@ -4771,22 +4925,22 @@ pulp_add_test_suite(pulp-test-ui-components LIBRARIES pulp::view)
 # GraphEditorView tests
 pulp_add_test_suite(pulp-test-graph-editor-view LIBRARIES pulp::view)
 
-# Modal overlay tests
+# Modal overlay + ContextMenu (view-drawn popup menu) tests
 pulp_add_test_suite(pulp-test-modal LIBRARIES pulp::view)
-
+pulp_add_test_suite(pulp-test-context-menu LIBRARIES pulp::view)
 # Design export tests
 add_executable(pulp-test-design-export test_design_export.cpp)
 target_link_libraries(pulp-test-design-export PRIVATE pulp::view Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-design-export
     PROPERTIES LABELS "parser-import")
 
-# Design import tests (Figma/Stitch/v0/Pencil → Pulp, W3C tokens)
-add_executable(pulp-test-design-import test_design_import.cpp)
-target_link_libraries(pulp-test-design-import PRIVATE pulp::view Catch2::Catch2WithMain)
-target_compile_definitions(pulp-test-design-import PRIVATE PULP_REPO_ROOT="${CMAKE_SOURCE_DIR}")
-catch_discover_tests(pulp-test-design-import
+# Design import tests (Figma/Stitch/v0/Pencil -> Pulp, W3C tokens)
+pulp_add_test_suite(pulp-test-design-import
+    SOURCES test_design_import_ir.cpp test_design_import_codegen.cpp test_design_import_sources.cpp test_design_import_fidelity.cpp
+    LIBRARIES pulp::view
+    COMPILE_DEFINITIONS PULP_REPO_ROOT="${CMAKE_SOURCE_DIR}"
     TEST_SPEC "~[network]"
-    PROPERTIES LABELS "parser-import")
+    LABELS "parser-import")
 
 # Reference-free import-fidelity self-checks (core/view/src/design_fidelity.cpp).
 add_executable(pulp-test-design-fidelity test_design_fidelity.cpp)
@@ -4819,6 +4973,7 @@ target_link_libraries(pulp-test-design-import-native-materializer
     PRIVATE pulp::view Catch2::Catch2WithMain)
 target_compile_definitions(pulp-test-design-import-native-materializer PRIVATE
     PULP_TEST_CXX_COMPILER="${CMAKE_CXX_COMPILER}"
+    PULP_TEST_OSX_SYSROOT="${CMAKE_OSX_SYSROOT}"
     PULP_REPO_ROOT="${CMAKE_SOURCE_DIR}")
 catch_discover_tests(pulp-test-design-import-native-materializer
     PROPERTIES LABELS "parser-import")
@@ -5082,6 +5237,19 @@ target_link_libraries(pulp-test-image-view-fill
 catch_discover_tests(pulp-test-image-view-fill
     PROPERTIES LABELS "view")
 
+# GPU regression for the same silhouette fill on the LIVE Graphite path: the
+# url() mask shader must upload its image to a GPU texture or Graphite drops the
+# masked draw every frame (ELYSIUM "shapes don't fill" bug). macOS-only; the
+# offscreen GPU backend soft-skips at runtime when no Dawn adapter is present.
+if(APPLE)
+    add_executable(pulp-test-image-view-fill-gpu
+        test_image_view_fill_gpu.cpp)
+    target_link_libraries(pulp-test-image-view-fill-gpu
+        PRIVATE pulp::view Catch2::Catch2WithMain)
+    catch_discover_tests(pulp-test-image-view-fill-gpu
+        PROPERTIES LABELS "view")
+endif()
+
 # DesignFrameView (Plan B / B1) — faithful SVG render + typed interactive knobs.
 add_executable(pulp-test-design-frame-view
     test_design_frame_view.cpp)
@@ -5271,6 +5439,12 @@ target_compile_definitions(pulp-test-cli-import-design PRIVATE
 if(TARGET pulp-cli)
     add_dependencies(pulp-test-cli-import-design pulp-cli)
 endif()
+# The `import-design` command delegates to the standalone pulp-import-design
+# helper; without it the revived shell-out cases fail (exit 1) instead of
+# exercising the real path, so build it alongside this suite.
+if(TARGET pulp-import-design)
+    add_dependencies(pulp-test-cli-import-design pulp-import-design)
+endif()
 catch_discover_tests(pulp-test-cli-import-design
     PROPERTIES
         ENVIRONMENT "PULP_REPO_ROOT=${CMAKE_SOURCE_DIR}"
@@ -5353,7 +5527,7 @@ if(APPLE)
     add_executable(pulp-test-screenshot-compare test_screenshot_compare.cpp)
     target_link_libraries(pulp-test-screenshot-compare PRIVATE pulp::view Catch2::Catch2WithMain)
     catch_discover_tests(pulp-test-screenshot-compare
-        PROPERTIES LABELS "parser-import")
+        PROPERTIES LABELS "parser-import" TIMEOUT 240)
 endif()
 
 # Parameter attachment tests
@@ -5393,7 +5567,9 @@ pulp_add_test_suite(pulp-test-interpolator LIBRARIES pulp::signal)
 pulp_add_test_suite(pulp-test-midi-expansion LIBRARIES pulp::midi)
 
 # Audio process load measurer tests
-pulp_add_test_suite(pulp-test-load-measurer LIBRARIES pulp::audio)
+pulp_add_test_suite(pulp-test-load-measurer
+    SOURCES test_load_measurer.cpp harness/rt_allocation_probe.cpp
+    LIBRARIES pulp::audio)
 
 # FilterDesign tests
 pulp_add_test_suite(pulp-test-filter-design LIBRARIES pulp::signal)
@@ -5436,89 +5612,90 @@ add_executable(pulp-test-matrix-effect test_matrix_effect.cpp)
 target_link_libraries(pulp-test-matrix-effect PRIVATE pulp::format Catch2::Catch2WithMain)
 target_include_directories(pulp-test-matrix-effect PRIVATE ${CMAKE_SOURCE_DIR}/examples/pulp-effect)
 catch_discover_tests(pulp-test-matrix-effect)
-
 add_executable(pulp-test-matrix-compressor test_matrix_compressor.cpp)
 target_link_libraries(pulp-test-matrix-compressor PRIVATE pulp::format Catch2::Catch2WithMain)
 target_include_directories(pulp-test-matrix-compressor PRIVATE ${CMAKE_SOURCE_DIR}/examples/pulp-compressor)
 catch_discover_tests(pulp-test-matrix-compressor)
-
 add_executable(pulp-test-matrix-tone test_matrix_tone.cpp)
 target_link_libraries(pulp-test-matrix-tone PRIVATE pulp::format pulp::signal Catch2::Catch2WithMain)
 target_include_directories(pulp-test-matrix-tone PRIVATE ${CMAKE_SOURCE_DIR}/examples/pulp-tone)
 catch_discover_tests(pulp-test-matrix-tone)
-
 add_executable(pulp-test-matrix-drums test_matrix_drums.cpp)
 target_link_libraries(pulp-test-matrix-drums PRIVATE pulp::format pulp::signal Catch2::Catch2WithMain)
 target_include_directories(pulp-test-matrix-drums PRIVATE ${CMAKE_SOURCE_DIR}/examples/PulpDrums)
 catch_discover_tests(pulp-test-matrix-drums)
-
 add_executable(pulp-test-matrix-synth test_matrix_synth.cpp)
 target_link_libraries(pulp-test-matrix-synth PRIVATE pulp::format pulp::signal Catch2::Catch2WithMain)
 target_include_directories(pulp-test-matrix-synth PRIVATE ${CMAKE_SOURCE_DIR}/examples/PulpSynth)
 catch_discover_tests(pulp-test-matrix-synth)
-
 add_executable(pulp-test-matrix-sampler test_matrix_sampler.cpp)
 target_link_libraries(pulp-test-matrix-sampler PRIVATE pulp::format pulp::signal Catch2::Catch2WithMain)
 target_include_directories(pulp-test-matrix-sampler PRIVATE ${CMAKE_SOURCE_DIR}/examples/PulpSampler)
 catch_discover_tests(pulp-test-matrix-sampler)
-
-# Golden-file audio tests (uses HeadlessHost + PulpGain + PulpTone)
+# Harness support lib: Processor-driven helpers; file-analysis lives in pulp::audio-analysis (tools/audio/analysis). See test/support/README.md.
+add_library(pulp-audio-test-support STATIC support/audio_signal_generators.cpp support/render_scenario.cpp support/audio_contracts.cpp support/audio_doctor.cpp)
+target_link_libraries(pulp-audio-test-support PUBLIC pulp::format pulp::signal pulp::audio-analysis)
 add_executable(pulp-test-golden test_golden_audio.cpp)
-target_link_libraries(pulp-test-golden PRIVATE pulp::format pulp::signal Catch2::Catch2WithMain)
-target_include_directories(pulp-test-golden PRIVATE
-    ${CMAKE_SOURCE_DIR}/examples/pulp-gain
-    ${CMAKE_SOURCE_DIR}/examples/pulp-tone
-)
+target_link_libraries(pulp-test-golden PRIVATE pulp-audio-test-support Catch2::Catch2WithMain)
+target_include_directories(pulp-test-golden PRIVATE ${CMAKE_SOURCE_DIR}/examples/pulp-gain ${CMAKE_SOURCE_DIR}/examples/pulp-tone)
 catch_discover_tests(pulp-test-golden)
-
-# Audio determinism matrix (#48 / #356): SR × block-size sweep
-# asserting framework-layer invariants (unity pass-through, silence,
-# block-size invariance, re-prepare cleanliness) across the examples
-# that are known SR/block-independent today.
+add_executable(pulp-test-audio-tone-regression test_audio_tone_regression.cpp)
+target_link_libraries(pulp-test-audio-tone-regression PRIVATE pulp-audio-test-support Catch2::Catch2WithMain)
+target_include_directories(pulp-test-audio-tone-regression PRIVATE ${CMAKE_SOURCE_DIR}/examples/pulp-tone)
+catch_discover_tests(pulp-test-audio-tone-regression)
+add_executable(pulp-test-render-scenario test_render_scenario.cpp)
+target_link_libraries(pulp-test-render-scenario PRIVATE pulp-audio-test-support Catch2::Catch2WithMain)
+target_include_directories(pulp-test-render-scenario PRIVATE ${CMAKE_SOURCE_DIR}/examples/pulp-gain ${CMAKE_SOURCE_DIR}/examples/pulp-tone)
+catch_discover_tests(pulp-test-render-scenario)
+add_executable(pulp-test-audio-support test_audio_support.cpp)
+target_link_libraries(pulp-test-audio-support PRIVATE pulp-audio-test-support Catch2::Catch2WithMain)
+target_include_directories(pulp-test-audio-support PRIVATE ${CMAKE_SOURCE_DIR}/examples/pulp-gain)
+catch_discover_tests(pulp-test-audio-support)
+add_executable(pulp-test-audio-contracts test_audio_contracts.cpp test_audio_contracts_effect.cpp)
+target_link_libraries(pulp-test-audio-contracts PRIVATE pulp-audio-test-support Catch2::Catch2WithMain)
+target_include_directories(pulp-test-audio-contracts PRIVATE ${CMAKE_SOURCE_DIR}/examples/pulp-gain ${CMAKE_SOURCE_DIR}/examples/pulp-tone ${CMAKE_SOURCE_DIR}/examples/pulp-effect)
+catch_discover_tests(pulp-test-audio-contracts)
+add_executable(pulp-test-audio-doctor test_audio_doctor.cpp)
+target_link_libraries(pulp-test-audio-doctor PRIVATE pulp-audio-test-support Catch2::Catch2WithMain)
+target_include_directories(pulp-test-audio-doctor PRIVATE ${CMAKE_SOURCE_DIR}/examples/pulp-effect)
+catch_discover_tests(pulp-test-audio-doctor)
+add_executable(pulp-test-cli-audio-validate test_cli_audio_validate.cpp)
+target_link_libraries(pulp-test-cli-audio-validate PRIVATE pulp::audio pulp::platform Catch2::Catch2WithMain)
+if(TARGET pulp-cli)
+    add_dependencies(pulp-test-cli-audio-validate pulp-cli)
+endif()
+catch_discover_tests(pulp-test-cli-audio-validate)
+# Phase 5 RT output-boundary probe — allocation-counting acceptance + counters.
+add_executable(pulp-test-audio-probe test_audio_probe.cpp harness/rt_allocation_probe.cpp)
+target_link_libraries(pulp-test-audio-probe PRIVATE pulp::audio pulp::runtime Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-audio-probe)
+# Audio determinism matrix (#48 / #356): SR × block sweep, framework invariants (pass-through, silence, block invariance, re-prepare).
 add_executable(pulp-test-audio-matrix test_audio_determinism_matrix.cpp)
-target_link_libraries(pulp-test-audio-matrix PRIVATE
-    pulp::format pulp::signal Catch2::Catch2WithMain)
-target_include_directories(pulp-test-audio-matrix PRIVATE
-    ${CMAKE_SOURCE_DIR}/examples/pulp-gain
-    ${CMAKE_SOURCE_DIR}/examples/pulp-tone
-)
+target_link_libraries(pulp-test-audio-matrix PRIVATE pulp::format pulp::signal Catch2::Catch2WithMain)
+target_include_directories(pulp-test-audio-matrix PRIVATE ${CMAKE_SOURCE_DIR}/examples/pulp-gain ${CMAKE_SOURCE_DIR}/examples/pulp-tone)
 catch_discover_tests(pulp-test-audio-matrix)
-
-# Audio edge-case corpus (#49 / #356): zero-length blocks, denormals,
-# impulse position, DC extremes, param change between blocks,
-# re-prepare idempotency. Framework-layer contract only.
+# Audio edge-case corpus (#49 / #356): zero blocks, denormals, impulse pos, DC extremes, mid-block param change, re-prepare. Framework contract only.
 add_executable(pulp-test-audio-edge-cases test_audio_edge_cases.cpp)
-target_link_libraries(pulp-test-audio-edge-cases PRIVATE
-    pulp::format pulp::signal Catch2::Catch2WithMain)
-target_include_directories(pulp-test-audio-edge-cases PRIVATE
-    ${CMAKE_SOURCE_DIR}/examples/pulp-gain
-)
+target_link_libraries(pulp-test-audio-edge-cases PRIVATE pulp::format pulp::signal Catch2::Catch2WithMain)
+target_include_directories(pulp-test-audio-edge-cases PRIVATE ${CMAKE_SOURCE_DIR}/examples/pulp-gain)
 catch_discover_tests(pulp-test-audio-edge-cases)
-
 # Golden-file tests for PulpEffect (separate to avoid enum collision with PulpGain)
 add_executable(pulp-test-golden-effect test_golden_effect.cpp)
-target_link_libraries(pulp-test-golden-effect PRIVATE pulp::format Catch2::Catch2WithMain)
+target_link_libraries(pulp-test-golden-effect PRIVATE pulp-audio-test-support Catch2::Catch2WithMain)
 target_include_directories(pulp-test-golden-effect PRIVATE ${CMAKE_SOURCE_DIR}/examples/pulp-effect)
 catch_discover_tests(pulp-test-golden-effect)
-
 # Negative-path tests (NaN, Inf, extreme sample rates, edge cases)
 add_executable(pulp-test-negative-path test_negative_path.cpp)
 target_link_libraries(pulp-test-negative-path PRIVATE pulp::format Catch2::Catch2WithMain)
-target_include_directories(pulp-test-negative-path PRIVATE
-    ${CMAKE_SOURCE_DIR}/examples/pulp-gain
-    ${CMAKE_SOURCE_DIR}/examples/pulp-tone
-)
+target_include_directories(pulp-test-negative-path PRIVATE ${CMAKE_SOURCE_DIR}/examples/pulp-gain ${CMAKE_SOURCE_DIR}/examples/pulp-tone)
 catch_discover_tests(pulp-test-negative-path)
-
 # iOS foundation tests (platform detection, safe area geometry, touch events,
 # AUv3 HostApp template shape).
 pulp_add_test_suite(pulp-test-ios-foundation LIBRARIES pulp::view pulp::platform)
 target_compile_definitions(pulp-test-ios-foundation PRIVATE
     PULP_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-
 # Identity/UUID tests
 pulp_add_test_suite(pulp-test-identity LIBRARIES pulp::runtime)
-
 # WebView tests (requires PULP_BUILD_WEBVIEW — WebViewPanel::create is only compiled when ON)
 if(PULP_BUILD_WEBVIEW)
     add_executable(pulp-test-webview test_web_view.cpp)
@@ -5551,14 +5728,10 @@ else()
     pulp_add_test_suite(pulp-test-mpe-voice-tracker LIBRARIES pulp::midi)
 endif()
 
-# UMP buffer + MIDI 1.0 <-> UMP conversion + UMP-aware MpeVoiceTracker
-pulp_add_test_suite(pulp-test-ump-buffer-conversion LIBRARIES pulp::format)
-
-# MPE buffer + Processor sidecar tests
-pulp_add_test_suite(pulp-test-mpe-buffer LIBRARIES pulp::format)
-
 # MPE synth voice helpers (voice, allocator, glide detector)
-pulp_add_test_suite(pulp-test-mpe-synth-voice LIBRARIES pulp::midi)
+pulp_add_test_suite(pulp-test-mpe-synth-voice
+    SOURCES test_mpe_synth_voice.cpp harness/rt_allocation_probe.cpp
+    LIBRARIES pulp::midi)
 
 # Plugin hosting tests (scanner, signal graph)
 add_executable(pulp-test-host test_host.cpp)
@@ -5570,12 +5743,18 @@ if(TARGET PulpGain_CLAP)
         PULP_TEST_CLAP_PATH="${CMAKE_BINARY_DIR}/CLAP/PulpGain.clap")
     add_dependencies(pulp-test-host PulpGain_CLAP)
 endif()
-catch_discover_tests(pulp-test-host)
+# issue-669's older snapshot-publish stress case is intentionally kept in the
+# binary for manual replay, but not registered in the default per-PR CTest set:
+# it is a known flaky stress surface with a dedicated gated stress target below.
+catch_discover_tests(pulp-test-host TEST_SPEC "~[flaky]")
 
 # P11-5 (#2647): SignalGraph tests carved out of test_host.cpp to bring the
 # 2,190-line parent under 2,000 (now 852). No CLAP fixture needed — these
 # exercise pure graph routing/topology, not plugin loading.
 add_executable(pulp-test-host-signal-graph test_host_signal_graph.cpp)
+target_sources(pulp-test-host-signal-graph PRIVATE
+    $<$<BOOL:${UNIX}>:${CMAKE_CURRENT_SOURCE_DIR}/native_components/rt_intercept_test_support.cpp>
+    $<$<NOT:$<BOOL:${UNIX}>>:${CMAKE_CURRENT_SOURCE_DIR}/harness/rt_allocation_probe.cpp>)
 target_link_libraries(pulp-test-host-signal-graph PRIVATE pulp::host Catch2::Catch2WithMain)
 catch_discover_tests(pulp-test-host-signal-graph)
 
@@ -5829,7 +6008,6 @@ if(APPLE AND NOT PULP_IOS AND PULP_HAS_SKIA)
     target_compile_definitions(pulp-test-mac-platform-harness PRIVATE
         PULP_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
     catch_discover_tests(pulp-test-mac-platform-harness)
-
     # pulp #2088 — pin the invariant -[PulpView liveFocusedView] depends on:
     # ~View() must auto-clear focused_input_ (#1708 contract) so the
     # accessor can safely re-sync the ivar to nullptr before any deref.
@@ -5841,11 +6019,10 @@ if(APPLE AND NOT PULP_IOS AND PULP_HAS_SKIA)
         Catch2::Catch2WithMain
     )
     catch_discover_tests(pulp-test-mac-mousedown-stale-focus)
-
-    # pulp #2128 follow-up — pin the macOS performKeyEquivalent: route that
-    # delivers Cmd-modified chords into rootView->on_global_key. Without
-    # the override, every auto-bound default chord (Cmd+, Cmd+? Cmd+S) is
-    # silently consumed by NSResponder's first-responder chain.
+endif()
+if(APPLE AND NOT PULP_IOS)
+    # pulp #2128 — pin macOS performKeyEquivalent routing, text-input
+    # protocol conformance, and TextEditor-specific command priority.
     add_executable(pulp-test-mac-perform-key-equivalent
         test_mac_perform_key_equivalent.mm
     )
@@ -5854,11 +6031,8 @@ if(APPLE AND NOT PULP_IOS AND PULP_HAS_SKIA)
         Catch2::Catch2WithMain
         "-framework AppKit"
     )
-    # PulpView's Obj-C class metadata only registers when the linker keeps
-    # window_host_mac.mm.o — but no C++ symbol the test references lives in
-    # that .o, so static-lib pruning drops it. Force-load the one specific
-    # object to register the class without dragging in every other .mm
-    # (which would duplicate-symbol on PulpAccessibilityElement).
+    # Force-load the view object so static-lib pruning does not drop Obj-C
+    # class registration; window_host_mac.mm anchors the text-input category.
     target_link_options(pulp-test-mac-perform-key-equivalent PRIVATE
         "LINKER:-force_load,${CMAKE_BINARY_DIR}/core/view/CMakeFiles/pulp-view-core.dir/platform/mac/window_host_mac.mm.o"
     )

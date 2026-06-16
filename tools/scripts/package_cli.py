@@ -175,6 +175,45 @@ def fix_rpath_macos(binary: Path) -> None:
         check=False,
     )
 
+    # Re-sign ad-hoc. Every install_name_tool write above INVALIDATES the
+    # binary's code signature, and on Apple Silicon a binary with a stale
+    # signature is SIGKILL'd ("killed: 9", exit 137) the instant it launches.
+    # GitHub-hosted never hit this because its cargo build produced no absolute
+    # LC_RPATHs to strip (a no-op rewrite leaves the original signature
+    # intact); the self-hosted Studio build bakes in absolute rpaths, so the
+    # rewrite is real and the unsigned result fails the `pulp help` smoke test
+    # (2026-06-10 release thread). Honor a CODESIGN env override so a
+    # Linux-hosted darwin cross-build can point at the llvm/cctools
+    # equivalent; skip with a clear note when no codesign tool is available.
+    codesign = os.environ.get("CODESIGN", "codesign")
+    # shutil.which() resolves both a bare command on PATH AND an absolute path
+    # (returning None if that absolute path doesn't exist or isn't executable),
+    # so it is the complete guard. A prior `or os.path.isabs(codesign)` made a
+    # NON-EXISTENT absolute CODESIGN look usable, then `subprocess.run(...,
+    # check=False)` raised an uncaught FileNotFoundError (check=False suppresses
+    # only non-zero exits, not a missing executable) — crashing the packager
+    # instead of taking the intended skip-with-note path.
+    if shutil.which(codesign):
+        print("  re-signing (ad-hoc) after rpath rewrite", flush=True)
+        result = subprocess.run(
+            [codesign, "--force", "--sign", "-", str(binary)])
+        if result.returncode != 0:
+            # FATAL, not swallowed. When codesign IS available the ad-hoc
+            # re-sign is expected to succeed; a failure leaves the binary with
+            # the install_name_tool-invalidated signature, which is SIGKILL'd on
+            # launch (Apple Silicon today, and any future non-arm64 darwin lane
+            # where the downstream `pulp help` smoke gate would NOT catch it —
+            # the gate only reproduces SIGKILL on arm64). Fail here so a broken,
+            # unsigned release binary can never ship regardless of the smoke
+            # lane's architecture.
+            raise SystemExit(
+                f"FAIL: codesign re-sign of {binary} failed "
+                f"(exit {result.returncode}); refusing to ship a binary that "
+                "will be SIGKILL'd on launch.")
+    else:
+        print(f"  note: '{codesign}' not found — skipping ad-hoc re-sign; "
+              "the binary may be SIGKILL'd on Apple Silicon", flush=True)
+
     # Also rewrite the install_name on the bundled wgpu dylib to use
     # @rpath/<basename> if it's currently absolute; pulp's load command
     # references @rpath/libwgpu_native.dylib, so the dylib's own

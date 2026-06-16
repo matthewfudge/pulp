@@ -28,7 +28,9 @@ ScriptedUiSession::ScriptedUiSession(View& root, state::StateStore& store, Scrip
     : root_(root)
     , store_(store)
     , script_path_(std::move(options.script_path))
-    , theme_path_(script_path_.parent_path() / "theme.json")
+    , theme_path_(options.theme_path.empty() ? script_path_.parent_path() / "theme.json"
+                                             : std::move(options.theme_path))
+    , asset_roots_(std::move(options.asset_roots))
     , hot_reload_enabled_(options.enable_hot_reload)
     , theme_reload_enabled_(options.enable_theme_reload)
 {
@@ -75,6 +77,26 @@ bool ScriptedUiSession::load(std::string* error) {
     last_theme_exists_ = std::filesystem::exists(theme_path_);
     last_theme_write_time_ = last_theme_exists_ ? safe_last_write_time(theme_path_) : std::nullopt;
     return true;
+}
+
+bool ScriptedUiSession::reload(std::string* error) {
+    auto code = read_text_file(script_path_);
+    if (code.empty()) {
+        if (error) *error = "could not read script file: " + script_path_.string();
+        return false;
+    }
+    // preserve_state=true: keep widget values across the rebuild; rebuild_from_code
+    // probes the new code on a throwaway tree first, so a bad reload leaves the
+    // current UI intact.
+    return rebuild_from_code(code, /*preserve_state=*/true, error);
+}
+
+bool ScriptedUiSession::reload_from(std::filesystem::path script_path, std::string* error) {
+    script_path_ = std::move(script_path);
+    theme_path_ = script_path_.parent_path() / "theme.json";
+    last_theme_exists_ = std::filesystem::exists(theme_path_);
+    last_theme_write_time_ = last_theme_exists_ ? safe_last_write_time(theme_path_) : std::nullopt;
+    return reload(error);
 }
 
 bool ScriptedUiSession::poll(std::string* error) {
@@ -125,6 +147,7 @@ bool ScriptedUiSession::rebuild_from_code(const std::string& code, bool preserve
             probe_store.set_value(param.id, store_.get_value(param.id));
         }
         auto probe_bridge = std::make_unique<WidgetBridge>(*probe_engine, probe_root, probe_store);
+        probe_bridge->set_asset_roots(asset_roots_);
         probe_bridge->load_script(code);
 
         WidgetReloadSnapshot saved_values;
@@ -137,6 +160,7 @@ bool ScriptedUiSession::rebuild_from_code(const std::string& code, bool preserve
         auto next_engine = make_engine();
         auto next_bridge = std::make_unique<WidgetBridge>(*next_engine, root_, store_,
                                                           gpu_surface_);
+        next_bridge->set_asset_roots(asset_roots_);
         if (repaint_callback_) {
             next_bridge->set_repaint_callback(repaint_callback_);
         }

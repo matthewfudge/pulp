@@ -11,6 +11,9 @@ namespace pulp::signal {
 /// Chain multiple DSP processors in series. Each processor must have
 /// a `float process(float)` method.
 ///
+/// RT contract: `ProcessorChain` owns processors in a fixed tuple. Its
+/// process/reset paths allocate no memory when the contained processors do not.
+///
 /// @code
 /// ProcessorChain<Gain, Biquad, Compressor> chain;
 /// auto& gain = chain.get<0>();

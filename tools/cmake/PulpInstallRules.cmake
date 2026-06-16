@@ -28,7 +28,7 @@ include(GNUInstallDirs)
 # that were actually configured in this build tree.
 set(PULP_SDK_TARGETS
     pulp-platform pulp-runtime pulp-events pulp-state
-    pulp-audio pulp-midi pulp-signal pulp-format
+    pulp-audio pulp-midi pulp-signal pulp-graph pulp-format
     pulp-canvas pulp-view-core pulp-view-script pulp-view
     pulp-standalone pulp-dsl pulp-native-components
 )
@@ -159,7 +159,7 @@ if(TARGET SDL3_Headers)
 endif()
 
 # Public headers for each SDK subsystem
-foreach(subsystem platform runtime events state audio midi signal format canvas render view native-components)
+foreach(subsystem platform runtime events state audio midi signal graph format canvas render view native-components)
     set(_inc_dir "${CMAKE_CURRENT_SOURCE_DIR}/core/${subsystem}/include")
     if(EXISTS "${_inc_dir}")
         install(DIRECTORY "${_inc_dir}/pulp/"
@@ -401,7 +401,17 @@ if(PULP_HAS_WEBGPU AND DEFINED WEBGPU_RUNTIME_LIB AND TARGET webgpu)
 endif()
 
 if(PULP_HAS_SKIA)
-    install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/external/skia-build"
-        DESTINATION external
-    )
+    # Ship the Skia tree the build actually linked against — including the
+    # prebuilt static libs (build/<plat>-gpu/lib/Release/*.a) consumers need to
+    # link Pulp::view/render. FindSkia sets SKIA_DIR to the in-tree default on a
+    # normal checkout, or to an out-of-tree cache when -DSKIA_DIR/$SKIA_DIR is
+    # used (e.g. a worktree whose external/skia-build holds only headers). Using
+    # the resolved SKIA_DIR makes the installed SDK self-contained either way.
+    if(SKIA_DIR AND EXISTS "${SKIA_DIR}")
+        install(DIRECTORY "${SKIA_DIR}/" DESTINATION external/skia-build)
+    else()
+        install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/external/skia-build"
+            DESTINATION external
+        )
+    endif()
 endif()

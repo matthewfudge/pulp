@@ -247,16 +247,23 @@ class FaithfulVectorTest(unittest.TestCase):
         self.assertEqual(e["source_node_id"], "5:1")
 
     def test_detect_overlay_controls_placeholder_text_uses_parent_group(self):
-        # ELYSIUM shape: the "Search" placeholder is a TEXT leaf; the field is its
-        # parent group. The magnifier "ic:round-search" must NOT match.
+        # A common shape: the "Search" placeholder is a TEXT leaf; the field is its
+        # parent group with a filled box + a leading magnifier icon. The icon must
+        # NOT match; the overlay is INSET past the icon (starts at the text's x) so
+        # the baked magnifier stays visible, and carries the box's own bg color so
+        # the inset edge blends seamlessly.
         figma_root = {
             "id": "3:42", "absoluteBoundingBox": {"x": 0, "y": 0, "width": 1000, "height": 600},
             "children": [
                 {"name": "Group 59", "id": "g59", "type": "GROUP",
                  "absoluteBoundingBox": {"x": 21, "y": 73, "width": 184, "height": 26},
                  "children": [
+                     {"name": "Box", "type": "RECTANGLE",
+                      "absoluteBoundingBox": {"x": 21, "y": 73, "width": 184, "height": 26},
+                      "fills": [{"type": "SOLID", "visible": True,
+                                 "color": {"r": 37 / 255, "g": 38 / 255, "b": 38 / 255, "a": 1}}]},
                      {"name": "ic:round-search", "type": "FRAME",
-                      "absoluteBoundingBox": {"x": 21, "y": 76, "width": 15, "height": 15}},
+                      "absoluteBoundingBox": {"x": 27, "y": 76, "width": 15, "height": 15}},
                      {"name": "Search", "type": "TEXT", "characters": "Search",
                       "absoluteBoundingBox": {"x": 44, "y": 78, "width": 43, "height": 17}},
                  ]},
@@ -265,8 +272,10 @@ class FaithfulVectorTest(unittest.TestCase):
         els = frx.detect_overlay_controls(figma_root, (0.0, 0.0), (73.0, 50.0))
         self.assertEqual(len(els), 1)              # icon skipped, one field found
         e = els[0]
-        self.assertEqual((e["x"], e["y"], e["w"], e["h"]), (94.0, 123.0, 184.0, 26.0))
+        # Inset to the text x (44) past the icon: x = 44+73 = 117, w = 21+184-44 = 161.
+        self.assertEqual((e["x"], e["y"], e["w"], e["h"]), (117.0, 123.0, 161.0, 26.0))
         self.assertEqual(e["source_node_id"], "g59")  # the parent group, not the text
+        self.assertEqual(e["bg_color"], "#252626")    # the box's own fill (seamless inset)
 
     def test_parse_panel_bounds_picks_the_panel_rect(self):
         svg = ('<svg width="1146" height="746" xmlns="http://www.w3.org/2000/svg">'
@@ -278,8 +287,8 @@ class FaithfulVectorTest(unittest.TestCase):
     def test_detect_overlay_controls_dropdowns_only_with_down_chevron(self):
         # Only a FRAME named ~dropdown WITH a down-chevron ("expand_more") child is
         # a real dropdown. The < > section-header steppers (chevron child is a
-        # "Frame 41" pair) and the unconfigured "Dropdown" placeholder must NOT be
-        # detected. A tiny "+" and a stray TEXT are skipped too.
+        # "Frame 41" pair) become STEPPERS, not dropdowns. The unconfigured
+        # "Dropdown" placeholder must NOT be detected. A tiny "+" is skipped too.
         def chev(name):  # a chevron icon child
             return {"name": name, "type": "FRAME",
                     "absoluteBoundingBox": {"x": 0, "y": 0, "width": 8, "height": 8}}
@@ -309,9 +318,45 @@ class FaithfulVectorTest(unittest.TestCase):
         self.assertEqual(len(dropdowns), 1)               # only d1
         e = dropdowns[0]
         self.assertEqual((e["x"], e["y"], e["w"], e["h"]), (773.0, 530.0, 103.0, 27.0))
-        self.assertEqual(e["options"][0], "1/4 Delay")    # shown value first
-        self.assertGreater(len(e["options"]), 1)          # stub options so the popup is usable
+        self.assertEqual(e["options"], ["1/4 Delay"])     # only the real shown value (no fabricated options)
         self.assertEqual(e["source_node_id"], "d1")
+        # s1 (Frame 41 < > pair) is a stepper, not a dropdown; placeholder p1 skipped.
+        steppers = [e for e in els if e["kind"] == "stepper"]
+        self.assertEqual(len(steppers), 1)                # only s1
+        self.assertEqual(steppers[0]["source_node_id"], "s1")
+
+    def test_detect_overlay_controls_finds_stepper(self):
+        # A "Dropdown"-named FRAME whose chevron child is a < > PAIR ("Frame 41",
+        # or a left+right chevron pair) and whose shown value != "Dropdown" is a
+        # < > stepper. Mapped node->SVG with the (+73,+50) panel origin.
+        figma_root = {
+            "id": "3:42", "absoluteBoundingBox": {"x": 0, "y": 0, "width": 1000, "height": 600},
+            "children": [
+                # Frame-41 style < > pair
+                {"name": "Dropdown", "id": "st1", "type": "FRAME",
+                 "absoluteBoundingBox": {"x": 100, "y": 120, "width": 180, "height": 22},
+                 "children": [{"type": "TEXT", "characters": "Short Plucks"},
+                              {"name": "Frame 41", "type": "FRAME",
+                               "absoluteBoundingBox": {"x": 0, "y": 0, "width": 40, "height": 12}}]},
+                # explicit left+right chevron pair (no Frame 41)
+                {"name": "Dropdown", "id": "st2", "type": "FRAME",
+                 "absoluteBoundingBox": {"x": 400, "y": 120, "width": 160, "height": 22},
+                 "children": [{"type": "TEXT", "characters": "Sine"},
+                              {"name": "chevron_left", "type": "FRAME",
+                               "absoluteBoundingBox": {"x": 0, "y": 0, "width": 8, "height": 8}},
+                              {"name": "chevron_right", "type": "FRAME",
+                               "absoluteBoundingBox": {"x": 0, "y": 0, "width": 8, "height": 8}}]},
+            ],
+        }
+        els = frx.detect_overlay_controls(figma_root, (0.0, 0.0), (73.0, 50.0))
+        steppers = [e for e in els if e["kind"] == "stepper"]
+        self.assertEqual(len(steppers), 2)
+        s = next(e for e in steppers if e["source_node_id"] == "st1")
+        self.assertEqual((s["x"], s["y"], s["w"], s["h"]), (173.0, 170.0, 180.0, 22.0))
+        self.assertEqual(s["options"], ["Short Plucks"])   # only the real shown value (no fabricated options)
+        self.assertEqual(s["selected_index"], 0)
+        # No dropdowns produced (neither has a down-chevron).
+        self.assertEqual([e for e in els if e["kind"] == "dropdown"], [])
 
     def test_detect_overlay_controls_finds_tab_group(self):
         # A row of >=3 container children with short labels = a tab group; the one
@@ -344,6 +389,135 @@ class FaithfulVectorTest(unittest.TestCase):
         root = {"absoluteBoundingBox": {"x": 0, "y": 0, "width": 10, "height": 10},
                 "children": [{"name": "Knob", "absoluteBoundingBox": {"x": 0, "y": 0, "width": 4, "height": 4}}]}
         self.assertEqual(frx.detect_overlay_controls(root, (0.0, 0.0), (0.0, 0.0)), [])
+
+    def _tab_group_node(self, nid, x, y):
+        def tab(tx, label):
+            return {"name": "Button", "type": "FRAME",
+                    "absoluteBoundingBox": {"x": tx, "y": y, "width": 29, "height": 20},
+                    "children": [{"type": "TEXT", "characters": label}]}
+        return {"name": "Radio Button", "id": nid, "type": "FRAME",
+                "absoluteBoundingBox": {"x": x, "y": y, "width": 120, "height": 20},
+                "children": [tab(x, "1"), tab(x + 29, "2"), tab(x + 58, "3"), tab(x + 87, "4")]}
+
+    def test_detect_overlay_controls_drops_occluded_control(self):
+        # A tab group fully painted over by a LATER opaque sibling (an envelope
+        # graph panel drawn on top) is not visible → must NOT be surfaced. This
+        # is the "spurious envelope 1/2/3/4" guard: the leftover radio layer sits
+        # under an opaque panel, so the importer must skip it.
+        tg = self._tab_group_node("buried", 50, 530)
+        cover = {"name": "Graph Panel", "id": "cover", "type": "FRAME",
+                 "absoluteBoundingBox": {"x": 0, "y": 434, "width": 1000, "height": 142},
+                 "fills": [{"type": "GRADIENT_RADIAL", "visible": True,
+                            "gradientStops": [{"color": {"a": 1.0}}, {"color": {"a": 1.0}}]}],
+                 "children": []}
+        root = {"id": "root", "absoluteBoundingBox": {"x": 0, "y": 0, "width": 1000, "height": 600},
+                "children": [tg, cover]}              # tg painted BEFORE the cover
+        els = frx.detect_overlay_controls(root, (0.0, 0.0), (0.0, 0.0))
+        self.assertEqual([e for e in els if e["kind"] == "tab_group"], [])
+
+    def test_detect_overlay_controls_keeps_visible_control(self):
+        # Same tab group, but the opaque panel is painted BEFORE it (lower z) —
+        # so the tab group is on top and visible. It must be surfaced.
+        cover = {"name": "Graph Panel", "id": "cover", "type": "FRAME",
+                 "absoluteBoundingBox": {"x": 0, "y": 434, "width": 1000, "height": 142},
+                 "fills": [{"type": "SOLID", "visible": True, "color": {"a": 1.0}}],
+                 "children": []}
+        tg = self._tab_group_node("ontop", 50, 530)
+        root = {"id": "root", "absoluteBoundingBox": {"x": 0, "y": 0, "width": 1000, "height": 600},
+                "children": [cover, tg]}              # tg painted AFTER the cover
+        els = frx.detect_overlay_controls(root, (0.0, 0.0), (0.0, 0.0))
+        self.assertEqual(len([e for e in els if e["kind"] == "tab_group"]), 1)
+
+    def test_detect_overlay_controls_own_background_is_not_an_occluder(self):
+        # A control whose OWN background <rect> fills it (a descendant painted
+        # after the group) must NOT be treated as occluding itself.
+        tg = self._tab_group_node("self", 50, 530)
+        tg["children"].insert(0, {  # background rect spanning the whole group, drawn first child
+            "name": "bg", "id": "selfbg", "type": "RECTANGLE",
+            "absoluteBoundingBox": {"x": 50, "y": 530, "width": 120, "height": 20},
+            "fills": [{"type": "SOLID", "visible": True, "color": {"a": 1.0}}]})
+        root = {"id": "root", "absoluteBoundingBox": {"x": 0, "y": 0, "width": 1000, "height": 600},
+                "children": [tg]}
+        els = frx.detect_overlay_controls(root, (0.0, 0.0), (0.0, 0.0))
+        self.assertEqual(len([e for e in els if e["kind"] == "tab_group"]), 1)
+
+
+class FaithfulVectorDefaultTest(unittest.TestCase):
+    """The faithful-vector lane (interactive overlays) must be the DEFAULT — a
+    plain import should produce live widgets, not a static node tree. Opt out
+    with --no-faithful-vector."""
+
+    def test_faithful_vector_defaults_on(self):
+        args = frx.build_argparser().parse_args(["--out", "x.json", "--url", "u"])
+        self.assertTrue(args.faithful_vector)
+
+    def test_no_faithful_vector_opts_out(self):
+        args = frx.build_argparser().parse_args(
+            ["--out", "x.json", "--url", "u", "--no-faithful-vector"])
+        self.assertFalse(args.faithful_vector)
+
+    def test_faithful_vector_explicit_on_still_accepted(self):
+        args = frx.build_argparser().parse_args(
+            ["--out", "x.json", "--url", "u", "--faithful-vector"])
+        self.assertTrue(args.faithful_vector)
+
+
+class ElementLabelTest(unittest.TestCase):
+    """§2.1 importer auto-labeling: an interactive element gets a `label` (the
+    generated-parameter name) from its meaningfully-named source Figma layer, and
+    nothing when the layer name is auto-generated or a structural/kind word."""
+
+    def test_node_label_filters_default_and_noise_names(self):
+        self.assertEqual(frx._node_label("Cutoff"), "Cutoff")
+        self.assertEqual(frx._node_label("  Delay Mode  "), "Delay Mode")
+        for default in ("Ellipse 12", "Rectangle", "Frame 41", "Group 3",
+                        "Vector", "Instance 2", "Boolean"):
+            self.assertEqual(frx._node_label(default), "", default)
+        for noise in ("Knob", "dropdown", "Search", "Value", "field", "Tabs"):
+            self.assertEqual(frx._node_label(noise), "", noise)
+        self.assertEqual(frx._node_label(""), "")
+
+    def test_overlay_label_from_source_node_name(self):
+        figma_root = {
+            "id": "root",
+            "absoluteBoundingBox": {"x": 100, "y": 100, "width": 1000, "height": 600},
+            "children": [
+                {"id": "d1", "name": "Delay Mode",
+                 "absoluteBoundingBox": {"x": 700, "y": 140, "width": 120, "height": 28}},
+                {"id": "s1", "name": "Search",  # structural word → no label
+                 "absoluteBoundingBox": {"x": 140, "y": 200, "width": 280, "height": 32}},
+            ],
+        }
+        elements = [
+            {"kind": "dropdown", "source_node_id": "d1"},
+            {"kind": "text_field", "source_node_id": "s1"},
+        ]
+        frx._label_elements(elements, figma_root, (100.0, 100.0))
+        self.assertEqual(elements[0].get("label"), "Delay Mode")
+        self.assertNotIn("label", elements[1])  # "Search" filtered → key absent
+
+    def test_geometry_knob_label_from_overlapping_named_node(self):
+        # frame origin (100,100); a "Cutoff" node centered at frame-local (60,60),
+        # a default-named ellipse centered at (260,60).
+        figma_root = {
+            "id": "root",
+            "absoluteBoundingBox": {"x": 100, "y": 100, "width": 1000, "height": 600},
+            "children": [
+                {"id": "k1", "name": "Cutoff",
+                 "absoluteBoundingBox": {"x": 140, "y": 140, "width": 40, "height": 40}},
+                {"id": "k2", "name": "Ellipse 7",  # auto-generated → no label
+                 "absoluteBoundingBox": {"x": 340, "y": 140, "width": 40, "height": 40}},
+            ],
+        }
+        elements = [
+            {"kind": "knob", "cx": 60.0, "cy": 60.0, "hit_radius": 30.0},    # over "Cutoff"
+            {"kind": "knob", "cx": 260.0, "cy": 60.0, "hit_radius": 30.0},   # over the ellipse
+            {"kind": "knob", "cx": 900.0, "cy": 500.0, "hit_radius": 30.0},  # over nothing
+        ]
+        frx._label_elements(elements, figma_root, (100.0, 100.0))
+        self.assertEqual(elements[0].get("label"), "Cutoff")
+        self.assertNotIn("label", elements[1])  # default-named node → no label
+        self.assertNotIn("label", elements[2])  # no overlapping named node
 
 
 if __name__ == "__main__":

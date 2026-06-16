@@ -16,6 +16,10 @@ namespace pulp::signal {
 ///   - set_sample_rate(float)
 ///   - process(float) -> float  (single-sample)
 ///   - reset()
+///
+/// RT contract: `prepare()` resizes channel storage and is not audio-callback
+/// safe. `process()`, `process_channel()`, `for_each()`, and `reset()` allocate
+/// no memory after prepare when `P` follows the same contract.
 template<typename P>
 class ProcessorDuplicator {
 public:

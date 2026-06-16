@@ -11,7 +11,7 @@
 // `tools/import-design/figma_rest_export.py`. This bundle is the
 // *plugin-side* conformance oracle — it produces byte-identical output to
 // the published plugin's `Export to Pulp`, so the conformance test in
-// `test/test_design_import.cpp` can detect drift between the Python REST
+// `test/test_design_import_sources.cpp` can detect drift between the Python REST
 // port and the in-Figma plugin.
 //
 // Usage from a driver:
@@ -44,9 +44,10 @@ const LIBRARY_MANIFEST: LibraryManifestSnapshot = {
 };
 
 declare const TARGET_NODE_ID: string | undefined;
-// Faithful-vector lane (Plan B / B4b). When the injected prelude sets this true,
-// each top-level frame exports its own SVG and renders via DesignFrameView with
-// auto-detected interactive knobs, instead of the widget-recognition rebuild.
+// Faithful-vector lane (Plan B / B4b) — the DEFAULT. Each top-level frame
+// exports its own SVG and renders via DesignFrameView with auto-detected
+// INTERACTIVE overlays, instead of the legacy widget-recognition rebuild. The
+// injected prelude sets FAITHFUL_VECTOR = false to opt out (legacy flat tree).
 declare const FAITHFUL_VECTOR: boolean | undefined;
 
 interface HeadlessAssetBundle {
@@ -97,7 +98,7 @@ async function run(): Promise<HeadlessResult> {
   }
 
   const result = await extractScene(roots as readonly SceneNode[], {
-    faithfulVector: typeof FAITHFUL_VECTOR !== "undefined" && FAITHFUL_VECTOR === true,
+    faithfulVector: typeof FAITHFUL_VECTOR === "undefined" ? true : FAITHFUL_VECTOR !== false,
   });
 
   const fileKey =

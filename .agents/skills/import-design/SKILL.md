@@ -364,6 +364,18 @@ so codegen lowers it like any other path. Key facts / gotchas:
   **MSVC gotcha:** the polygon/star angle math must NOT use `M_PI` — MSVC does
   not define it without `_USE_MATH_DEFINES`, which broke the Windows CLI build
   (and the whole release pipeline) once. Use the local `kSynthPi` constant.
+- **Release-runner toolchain gotcha (C++20 P0960):** the GitHub-hosted macOS
+  *release* runner's Apple clang is OLDER than the self-hosted PR-lane clang and
+  does NOT implement **parenthesized aggregate initialization** (`Type p(arg)` for
+  a ctor-less aggregate), even at `-std=c++20`. So `JsonParser p(snap.html_text)`
+  in `import_detect.cpp` compiled on PR CI but **failed the release build** ("no
+  matching constructor"), silently breaking every GitHub Release from ~v0.371 to
+  v0.391 (the tag-triggered `sign-and-release.yml` / `release-cli.yml` Build step
+  died; tags kept getting created so the breakage was invisible until the
+  release-cadence watchdog flagged the tags-without-Releases). **Always brace
+  aggregate init** (`Type p{arg}`) in CLI/import code — it's valid on every
+  toolchain. (PR CI cannot catch this class; it only surfaces on the older
+  release runner.)
 - **`polyline` is intentionally NOT synthesized** — it is an open run of explicit
   points that geometry alone can't reconstruct; it stays `codegen: missing`
   (carry `path_data` or rasterize at export).
@@ -489,7 +501,7 @@ they share no code unless you make them.
   With them dropped, the panel rendered dark `#1c1d1d` and the `position_cylinder`
   GPU-ROI similarity was 0.055; after wiring it jumped to 0.979 (`range_prism`
   0.029→0.78, `grains_knob_cap` 0.15→0.79). Verify with
-  `pulp-test-mac-platform-harness` (`PULP_ELYSIUM_GPU_DUMP_DIR=… ` dumps ROIs).
+  `pulp-test-mac-platform-harness` (`PULP_DESIGN_GPU_DUMP_DIR=… ` dumps ROIs).
 - **Gotcha — stale CLI binary:** after touching `emit_visual_style`, rebuild
   `pulp-import-design` before re-emitting `--emit cpp`; the tool links
   `pulp-view-core` statically and a stale binary silently emits the old output
@@ -574,6 +586,16 @@ node's **own SVG export** pixel-faithfully and overlay native interaction.
 This is the lane that makes an imported frame look identical to the source
 (gradients, multi-layer drop shadows, masks) while staying interactive.
 
+**This lane is the DEFAULT** across every producer (REST exporter, plugin UI,
+headless runner). A plain import yields the faithful frame WITH live overlays
+(knobs, search field, dropdowns, steppers, tab groups). The legacy flat,
+static node-tree export is opt-OUT: `--no-faithful-vector` (REST / headless)
+or `extractScene(nodes, {faithfulVector:false})` (plugin API). Forgetting an
+opt-IN flag was the old failure mode — a fresh import came through static /
+non-interactive — so the default is flipped. When no frame SVG is obtainable
+(e.g. `--node-json` with no token and no `--frame-svg`) the lane degrades
+gracefully to the flat export with a warning.
+
 Pieces, source-of-truth → runtime:
 - **Rendering** — `Canvas::draw_svg` (SkiaCanvas, Skia `SkSVGDOM`, `libsvg.a`)
   renders an SVG document pixel-faithfully. Knob animation = wrap the needle
@@ -585,10 +607,23 @@ Pieces, source-of-truth → runtime:
 - **IR** — a node opts in with `render_mode = NodeRenderMode::faithful_svg`,
   points `svg_asset_id` at an `IRAssetManifest` entry (mime `image/svg+xml`),
   and carries `interactive_elements[]` (`IRInteractiveElement`: cx, cy,
-  hit_radius, svg_patch_d, default_value, source_node_id). These are
+  hit_radius, svg_patch_d, default_value, source_node_id, **label**). These are
   source-side semantics filled by the importer, NOT inferred from the SVG.
   `InteractiveElementKind` is deliberately separate from `AudioWidgetType`.
-- **Producer (REST lane)** — `figma_rest_export.py --faithful-vector` fetches
+- **Element labels (§2.1 auto-labeling)** — `label` is the human-readable
+  parameter NAME a host shows (embed ABI v5 `PulpEmbedParamInfo.name`), taken
+  from the control's source Figma **layer name** when meaningful. The REST lane's
+  `_node_label()` is deliberately conservative — it returns `""` (→ consumer
+  falls back to the binding key, no regression) for auto-generated names
+  (`Ellipse 12`, `Frame 41`, bare numbers) AND structural/kind words
+  (`Dropdown`, `Search`, `Knob`, `Value`, …), because a WRONG name is worse than
+  the synthetic key. `_label_elements()` assigns it: overlays resolve via their
+  `source_node_id`; geometry knobs (no node link) match the named node whose
+  frame-local center lands within the knob's hit radius (same coordinate
+  convention as `_name_override_knobs`). unit/range are a follow-up — only the
+  name flows today. Plugin-lane (TS) parity is the remaining lockstep item.
+- **Producer (REST lane)** — `figma_rest_export.py` (faithful-vector default-on;
+  `--no-faithful-vector` for the legacy flat export) fetches
   the frame's own SVG (`/images?format=svg`, or `--frame-svg FILE` offline),
   embeds it as a `data:image/svg+xml;base64` asset (so the importer always
   resolves it — no dependency on local_path stamping), sets the root's
@@ -604,9 +639,10 @@ Pieces, source-of-truth → runtime:
   bbox), but those carry NO `svg_patch_d` (hit + value, no visual rotation),
   the honest fallback for a knob geometry missed.
 - **Producer (plugin lane)** — the Figma plugin mirrors the REST lane in
-  lockstep: `extractScene(nodes, {faithfulVector:true})` (or headless
-  `run-headless.mjs <node> --faithful-vector`, which injects the
-  `FAITHFUL_VECTOR` global) captures each frame's SVG via
+  lockstep, faithful-vector default-on: `extractScene(nodes)` (defaults
+  `faithfulVector:true`; pass `false` to opt out) or headless
+  `run-headless.mjs <node>` (default; `--no-faithful-vector` opts out, and
+  injects the `FAITHFUL_VECTOR` global) captures each frame's SVG via
   `captureExportedNode(node,"SVG")`, decodes the bytes with `decodeSvgBytes`
   (the sandbox has NO `TextDecoder`), and runs the SAME knob detector
   (`src/faithful-vector.ts`, kept identical to the Python `parse_frame_knobs`).
@@ -632,26 +668,43 @@ View that hosts an opaque child widget over the element's rect (`build_overlays`
 in the ctor, positioned in `layout_children()` via the SAME `panel_transform`
 the SVG is painted with, so they track scaling/letterbox; `View::hit_test`
 routes events to them, knob hit-test is the parent fallback). `IRInteractiveElement`
-+ `DesignFrameElement` carry `kind {knob,text_field,dropdown,tab_group}` + a
-rect (x,y,w,h) + `options`/`selected_index`/`placeholder`.
-- `text_field` → `TextEditor` (tap-focus + caret + accent focus ring; opaque bg
-  replaces the baked box — known fidelity cost: the SVG's leading icon is
-  covered, a styling follow-up).
++ `DesignFrameElement` carry `kind {knob,text_field,dropdown,tab_group,stepper}` +
+a rect (x,y,w,h) + `options`/`selected_index`/`placeholder`.
+- `text_field` → `TextEditor` (tap-focus + caret + accent focus ring). To keep
+  the baked leading icon (e.g. a search magnifier) visible, the producer INSETS
+  the overlay rect to start at the placeholder text's x (past the icon) and emits
+  the field's own box color (`bg_color`, from the box's SOLID fill). The overlay
+  paints that exact color, so the inset edge — and any corner curves — blend
+  seamlessly with the still-baked box+icon (same-color reveal). Empty `bg_color`
+  → a default dark field. This is general (any leading-icon field), detected from
+  source structure, not a per-design constant.
 - `dropdown` → `ComboBox` (set_items from `options`; opens a popup on click).
   A real dropdown is detected only when the "dropdown"-named FRAME has a
   DOWN-chevron child (Material `expand_more`) AND its shown text isn't the
-  unconfigured placeholder "Dropdown". ELYSIUM names the `< >` section-header
-  STEPPERS "Dropdown" too, but their chevron child is a `Frame 41` pair (no
-  `expand_more`) — so they stay faithful-static, not dropdowns. Option LISTS
-  aren't in a static design, so the producer stubs a couple after the shown
-  value — real lists need source component variants (TODO).
+  unconfigured placeholder "Dropdown". Options carry ONLY the real shown value:
+  a static design defines no alternatives, and ELYSIUM's selectors are plain
+  frames (not component instances), so there are no variants to enumerate —
+  fabricating placeholders would be misleading. A design that defines component
+  variants would source the full list from its property definitions.
+- `stepper` → `DesignStepper` (a `< >` header value cycled in place: paints the
+  current option centered with `<`/`>` chevrons; left half steps to previous,
+  right half to next, clamped — nothing painted behind the text so the header
+  chrome shows through). This is the SAME "Dropdown"-named FRAME family as the
+  dropdown, discriminated by its chevron child: a `< >` PAIR (`Frame 41` in
+  ELYSIUM, or an explicit left+right chevron pair) and NOT a down-chevron, with
+  shown text != "Dropdown". (Previously these were dropped as faithful-static;
+  they are now live steppers.) Options carry only the real shown value, like
+  dropdowns — ELYSIUM's `< >` headers are actually a decorative pair of
+  `expand_more` icons inside `Frame 41` with no defined alternatives, so there is
+  nothing to step to until a variant-carrying design or the developer supplies
+  the list.
 - `tab_group` → `DesignTabGroup` (a compact segmented control drawn opaque over
   the tab strip; click a slot to move the selection highlight). Detected
   structurally (`detect_tab_group`): a row of ≥3 similar-width container children
   with short text labels; the child carrying a visible SOLID fill is the selected
-  tab. `--select-tab=N` is the elysium-standalone demo flag for capturing it.
+  tab. `--select-tab=N` is the design-import-standalone demo flag for capturing it.
 
-The `pulp-elysium-standalone` example has demo flags to capture overlay states
+The `pulp-design-import-standalone` example has demo flags to capture overlay states
 headlessly: `--focus-search` (focus ring) and `--open-dropdown=SUBSTR` (opens
 the matching ComboBox's popup). Use `--raster=out.png` (Skia) not `--screenshot`
 when the session's live GPU-present path is wedged — raster is the same paint,
@@ -662,6 +715,24 @@ GPU-safe, and DOES render the open ComboBox popup (it paints its list inline).
   (figma_rest_export.py) finds a node named ~`search` (skipping the
   `ic:round-search` icon; ELYSIUM names the placeholder TEXT "Search" with the
   field as its parent group). The plugin lane must mirror this when wired.
+- **OCCLUSION GUARD — skip controls painted over by a later opaque node.** A
+  design can carry a leftover/under-layer control that is fully covered by a
+  panel drawn on top (e.g. a stray "Radio Button" 1/2/3/4 buried under the
+  envelope graph). The baked SVG hides it, but a naive detector resurfaces it as
+  a live overlay floating ON TOP. Guard: in detection, drop any candidate whose
+  bbox is fully contained by a node painted AFTER its entire subtree (document
+  preorder = paint order) that has an opaque fill. Key invariants that took a
+  round to get right: (1) key the paint-index/subtree maps on OBJECT IDENTITY,
+  not the figma `id` string (absent/dup ids collide); (2) compare against the
+  candidate's `subtree_end`, NOT its own index — else the control's OWN
+  background `<rect>` (a descendant that fills it) looks like an occluder and
+  drops the control (this nuked the search field on the first cut); (3) "opaque"
+  must accept GRADIENT fills, not just SOLID — ELYSIUM's occluding panel is a
+  radial gradient. REST: `_opaque_cover` checks SOLID `a>=.99` or GRADIENT with
+  all stops `a>=.99` + node opacity. TS (`faithful-vector.ts`): proxies opacity
+  via `style.background_color` presence (the extractor sets it for SOLID and the
+  flat fallback of GRADIENT) + the node `opacity` field; `Map<OverlayNode>` keys
+  give object identity for free. KEEP both lanes' guards in sync.
 - **COORDINATE GOTCHA (cost me real time):** the Figma node tree is frame-local
   (root at abs origin, 1000×600 for ELYSIUM) but the SVG export adds the
   drop-shadow margin (1146×746, panel at (73,50)). Node coords are NOT SVG
@@ -915,7 +986,7 @@ content only where the image alpha is non-zero). Works on Skia raster AND
 Graphite/GPU.
 
 Binding which knob drives which shape is NOT in the figma source (no Figma
-binding), so the import does not auto-wire it. The `elysium-standalone` example
+binding), so the import does not auto-wire it. The `design-import-standalone` example
 demonstrates the opt-in by pairing each upper illustration with its column knob
 (`apply_shape_knob_fills`, by laid-out x) and driving `set_fill_value` from the
 knob each frame; the per-shape gradient flows through automatically because the
@@ -1019,6 +1090,12 @@ pulp import-design --from figma-plugin --file scene.pulp.json --output ui.js
 Token resolves from `--token`, then `$FIGMA_TOKEN`, then `~/.config/pulp/figma-token`; lifecycle (added/expiry) tracked in `~/.config/pulp/figma.json`. PATs expire (≤90 days) — regenerate same-scope; Figma OAuth2 is the permanent path (future). The plugin lane remains source-of-truth (audio-widget recognition, Pulp Library matching); the REST port covers generic frames/text/vectors/assets, which is what non-library designs (e.g. ELYSIUM) use. **Asset PNGs only composite when the render uses the SKIA backend.** Two independent gates: (1) a GPU/Skia-enabled build (`PULP_HAS_SKIA`), and (2) the **Skia screenshot backend** — `render_to_png`'s macOS default is CoreGraphics, whose canvas lacks `draw_image_from_file`, so `ImageView` draws each image's *filename as placeholder text* (empty boxes + scattered `*.png`) even in a Skia build. `pulp import-design --validate` now defaults to `--screenshot-backend skia` so a fresh import render is faithful; only pass `coregraphics` deliberately. If a validate render shows missing images + filename text, it's the backend, not the import — re-render with Skia. See the `screenshot` skill.
 
 **Bundled (non-system) fonts — `font_family_assets` → `registerFont` (#43b).** When the envelope carries `font_family_assets` (#43a: `[{family, style, weight, asset_id}]`) with the `.ttf`/`.otf` shipped in `assets/`, the importer registers each so a non-system family actually loads instead of `setFontFamily` silently falling back to a same-named system font. Pipeline: `parse_figma_plugin_json` → `DesignIR.font_family_assets`; the CLI resolves each `asset_id` → absolute path (same pass as image `asset_path`); `generate_pulp_js` emits `registerFont('<family>','<path>')` in the JS header **before any `setFontFamily`**; the `registerFont` bridge calls `AssetManager::register_font_family` → `canvas::register_font_file` (Skia typeface; no-op stub off-GPU). **Gotcha:** if the design's font is *also* system-installed (e.g. Inter on macOS), a render can't distinguish bundled-load from system-fallback — verify with a non-system family. Covered by `[issue-43b]` in `test_design_import.cpp`.
+
+**Two render-path traps behind `registerFont` (found chasing the ELYSIUM font gap).** Emitting `registerFont` is necessary but historically NOT sufficient — two silent failures made registered fonts not render:
+1. **SkParagraph never saw registered fonts.** `register_font` populated only the Canvas2D `fillText` / `FontResolver` path. But every `Label` rasterizes through **SkParagraph** (`make_paragraph` in `skia_canvas_text.cpp`), whose `FontCollection` (`TextFontContext::font_collection()`) only registered the *emoji* typeface — user fonts fell back to a system face for ALL label text. The fix bridges the registry into the paragraph collection via `registered_typefaces_snapshot()` (in `bundled_fonts.cpp`), iterated in `text_font_context.cpp::font_collection()`. **Diagnostic:** if a registered font renders in raw `ctx.fillText` canvas calls but NOT in Labels/section headers, the paragraph bridge is the suspect.
+2. **Variable fonts ignored `font-weight`.** A variable `.ttf` (Funnel Display: `wght` 300–800 def 300; Clash Grotesk: 200–700 def 700) registers as ONE typeface at its default instance. SkParagraph and the static matcher pick the closest *static* weight, so e.g. a `font-weight:700` section header rendered at the 300 default for every weight. Fix: `face_wght_axis()` detects the `wght` axis; `match_registered_typeface` treats a same-slant variable face as eligible past the 200-unit static tolerance; the resolver derives a synthetic `wght` variation from the request (clamped); and `font_collection()` pre-bakes one `makeClone` per CSS weight (100–900) under the family alias so the provider's closest-match picks the right instance. **Diagnostic:** if regular-weight text picks up the font but bold/heavy text stays on the fallback, it's the variable-weight path. Covered by `[variable-weight]` in `test_canvas_fonts.cpp`.
+
+**The fonts the design uses may not be in the envelope at all.** The Figma API does NOT expose font binaries (only family NAMES via `_record_font`). A REST/plugin export of a design using restricted foundry fonts (Clash Grotesk, Funnel Display) yields `font_family_assets` with NO `asset_id` → no `registerFont` → system fallback. Options: (a) the plugin's drag-drop font escape hatch (`user-fonts.ts`) lets the user supply the `.ttf`; (b) obtain the font under permissive terms and stamp it into the bundle (Funnel Display is OFL on Google Fonts; Clash Grotesk is free-for-commercial from Fontshare) — add the file to `assets/<sha256>.ttf`, a `font/ttf` manifest entry, and the matching `asset_id` on each `font_family_assets` entry. **Embed note:** the portable-bundle path-resolver preamble (pulp-view-embed) must wrap `registerFont` (alongside `setImageSource`/`setKnobSpriteStrip`) or relative font paths won't resolve against the bundle dir.
 
 REST-port capture rules that mirror the plugin's `extract.ts` — keep them in sync when the P2/P3 shared extractor lands:
 - **Audio-widget recognition by name** (`widget_kind_from_name`): knob/fader/meter/dial/slider/xy-pad/waveform/spectrum nodes are emitted as leaf `audio_widget` nodes so the importer renders them NATIVELY (silver knob etc., at the node's own size) — NOT captured as raw image sprites from their internal component-instance vectors (compound `I…;…` ids), which renders misplaced fragments. This is what makes non-library designs (ELYSIUM) get real knobs.

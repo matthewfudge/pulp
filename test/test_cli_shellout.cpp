@@ -151,6 +151,83 @@ TEST_CASE("pulp <unknown-command> exits non-zero with a diagnostic",
     REQUIRE(mentioned);
 }
 
+TEST_CASE("pulp host derives AU ids from bundle Info.plist before loading",
+          "[cli][shellout][host][au]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    const auto base = unique_temp_dir("pulp-host-au-info-plist");
+    const auto valid_bundle = base / "Valid.component";
+    write_text(valid_bundle / "Contents" / "Info.plist",
+               "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+               "<plist version=\"1.0\">\n"
+               "<dict>\n"
+               "  <key>AudioComponents</key>\n"
+               "  <array>\n"
+               "    <dict>\n"
+               "      <key>type</key><string>aumf</string>\n"
+               "      <key>subtype</key><string>PLPT</string>\n"
+               "      <key>manufacturer</key><string>Pulp</string>\n"
+               "    </dict>\n"
+               "  </array>\n"
+               "</dict>\n"
+               "</plist>\n");
+
+    const auto no_audio_components = base / "NoAudioComponents.component";
+    write_text(no_audio_components / "Contents" / "Info.plist",
+               "<plist><dict><key>CFBundleName</key><string>Fixture</string></dict></plist>\n");
+
+    const auto no_dict = base / "NoDict.component";
+    write_text(no_dict / "Contents" / "Info.plist",
+               "<plist><dict><key>AudioComponents</key><array/></dict></plist>\n");
+
+    const auto unterminated_dict = base / "Unterminated.component";
+    write_text(unterminated_dict / "Contents" / "Info.plist",
+               "<plist><dict><key>AudioComponents</key><array><dict>"
+               "<key>type</key><string>aumf</string></array></dict></plist>\n");
+
+    const auto missing_manufacturer = base / "MissingManufacturer.component";
+    write_text(missing_manufacturer / "Contents" / "Info.plist",
+               "<plist><dict><key>AudioComponents</key><array><dict>"
+               "<key>type</key><string>aumf</string>"
+               "<key>subtype</key><string>PLPT</string>"
+               "</dict></array></dict></plist>\n");
+
+    const auto missing_type = base / "MissingType.component";
+    write_text(missing_type / "Contents" / "Info.plist",
+               "<plist><dict><key>AudioComponents</key><array><dict>"
+               "<key>subtype</key><string>PLPT</string>"
+               "<key>manufacturer</key><string>Pulp</string>"
+               "</dict></array></dict></plist>\n");
+
+    const auto missing_subtype = base / "MissingSubtype.component";
+    write_text(missing_subtype / "Contents" / "Info.plist",
+               "<plist><dict><key>AudioComponents</key><array><dict>"
+               "<key>type</key><string>aumf</string>"
+               "<key>manufacturer</key><string>Pulp</string>"
+               "</dict></array></dict></plist>\n");
+
+    const std::vector<fs::path> bundles = {
+        base / "MissingInfoPlist.component",
+        valid_bundle,
+        no_audio_components,
+        no_dict,
+        unterminated_dict,
+        missing_manufacturer,
+        missing_type,
+        missing_subtype,
+    };
+
+    for (const auto& bundle : bundles) {
+        auto r = run_pulp({"host", bundle.string(), "--format", "au"});
+        REQUIRE_FALSE(r.timed_out);
+        REQUIRE(r.exit_code == 1);
+        REQUIRE(r.stderr_output.find("pulp host: failed to load") !=
+                std::string::npos);
+    }
+
+    fs::remove_all(base);
+}
+
 TEST_CASE("pulp audio usage and parser errors are deterministic",
           "[cli][shellout][audio][issue-643]") {
     if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
@@ -490,6 +567,42 @@ TEST_CASE("pulp config supports pr.workflow",
     REQUIRE_FALSE(bad.timed_out);
     REQUIRE(bad.exit_code != 0);
     REQUIRE(bad.stderr_output.find("pr.workflow must be one of") != std::string::npos);
+}
+
+TEST_CASE("pulp config supports claude.send_user_file",
+          "[cli][shellout][claude]") {
+    if (!binary_exists()) { SUCCEED("skipped: pulp not built"); return; }
+
+    auto tmp_home = unique_temp_dir("pulp-claude-send-user-file");
+    fs::create_directories(tmp_home);
+    pulp_setenv("PULP_HOME", tmp_home.string().c_str(), 1);
+    pulp_setenv("PULP_UPDATE_CHECK_DISABLED", "1", 1);
+
+    // Defaults to "on" in `list` before anything is written.
+    auto list_default = run_pulp({"config", "list"});
+    auto set_off = run_pulp({"config", "set", "claude.send_user_file", "off"});
+    auto get_off = run_pulp({"config", "get", "claude.send_user_file"});
+    auto set_on = run_pulp({"config", "set", "claude.send_user_file", "on"});
+    auto list_on = run_pulp({"config", "list"});
+    auto bad = run_pulp({"config", "set", "claude.send_user_file", "true"});
+
+    pulp_unsetenv("PULP_UPDATE_CHECK_DISABLED");
+    pulp_unsetenv("PULP_HOME");
+    fs::remove_all(tmp_home);
+
+    REQUIRE_FALSE(list_default.timed_out);
+    REQUIRE(list_default.exit_code == 0);
+    REQUIRE(list_default.stdout_output.find("claude.send_user_file = on") != std::string::npos);
+    REQUIRE_FALSE(set_off.timed_out);
+    REQUIRE(set_off.exit_code == 0);
+    REQUIRE_FALSE(get_off.timed_out);
+    REQUIRE(get_off.exit_code == 0);
+    REQUIRE(get_off.stdout_output.find("off") != std::string::npos);
+    REQUIRE(set_on.exit_code == 0);
+    REQUIRE(list_on.stdout_output.find("claude.send_user_file = on") != std::string::npos);
+    REQUIRE_FALSE(bad.timed_out);
+    REQUIRE(bad.exit_code != 0);
+    REQUIRE(bad.stderr_output.find("claude.send_user_file must be one of") != std::string::npos);
 }
 
 TEST_CASE("pulp status reports effective PR workflow",
@@ -2264,6 +2377,9 @@ TEST_CASE("pulp run --help advertises the headless/screenshot/frames/watch flags
     REQUIRE(r.stdout_output.find("--screenshot") != std::string::npos);
     REQUIRE(r.stdout_output.find("--frames")     != std::string::npos);
     REQUIRE(r.stdout_output.find("--watch")      != std::string::npos);
+    // Live Audio Inspector discoverability (the human + agent launch paths).
+    REQUIRE(r.stdout_output.find("--audio-inspector")  != std::string::npos);
+    REQUIRE(r.stdout_output.find("--audio-probe-json") != std::string::npos);
     // Make sure the existing "active project build" line stays — the
     // root CMakeLists.txt regex test depends on it.
     REQUIRE(r.stdout_output.find("active project build") != std::string::npos);
@@ -2375,11 +2491,36 @@ TEST_CASE("pulp run --headless --screenshot --frames writes a PNG",
     INFO("stdout: " << r.stdout_output);
     INFO("stderr: " << r.stderr_output);
     REQUIRE(r.exit_code == 0);
+    REQUIRE(r.stderr_output.find("may activate the system audio output")
+            != std::string::npos);
+    REQUIRE(r.stderr_output.find("headless hides UI but does not guarantee silence")
+            != std::string::npos);
 
     // Fixture echoes its resolved options — verify the CLI forwarded
     // both the args (preferred) AND the env vars (fallback).
     REQUIRE(r.stdout_output.find("fixture: headless=1") != std::string::npos);
     REQUIRE(r.stdout_output.find(screenshot.string())   != std::string::npos);
+
+    {
+        ScopedEnvVar notice("PULP_RUN_AUDIO_NOTICE");
+        notice.set("0");
+        auto quiet_screenshot = base / "quiet-shot.png";
+        fs::current_path(base);
+        auto quiet = exec(bin.string(),
+                          {"run", "pulpcliruntarget",
+                           "--headless", "--screenshot", quiet_screenshot.string(),
+                           "--frames", "1"},
+                          20000);
+        fs::current_path(cwd_saver);
+
+        REQUIRE_FALSE(quiet.timed_out);
+        INFO("quiet stdout: " << quiet.stdout_output);
+        INFO("quiet stderr: " << quiet.stderr_output);
+        REQUIRE(quiet.exit_code == 0);
+        REQUIRE(quiet.stderr_output.find("may activate the system audio output")
+                == std::string::npos);
+        REQUIRE(fs::exists(quiet_screenshot));
+    }
 
     // The PNG itself must exist and start with the standard signature.
     REQUIRE(fs::exists(screenshot));

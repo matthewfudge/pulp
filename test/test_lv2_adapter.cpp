@@ -5,6 +5,7 @@
 #include <pulp/format/processor.hpp>
 #include <pulp/midi/buffer.hpp>
 #include <pulp/midi/message.hpp>
+#include <pulp/state/parameter_event_queue.hpp>
 #include <pulp/state/store.hpp>
 
 #include <array>
@@ -197,15 +198,28 @@ constexpr state::ParamID kLv2ProbeGainParam = 7;
 struct Lv2ProbeCapture {
     int prepare_calls = 0;
     int process_calls = 0;
+    int process_buffer_calls = 0;
     int release_calls = 0;
     int last_num_samples = 0;
     double last_sample_rate = 0.0;
+    std::size_t process_buffer_input_buses = 0;
+    std::size_t process_buffer_output_buses = 0;
+    std::size_t process_buffer_active_inputs = 0;
+    std::size_t process_buffer_active_outputs = 0;
+    bool process_buffer_layouts_match = false;
+    bool process_buffer_storage_valid = false;
     std::size_t last_midi_count = 0;
     uint8_t first_status = 0;
     uint8_t first_note = 0;
     // Phase 3 — true if the LV2 run path set a (non-null) param-events queue on
     // the Processor before calling process(), proving the uniform sidecar.
     bool param_events_non_null = false;
+    std::size_t param_event_count = 0;
+    std::size_t param_event_capacity = 0;
+    bool param_event_overflowed = false;
+    std::uint32_t param_event_drops = 0;
+    float gain_seen_in_process = 0.0f;
+    bool state_store_wired_during_define = false;
 
     void reset() { *this = {}; }
 };
@@ -229,6 +243,7 @@ public:
     }
 
     void define_parameters(state::StateStore& store) override {
+        g_lv2_probe.state_store_wired_during_define = (&state() == &store);
         store.add_parameter({
             .id = kLv2ProbeGainParam,
             .name = "Gain",
@@ -254,6 +269,14 @@ public:
         g_lv2_probe.last_sample_rate = context.sample_rate;
         g_lv2_probe.last_midi_count = midi_in.size();
         g_lv2_probe.param_events_non_null = (param_events() != nullptr);
+        if (auto* events = param_events()) {
+            g_lv2_probe.param_event_count = events->size();
+            g_lv2_probe.param_event_capacity = events->capacity();
+            g_lv2_probe.param_event_overflowed = events->overflowed();
+            g_lv2_probe.param_event_drops = events->dropped_event_count();
+        }
+        g_lv2_probe.gain_seen_in_process =
+            state().get_value(kLv2ProbeGainParam);
         for (const auto& ev : midi_in) {
             g_lv2_probe.first_status = ev.data()[0];
             g_lv2_probe.first_note = ev.size() > 1 ? ev.data()[1] : 0;
@@ -273,6 +296,21 @@ public:
         auto out = midi::MidiEvent::note_on(0, 65, 110);
         out.sample_offset = 7;
         midi_out.add(out);
+    }
+
+    void process(ProcessBuffers& audio,
+                 midi::MidiBuffer& midi_in,
+                 midi::MidiBuffer& midi_out,
+                 const ProcessContext& context) override {
+        ++g_lv2_probe.process_buffer_calls;
+        g_lv2_probe.process_buffer_input_buses = audio.inputs.size();
+        g_lv2_probe.process_buffer_output_buses = audio.outputs.size();
+        g_lv2_probe.process_buffer_active_inputs = audio.inputs.active_count();
+        g_lv2_probe.process_buffer_active_outputs = audio.outputs.active_count();
+        g_lv2_probe.process_buffer_layouts_match = audio.layouts_match_descriptors();
+        g_lv2_probe.process_buffer_storage_valid = audio.active_buses_have_storage();
+
+        Processor::process(audio, midi_in, midi_out, context);
     }
 };
 
@@ -382,6 +420,7 @@ TEST_CASE("LV2 generic entry wires ports, audio, control values, and MIDI",
     REQUIRE(inst->num_params == 1);
     REQUIRE(inst->param_ids.size() == 1);
     REQUIRE(inst->param_ids[0] == kLv2ProbeGainParam);
+    REQUIRE(g_lv2_probe.state_store_wired_during_define);
     REQUIRE(inst->accepts_midi);
     REQUIRE(inst->produces_midi);
     REQUIRE(inst->urid_midi_event != 0);
@@ -415,9 +454,22 @@ TEST_CASE("LV2 generic entry wires ports, audio, control values, and MIDI",
 
     REQUIRE(inst->store.get_value(kLv2ProbeGainParam) == 0.5f);
     REQUIRE(g_lv2_probe.process_calls == 1);
+    REQUIRE(g_lv2_probe.process_buffer_calls == 1);
+    REQUIRE(g_lv2_probe.process_buffer_input_buses == 1);
+    REQUIRE(g_lv2_probe.process_buffer_output_buses == 1);
+    REQUIRE(g_lv2_probe.process_buffer_active_inputs == 1);
+    REQUIRE(g_lv2_probe.process_buffer_active_outputs == 1);
+    REQUIRE(g_lv2_probe.process_buffer_layouts_match);
+    REQUIRE(g_lv2_probe.process_buffer_storage_valid);
     // Phase 3 — the LV2 run path provides a uniform (non-null) param-events
     // queue to the Processor, matching VST3/CLAP/AUv3.
     REQUIRE(g_lv2_probe.param_events_non_null);
+    REQUIRE(g_lv2_probe.param_event_count == 0);
+    REQUIRE(g_lv2_probe.param_event_capacity ==
+            state::ParameterEventQueue::kCapacity);
+    REQUIRE_FALSE(g_lv2_probe.param_event_overflowed);
+    REQUIRE(g_lv2_probe.param_event_drops == 0);
+    REQUIRE(g_lv2_probe.gain_seen_in_process == 0.5f);
     REQUIRE(g_lv2_probe.last_num_samples == 4);
     REQUIRE(g_lv2_probe.last_sample_rate == 44100.0);
     REQUIRE(g_lv2_probe.last_midi_count == 1);

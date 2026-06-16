@@ -63,8 +63,44 @@ public:
     // child views; callers must branch on attach_native_child_view().
     virtual NativeViewHandle native_handle() = 0;
 
+    // Begin a native OUTBOUND file drag from this host's window (drag audio out
+    // to Finder/Explorer, a Canvas, another app). Default: unsupported → false.
+    //
+    // This is the host-owned drag path, distinct from the free function
+    // `begin_file_drag(native_view, request)` in drag_drop.hpp. macOS leaves
+    // this at the default and uses the free NSDraggingSession backend via
+    // native_handle(); Windows (OLE IDataObject/DoDragDrop) and Linux (XDND)
+    // override it because their drag needs host-owned native state — the HWND,
+    // or the Display* connection plus the interned Xdnd atoms — that the free
+    // function does not receive. `View::start_file_drag()` tries this first and
+    // only falls back to the free backend when it returns false. Call
+    // synchronously from within the pointer interaction that initiates the drag.
+    virtual bool start_file_drag(const FileDragRequest& request) {
+        (void)request;
+        return false;
+    }
+
     // Attach this view to a parent native view (the DAW's editor window)
     virtual void attach_to_parent(NativeViewHandle parent) = 0;
+
+    // Attempt to attach to `parent` and report whether this host ended up
+    // attached. The default composes the existing `attach_to_parent()` command
+    // with the `is_attached()` query, so every host gets a success signal for
+    // free; a host can override to report a more precise outcome. Foreign-host
+    // embedders (the flat-C embedding SDK) use this to decide whether to fire
+    // `ViewBridge::notify_attached()` — they must NOT fire it when attach failed,
+    // or the editor open/close lifecycle goes unbalanced. Call on the UI thread.
+    [[nodiscard]] virtual bool try_attach_to_parent(NativeViewHandle parent) {
+        attach_to_parent(parent);
+        return is_attached();
+    }
+
+    // True when this host's native view is currently parented (i.e. attach
+    // succeeded and detach has not run). Default is conservative: a host that
+    // has not opted into attachment observability reports false, so callers
+    // never treat an unknown host as attached. Apple hosts override this to
+    // reflect the real native view-hierarchy state. Query on the UI thread.
+    virtual bool is_attached() const noexcept { return false; }
 
     // Detach from parent
     virtual void detach() = 0;
@@ -161,6 +197,16 @@ public:
         (void) child_view;
     }
 
+    // Pump any pending native drag-and-drop (and related) events on a host
+    // that owns its own platform connection. The Linux X11 host overrides this
+    // to drain its X connection and run the XDND target protocol (XdndEnter /
+    // Position / Drop), routing drops into the view tree via the shared
+    // dispatch core. Hosts driven by a host-owned event loop (Apple, the SDL
+    // standalone) do not need it. Default no-op. Call on the UI thread; a
+    // driver (standalone host idle, or a DAW editor idle hook) invokes it
+    // periodically so drags onto the embedded editor are serviced.
+    virtual void pump_x_events() {}
+
     // ── Design viewport (mirrors WindowHost::set_design_viewport) ────────
     //
     // Constrain editor resize to a fixed aspect ratio. Plugin hosts do not
@@ -204,7 +250,54 @@ public:
     // native event handlers AND unit tests can exercise the same
     // inverse-transform path without needing AppKit / UIKit event
     // delivery.
+    //
+    // The input is in host *logical* coordinates (DPI-independent points),
+    // matching the view tree's coordinate space. Platforms whose OS delivers
+    // input in physical pixels (Windows/Linux) divide by scale_factor() before
+    // calling this, so the design-viewport math stays purely logical and
+    // composes with HiDPI scale without double-counting it.
     virtual Point window_to_root_point(Point pt) const { return pt; }
+
+    // ── HiDPI scale (W8 Windows / L9 Linux) ─────────────────────────────
+    //
+    // The DPI scale that maps host *logical* coordinates to physical pixels:
+    // the editor's view tree is laid out in logical units (a 100pt knob), the
+    // GPU/Skia surface is sized at logical × scale physical pixels, and the
+    // SkiaSurface applies this factor as a canvas transform at paint so the UI
+    // renders crisply on HiDPI displays instead of at 1× (small/blurry).
+    //
+    // Platform hosts auto-detect the scale from the OS (Windows:
+    // GetDpiForWindow; Linux: Xft.dpi / RANDR) and react to live DPI changes
+    // (WM_DPICHANGED). set_scale_factor() lets a DAW/host override the detected
+    // value (e.g. a per-editor zoom, or when the host owns DPI policy) and
+    // makes the scale plumbing testable without a real display. Passing a
+    // non-positive value is ignored. Default impl is a no-op getter returning
+    // 1.0 (CPU/stub hosts that do not scale).
+    virtual void set_scale_factor(float scale) { (void)scale; }
+    virtual float scale_factor() const { return 1.0f; }
 };
+
+// Install the built-in platform PluginViewHost factory (and matching headless
+// screenshot provider) on non-Apple platforms (#3329 Win/Linux parity).
+//
+// Idempotent and thread-safe: the first call registers the platform factory via
+// PluginViewHost::set_factory(); subsequent calls are no-ops. A host that wants
+// a custom factory can call PluginViewHost::set_factory() AFTER this and win.
+//
+// Platform behavior:
+//   - Windows (Skia build): registers the native HWND host
+//     (plugin_view_host_win.cpp).
+//   - Linux (Skia + X11 build): registers the native X11 host
+//     (plugin_view_host_linux.cpp).
+//   - Apple: no-op (built-in NSView/UIView hosts; no factory needed).
+//   - Builds without a platform host: no-op (create() still returns nullptr,
+//     but the headless render_to_png/rgba path remains available via Skia).
+//
+// PluginViewHost::create() calls this automatically on non-Apple platforms
+// before consulting the factory, so the foreign-host embed and the VST3/CLAP
+// adapters get a working host without the caller doing anything. Exposed
+// publicly so a host can force-register early (e.g. before its own
+// set_factory()) or in a test.
+void register_platform_plugin_view_host();
 
 } // namespace pulp::view

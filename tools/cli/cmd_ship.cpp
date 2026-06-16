@@ -10,6 +10,7 @@
 #include <iostream>
 #include <memory>
 #include <sstream>
+#include <string_view>
 
 #include <pulp/ship/android.hpp>
 #include <pulp/ship/appcast.hpp>
@@ -231,6 +232,9 @@ int cmd_ship(const std::vector<std::string>& args) {
 
         std::string version, target, keystore_path, key_alias, store_pass, key_pass, abi_arg;
         std::string installer_identity;  // Developer ID Installer (macOS .pkg signing)
+        std::string format;        // Linux: "appimage" selects the AppImage packager
+        std::string binary_path;   // Linux AppImage: path to the standalone executable
+        std::string icon_path;     // Linux AppImage: optional .png icon
         bool per_user = false, apk_only = false, aab_only = false;
         // Item 7.5: per-artifact packaging on macOS. When the user
         // passes neither flag we use the historical default — `.pkg`
@@ -260,6 +264,12 @@ int cmd_ship(const std::vector<std::string>& args) {
                 if (!take_ship_value(args, i, sub, args[i], abi_arg)) return 2;
             } else if (args[i] == "--installer-identity") {
                 if (!take_ship_value(args, i, sub, args[i], installer_identity)) return 2;
+            } else if (args[i] == "--format") {
+                if (!take_ship_value(args, i, sub, args[i], format)) return 2;
+            } else if (args[i] == "--binary") {
+                if (!take_ship_value(args, i, sub, args[i], binary_path)) return 2;
+            } else if (args[i] == "--icon") {
+                if (!take_ship_value(args, i, sub, args[i], icon_path)) return 2;
             }
             else if (args[i] == "--apk-only") apk_only = true;
             else if (args[i] == "--aab-only") aab_only = true;
@@ -391,6 +401,82 @@ int cmd_ship(const std::vector<std::string>& args) {
         // wraps even plugin bundles in a disk image when that's
         // explicitly requested, useful for the "drag to Plug-Ins"
         // distribution pattern).
+#if defined(__linux__)
+        // Linux: produce a real `.deb` from the plugin bundles via the
+        // first-party helper in ship/platform/linux/package_linux.cpp. The
+        // macOS pkgbuild/dmg path below is Apple-only (`pkgbuild`/`hdiutil`
+        // don't exist on Linux), so falling through to it previously yielded
+        // nothing usable. `.tar.gz` is the fallback when `dpkg-deb` is absent.
+        {
+            // AppImage path (`--format appimage`): wraps a standalone
+            // executable, not the plugin bundles. The caller points at the
+            // built binary with `--binary` (the plugin-centric build_dir has no
+            // standardized standalone location to auto-discover).
+            if (format == "appimage") {
+                if (binary_path.empty() || !fs::exists(binary_path)) {
+                    std::cerr << "Error: --format appimage needs --binary <path-to-standalone-executable>"
+                              << (binary_path.empty() ? "" : " (not found: " + binary_path + ")") << "\n";
+                    return 1;
+                }
+                std::string app_name = fs::path(binary_path).filename().string();
+                auto out = artifacts / (app_name + "-" + version + "-" +
+                                        pulp::ship::debian_architecture() + ".AppImage");
+                std::cout << "Packaging " << app_name << " (Linux → AppImage)...\n";
+                if (pulp::ship::create_appimage(app_name, version, binary_path,
+                                                out.string(), icon_path)) {
+                    std::cout << "  Created " << out.string() << "\n";
+                    return 0;
+                }
+                std::cerr << "  AppImage creation failed (is appimagetool installed?)\n";
+                return 1;
+            }
+
+            std::string product_name;
+            bool found_linux_plugin = false;
+            for (auto dir_name : {"VST3", "CLAP", "LV2"}) {
+                auto dir = build_dir / dir_name;
+                if (!fs::exists(dir)) continue;
+                for (auto& entry : fs::directory_iterator(dir)) {
+                    const auto ext = entry.path().extension().string();
+                    const bool is_plugin =
+                        (std::string_view(dir_name) == "VST3" && ext == ".vst3") ||
+                        (std::string_view(dir_name) == "CLAP" && ext == ".clap") ||
+                        (std::string_view(dir_name) == "LV2" && ext == ".lv2");
+                    if (!is_plugin) continue;
+                    found_linux_plugin = true;
+                    product_name = entry.path().stem().string();
+                    break;
+                }
+                if (!product_name.empty()) break;
+            }
+            if (!found_linux_plugin) {
+                std::cerr << "Error: no VST3/CLAP/LV2 plugins found in "
+                          << build_dir.string() << "\n";
+                return 1;
+            }
+
+            auto deb_path = artifacts / (product_name + "-" + version + ".deb");
+            std::cout << "Packaging " << product_name << " (Linux → .deb)...\n";
+            if (pulp::ship::create_deb(product_name, version, build_dir.string(),
+                                       deb_path.string(), "Pulp")) {
+                std::cout << "  Created " << deb_path.string() << "\n";
+                return 0;
+            }
+
+            std::cerr << "  .deb creation failed (is dpkg-deb installed?) — "
+                         "writing .tar.gz fallback\n";
+            auto tar_path = artifacts / (product_name + "-" + version + ".tar.gz");
+            if (pulp::ship::create_tar_gz(product_name, build_dir.string(),
+                                          tar_path.string())) {
+                std::cout << "  Created " << tar_path.string() << "\n";
+                return 0;
+            }
+            std::cerr << "  FAILED to create Linux package\n";
+            return 1;
+        }
+#endif  // __linux__
+
+#if defined(__APPLE__)
         int pkg_count = 0, dmg_count = 0;
 
         // Resolve the Developer ID Installer identity for flat-package
@@ -478,7 +564,12 @@ int cmd_ship(const std::vector<std::string>& args) {
         std::cout << "Created " << pkg_count << " .pkg and " << dmg_count
                   << " .dmg artifacts in " << artifacts.string() << "\n";
         return 0;
-#endif
+#else
+        std::cerr << "Error: `pulp ship package` has no packager for this "
+                     "platform (supported: macOS, Windows, Linux)\n";
+        return 1;
+#endif  // __APPLE__
+#endif  // _WIN32 else
     }
 
     // ── check ───────────────────────────────────────────────────────────────
@@ -755,7 +846,10 @@ int cmd_ship(const std::vector<std::string>& args) {
                 : pulp::ship::notarize_submit(path, apple_id, team_id, password);
             if (!uuid) { std::cerr << "  Submission FAILED\n"; continue; }
             std::cout << "  Request UUID: " << *uuid << "\n";
-            auto status = pulp::ship::notarize_check(*uuid);
+            auto status = use_asc
+                ? pulp::ship::notarize_check_asc(*uuid, asc.key_path,
+                                                 asc.key_id, asc.issuer_id)
+                : pulp::ship::notarize_check(*uuid, apple_id, team_id, password);
             if (status.success) {
                 std::cout << "  Notarization succeeded. Stapling...\n";
                 if (pulp::ship::notarize_staple(path)) std::cout << "  Stapled " << name << "\n";

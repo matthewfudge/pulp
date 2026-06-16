@@ -135,6 +135,15 @@ commands:
             required: false
           - name: --per-user
             required: false
+          - name: --format
+            required: false
+            description: "Linux packaging format selector; `appimage` wraps a standalone executable into a single-file AppImage"
+          - name: --binary
+            required: false
+            description: "Linux AppImage: path to the standalone executable to wrap (required with --format appimage)"
+          - name: --icon
+            required: false
+            description: "Linux AppImage: optional .png icon (a placeholder is used when omitted)"
       - name: appcast
         summary: Generate Sparkle-compatible XML update feed
         args:
@@ -324,7 +333,7 @@ commands:
 
   - name: create
     status: usable
-    summary: Create a new plugin project from templates. Defaults to sdk mode for external projects, with explicit source-tree example mode for Pulp development and checkout-aware SDK reuse when run from a Pulp source tree.
+    summary: Create a new plugin project from built-in templates or an explicit local template kit. Defaults to sdk mode for external projects, with explicit source-tree example mode for Pulp development and checkout-aware SDK reuse when run from a Pulp source tree.
     args:
       - name: name
         kind: positional
@@ -336,6 +345,9 @@ commands:
       - name: --manufacturer
         kind: option
         description: "Manufacturer name (default: Pulp)"
+      - name: --template
+        kind: option
+        description: Built-in template name or explicit local template kit directory. Local kits are validated, must declare kind `template`, and do not implicitly install dependency packages.
       - name: --output
         kind: option
         description: Output directory override (otherwise uses PULP_PROJECTS_DIR, ~/.pulp/config.toml, repo sibling, or ./<name>)
@@ -382,6 +394,36 @@ commands:
       - name: --watch
         kind: flag
         description: Re-launch the binary on source-file changes. Composes with --headless / --screenshot.
+      - name: --audio-inspector
+        kind: flag
+        description: Open the live Audio Inspector window (realtime output-boundary probe). Forwarded as --audio-inspector and PULP_AUDIO_INSPECTOR=1 env var. Composes with --screenshot.
+      - name: --audio-probe-json
+        kind: option
+        description: Write the live probe metrics as JSON to <file> after rendering, then exit; implies --headless for UI but still launches the live standalone audio device. Forwarded as --audio-probe-json <file> and PULP_AUDIO_PROBE_JSON=<file> env var.
+      - name: --audio-scope-json
+        kind: option
+        description: Write versioned live Audio Scope JSON to <file> after rendering, then exit; implies --headless for UI but still launches the live standalone audio device. Cannot be combined with --audio-inspector because both consume the capture FIFO.
+      - name: --audio-scope-window
+        kind: option
+        description: Acquisition window in samples for --audio-scope-json.
+      - name: --audio-scope-trigger
+        kind: option
+        description: Scope trigger mode for --audio-scope-json (none/raw/off/rising-zero).
+      - name: --audio-scope-channel
+        kind: option
+        description: Source channel index for --audio-scope-json.
+      - name: PULP_RUN_AUDIO_NOTICE
+        kind: environment
+        description: Set to 0/false/off/no to suppress the pre-launch notice that pulp run may activate system audio output.
+      - name: PULP_AUDIO_INSPECTOR_TRIGGER
+        kind: environment
+        description: Display-only live Inspector waveform alignment. Set to rising-zero to start the visible trace at the first rising zero crossing when present; raw copied-buffer display is the default.
+      - name: PULP_AUDIO_INSPECTOR_GRID
+        kind: environment
+        description: Display-only live Inspector waveform grid toggle. Set to 0/false/off/no to hide the subtle grid.
+      - name: PULP_AUDIO_INSPECTOR_SCALE
+        kind: environment
+        description: Display-only live Inspector waveform horizontal zoom over copied real samples. 1.0 shows the full captured buffer.
     docs: reference/cli.md#run
 
   - name: upgrade
@@ -421,12 +463,12 @@ commands:
 
   - name: config
     status: usable
-    summary: Read or write ~/.pulp/config.toml settings. Supports `[pr] workflow`, `[update]` settings, and `[import_design]` defaults for import-design mode/emit. `set update.mode` clears ~/.pulp/update-snooze so the new mode takes effect on the next invocation.
+    summary: Read or write ~/.pulp/config.toml settings. Supports `[pr] workflow`, `[update]` settings, `[import_design]` defaults for import-design mode/emit, and `[claude] send_user_file` (plugin SendUserFile preference). `set update.mode` clears ~/.pulp/update-snooze so the new mode takes effect on the next invocation.
     subcommands:
       - name: get
-        summary: Print the value for a dotted key (e.g. `pr.workflow` or `update.mode`). Empty output if unset.
+        summary: Print the value for a dotted key (e.g. `pr.workflow`, `update.mode`, or `claude.send_user_file`). Empty output if unset.
       - name: set
-        summary: Write a value for a dotted key. Validates PR workflow, update enums, import-design defaults, and integer shapes. Mode changes clear the 24h snooze file.
+        summary: Write a value for a dotted key. Validates PR workflow, update enums, import-design defaults, claude.send_user_file (on|off), and integer shapes. Mode changes clear the 24h snooze file.
       - name: list
         summary: Dump current supported settings with defaults filled in.
     docs: reference/cli.md#config
@@ -471,6 +513,21 @@ commands:
     status: usable
     summary: Remove the build directory.
     docs: reference/cli.md#clean
+
+  - name: fmt
+    status: usable
+    summary: Run clang-format on Pulp source files, either rewriting in place or checking in CI-friendly dry-run mode.
+    args:
+      - name: paths
+        kind: passthrough
+        description: Optional files or directories to format; defaults to core/, examples/, inspect/, test/, tools/, and ship/.
+      - name: --dry-run
+        kind: flag
+        description: Report formatting diffs without rewriting files.
+      - name: --check
+        kind: flag
+        description: CI-friendly alias for --dry-run.
+    docs: reference/cli.md#fmt
 
   - name: config
     status: usable
@@ -782,6 +839,54 @@ commands:
         kind: flag
         description: Do everything except install/load the launchd agent
 
+  - name: macos
+    status: experimental
+    summary: Retarget just the macOS leg of a PR to a local, Namespace, or GitHub-hosted runner pool.
+    subcommands:
+      - name: retarget
+        summary: Cancel in-flight macOS-bearing workflow runs for a PR and dispatch build-macos.yml on the selected runner.
+        args:
+          - name: --pr
+            kind: option
+            required: true
+            description: Pull request number to retarget.
+          - name: --to
+            kind: option
+            required: true
+            description: Runner pool selector, one of local, namespace, or github-hosted.
+      - name: status
+        summary: Show the latest macos check routing/status for a PR.
+        args:
+          - name: --pr
+            kind: option
+            required: false
+            description: Pull request number; when omitted, the CLI attempts to infer the open PR for the current branch.
+    docs: reference/cli.md#macos
+
+  - name: overflow
+    status: experimental
+    summary: Configure macOS-runner overflow routing repo variables used by build.yml.
+    subcommands:
+      - name: status
+        summary: Show current local target, overflow target, threshold, and self-hosted runner state.
+      - name: enable
+        summary: Set the overflow target selector.
+        args:
+          - name: --to
+            kind: option
+            required: false
+            description: JSON runner selector; defaults to "macos-15".
+      - name: disable
+        summary: Delete the overflow target variable so future macOS jobs use the local target.
+      - name: threshold
+        summary: Get or set the busy-run threshold that trips overflow.
+        args:
+          - name: N
+            kind: positional
+            required: false
+            description: Non-negative busy-run threshold; omit to print the current/default value.
+    docs: reference/cli.md#overflow
+
   - name: ci-local
     status: experimental
     summary: Local CI runner and desktop automation control plane for Mac, Ubuntu, and Windows validation.
@@ -886,12 +991,12 @@ commands:
 
   - name: add
     status: usable
-    summary: Add a third-party package from the registry. License check, platform check, CMake wiring, metadata updates.
+    summary: "Add a third-party package from the registry. License check, platform check, CMake wiring, metadata updates. When the id names a framework importer (category: importer) in the tool-registry, routes to `pulp tool install <importer>` instead (checksummed, SDK/SPI-window-checked add-on install)."
     args:
       - name: package
         kind: positional
         required: true
-        description: Package slug from tools/packages/registry.json
+        description: Package slug from tools/packages/registry.json, or an importer id from tools/packages/tool-registry.json
       - name: --license-override
         kind: option
         description: "Accept a rejected license (value: commercial)"
@@ -901,7 +1006,298 @@ commands:
       - name: --no-cmake
         kind: flag
         description: Skip CMake wiring (metadata only)
+      - name: --from
+        kind: option
+        description: "Importer alias only: install from a local path or file:// URL instead of the registry artifact"
     docs: reference/cli.md#add
+
+  - name: kit
+    status: experimental
+    summary: Search, inspect, plan, approve, apply, remove, pack, and scaffold local Pulp package manifests. Kits are the trust-reviewed lane for local or external Pulp-native artifacts; curated dependency packages remain on `pulp add`.
+    subcommands:
+      - name: search
+        summary: Search local Pulp package manifests and verified local package archives without executing package code, classifying results into kit or content lanes.
+        args:
+          - name: query
+            kind: positional
+            description: Optional search query matched against id, name, kind, capabilities, and dependency package ids
+          - name: --root
+            kind: option
+            description: Directory, pulp.package.json file, .pulpkit archive, or .pulpcontent archive to search
+          - name: --kind
+            kind: option
+            description: Optional package kind filter, e.g. ui-kit or content-pack
+          - name: --lane
+            kind: option
+            description: Optional trust/workflow lane filter: kit or content
+          - name: --json
+            kind: flag
+            description: Emit machine-readable search results
+      - name: validate
+        summary: Validate a local kit/content directory, pulp.package.json file, .pulpkit archive, or .pulpcontent archive. Archives must include files.sha256.json, list every payload file, and match hashes.
+        args:
+          - name: path
+            kind: positional
+            required: true
+            description: Path to a kit/content directory, pulp.package.json, .pulpkit archive, or .pulpcontent archive
+          - name: --json
+            kind: flag
+            description: Emit machine-readable validation JSON
+          - name: --strict
+            kind: flag
+            description: Promote review-required warnings to errors
+      - name: inspect
+        summary: Print a manifest summary and validation issues without executing package code. Content-pack manifests are inspectable but cannot be planned/applied as kits.
+        args:
+          - name: path
+            kind: positional
+            required: true
+            description: Path to a kit/content directory, pulp.package.json, .pulpkit archive, or .pulpcontent archive
+          - name: --json
+            kind: flag
+            description: Emit machine-readable inspection JSON
+      - name: plan
+        summary: Produce a reviewable local composition plan without mutating the project. Rejects content-pack manifests; use pulp content for data-only packs.
+        args:
+          - name: path
+            kind: positional
+            required: true
+            description: Path to a kit directory, pulp.package.json, or .pulpkit archive
+          - name: --project
+            kind: option
+            description: Project directory to plan against
+          - name: --json
+            kind: flag
+            description: Emit machine-readable plan JSON
+      - name: verify
+        summary: Run declared validation-profile checks after plan review.
+        args:
+          - name: path
+            kind: positional
+            required: true
+            description: Path to a kit directory, pulp.package.json, or .pulpkit archive
+          - name: --project
+            kind: option
+            description: Project directory used as validation context
+          - name: --json
+            kind: flag
+            description: Emit machine-readable profile verification JSON
+          - name: --execute-screenshots
+            kind: flag
+            description: Explicitly run declared Pulp screenshot profiles through the project pulp-screenshot tool after plan review and report rendered artifacts
+          - name: --screenshot-backend
+            kind: option
+            description: Screenshot backend to pass to pulp-screenshot when --execute-screenshots is set
+          - name: --screenshot-output-dir
+            kind: option
+            description: Output directory for rendered screenshots and render logs when --execute-screenshots is set
+      - name: apply
+        summary: Apply a reviewed local kit plan with explicit approval. Rejects content-pack manifests; use pulp content install/update for data-only packs.
+        args:
+          - name: path
+            kind: positional
+            required: true
+            description: Path to a kit directory, pulp.package.json, or .pulpkit archive
+          - name: --project
+            kind: option
+            description: Project directory to apply into
+          - name: --yes
+            kind: flag
+            required: true
+            description: Required confirmation after reviewing pulp kit plan
+      - name: remove
+        summary: Remove an installed kit using lock-recorded owned paths only.
+        args:
+          - name: kit-id
+            kind: positional
+            required: true
+            description: Installed kit id from .pulp/kits.lock.json
+          - name: --project
+            kind: option
+            description: Project directory to remove from
+          - name: --yes
+            kind: flag
+            required: true
+            description: Required confirmation after reviewing installed kit ownership
+      - name: pack
+        summary: Create a .pulpkit or .pulpcontent archive with files.sha256.json.
+        args:
+          - name: path
+            kind: positional
+            required: true
+            description: Path to a kit directory or pulp.package.json
+          - name: --output
+            kind: option
+            description: Archive output path
+          - name: --json
+            kind: flag
+            description: Emit machine-readable pack result JSON
+      - name: publish
+        summary: Run the metadata-only kit publish gate, including local quality badges, NOTICE-compatible license files, compatibility summary, and optional signed registry-manifest verification. Rejects content-pack manifests; dry-run only until remote publishing is enabled.
+        args:
+          - name: path
+            kind: positional
+            required: true
+            description: Path to a kit directory, pulp.package.json, or .pulpkit archive
+          - name: --dry-run
+            kind: flag
+            required: true
+            description: Required because remote publishing is not enabled yet
+          - name: --json
+            kind: flag
+            description: Emit machine-readable publish-check JSON
+          - name: --registry-manifest
+            kind: option
+            description: Optional local pulp-registry-manifest-v1 JSON to verify signed canonical metadata
+      - name: init
+        summary: Scaffold a developer-oriented fixture manifest.
+        args:
+          - name: --kind
+            kind: option
+            required: true
+            description: Manifest kind: source, ui-kit, or template
+          - name: --id
+            kind: option
+            required: true
+            description: Package id
+          - name: --name
+            kind: option
+            description: Human-readable package name
+          - name: --dir
+            kind: option
+            description: Directory to write pulp.package.json into
+          - name: --force
+            kind: flag
+            description: Overwrite an existing manifest
+    docs: reference/cli.md#kit
+
+  - name: content
+    status: experimental
+    summary: Validate, preview, install, update, list, rescan, remove, and reveal data-only content packs for installed plugins. Content packs are the end-user data lane and never execute package code.
+    subcommands:
+      - name: validate
+        summary: Validate a .pulpcontent archive or content-pack directory without executing package code. Archives must include files.sha256.json, every payload file must be listed there, and hashes must match.
+        args:
+          - name: path
+            kind: positional
+            required: true
+            description: Path to a .pulpcontent archive or content-pack directory
+          - name: --json
+            kind: flag
+            description: Emit machine-readable validation JSON
+      - name: preview
+        summary: Preview content-pack compatibility and reload policy against a trusted plugin runtime manifest without installing anything. Archives must include files.sha256.json.
+        args:
+          - name: path
+            kind: positional
+            required: true
+            description: Path to a .pulpcontent archive or content-pack directory
+          - name: --plugin-runtime
+            kind: option
+            required: true
+            description: Path to the trusted pulp.plugin-runtime.json emitted by the target plugin
+          - name: --plugin
+            kind: option
+            description: Optional expected target plugin id
+          - name: --json
+            kind: flag
+            description: Emit machine-readable preview JSON including install policy and restart guidance
+      - name: install
+        summary: Install a validated data-only content pack for a plugin. Archives must include files.sha256.json.
+        args:
+          - name: path
+            kind: positional
+            required: true
+            description: Path to a .pulpcontent archive or content-pack directory
+          - name: --plugin
+            kind: option
+            required: true
+            description: Target plugin id
+          - name: --yes
+            kind: flag
+            required: true
+            description: Required confirmation after reviewing the install target
+          - name: --root
+            kind: option
+            description: Override the user data root for tests or sandboxed installs
+      - name: update
+        summary: Update a validated local content pack for a plugin with rollback if replacing an installed version fails. Archives must include files.sha256.json.
+        args:
+          - name: path
+            kind: positional
+            required: true
+            description: Path to a .pulpcontent archive or content-pack directory
+          - name: --plugin
+            kind: option
+            required: true
+            description: Target plugin id
+          - name: --yes
+            kind: flag
+            required: true
+            description: Required confirmation after reviewing the update target
+          - name: --root
+            kind: option
+            description: Override the user data root for tests or sandboxed installs
+      - name: list
+        summary: List installed content packs.
+        args:
+          - name: --plugin
+            kind: option
+            description: Optional plugin id filter
+          - name: --json
+            kind: flag
+            description: Emit machine-readable list JSON
+          - name: --root
+            kind: option
+            description: Override the user data root for tests or sandboxed installs
+      - name: rescan
+        summary: Rebuild the installed content index from local content-pack manifests without executing package code.
+        args:
+          - name: --json
+            kind: flag
+            description: Emit machine-readable rescan JSON
+          - name: --root
+            kind: option
+            description: Override the user data root for tests or sandboxed installs
+      - name: remove
+        summary: Remove an installed content-pack root.
+        args:
+          - name: package-id
+            kind: positional
+            required: true
+            description: Installed content package id
+          - name: --plugin
+            kind: option
+            required: true
+            description: Target plugin id
+          - name: --version
+            kind: option
+            description: Optional package version
+          - name: --yes
+            kind: flag
+            required: true
+            description: Required confirmation after reviewing installed content
+          - name: --root
+            kind: option
+            description: Override the user data root for tests or sandboxed installs
+      - name: reveal
+        summary: Print the installed content path.
+        args:
+          - name: package-id
+            kind: positional
+            required: true
+            description: Installed content package id
+          - name: --plugin
+            kind: option
+            required: true
+            description: Target plugin id
+          - name: --version
+            kind: option
+            description: Optional package version
+          - name: --root
+            kind: option
+            description: Override the user data root for tests or sandboxed installs
+    docs: reference/cli.md#content
 
   - name: remove
     status: usable
@@ -978,7 +1374,7 @@ commands:
 
   - name: audio
     status: experimental
-    summary: Repo-level audio analysis tooling. Manage offline audio models (text-to-audio retrieval) and read reproducible excerpt bundles.
+    summary: Repo-level audio analysis tooling. Manage offline audio models (text-to-audio retrieval), read reproducible excerpt bundles, and run live/offline Audio Scope analysis.
     subcommands:
       - name: model list
         summary: List registered audio models with backend and tags
@@ -1013,6 +1409,58 @@ commands:
             kind: flag
       - name: read-bundle
         summary: Pretty-print a previously emitted excerpt bundle
+      - name: scope
+        summary: Capture Audio Scope JSON from a live standalone target or speakerless offline WAV input; offline mode can also emit a PNG trace artifact.
+        args:
+          - name: target
+            kind: positional
+            required: false
+          - name: --input-wav
+            kind: option
+            required: false
+          - name: --json
+            kind: option
+            required: false
+          - name: --png
+            kind: option
+            required: false
+          - name: --frames
+            kind: option
+            required: false
+          - name: --window
+            kind: option
+            required: false
+          - name: --trigger
+            kind: option
+            required: false
+          - name: --channel
+            kind: option
+            required: false
+      - name: validate summarize
+        summary: Decode a WAV and print an agent-readable signal summary (peak/RMS/DC/pitch); --json emits machine output
+        args:
+          - name: --json
+            kind: flag
+      - name: validate doctor
+        summary: Offline Audio Doctor over a WAV — THD/THD+N (--thd) and/or spectrum magnitude at checkpoints (--response f1,f2,...); writes a JSON curve artifact
+        args:
+          - name: --thd
+            kind: flag
+          - name: --response
+            kind: option
+          - name: --fundamental
+            kind: option
+          - name: --channel
+            kind: option
+      - name: validate compare
+        summary: Sample-residual (null) verdict between two WAVs; exits nonzero past tolerance. --mode spectral currently reuses the null residual with a looser default tolerance (true spectral distance is a later slice)
+        args:
+          - name: --mode
+            kind: option
+          - name: --tolerance
+            kind: option
+      - name: validate assert
+        summary: Re-check a stored assertions.json (or an audio-run dir containing one); exits nonzero on any failing assertion
     docs: reference/cli.md#audio
 
   - name: sdk
@@ -1134,6 +1582,69 @@ commands:
         description: Unique id / URI to select a specific descriptor in the bundle (LV2 and multi-plugin CLAP)
     docs: reference/cli.md#host
 
+  - name: import
+    status: experimental
+    summary: Read an existing audio-plugin project read-only and emit a Pulp migration scaffold. Framework importers are vendor-specific add-on tools; the SDK owns the discovery index, the JSON-over-stdio SPI, and emission. Vendor-agnostic — framework identity is runtime DATA from tools/import/known-frameworks.json.
+    subcommands:
+      - name: detect
+        summary: Rank known-framework candidates for a project directory (works with no importer installed); prints the install hint for the top match
+        args:
+          - name: dir
+            kind: positional
+            required: true
+            description: Project directory to scan
+      - name: inspect
+        summary: Resolve the importer (tool registry or --importer-cmd) and run its SPI analyze verb to produce a ProjectIR; prints an install hint and exits non-zero when no importer is resolvable
+        args:
+          - name: --from
+            kind: option
+            required: true
+            description: Framework id (see pulp import detect)
+          - name: dir
+            kind: positional
+            required: true
+            description: Project directory
+          - name: --framework-path
+            kind: option
+            description: The user's own framework checkout (read-only; never vendored)
+          - name: --extra-include
+            kind: option
+            description: Extra include directory for the importer (repeatable)
+          - name: -o
+            kind: option
+            description: Write the ProjectIR JSON to a file (alias --output-ir)
+          - name: --report
+            kind: option
+            description: Write a human-readable Markdown report
+          - name: --importer-cmd
+            kind: option
+            description: Override importer resolution with an explicit command string
+          - name: --accept-importer-terms
+            kind: flag
+            description: Accept the importer's terms of use non-interactively (CI); acceptance is recorded under ~/.pulp
+      - name: emit
+        summary: Resolve the importer, run its SPI analyze then emit verbs to get an EmissionManifest, then the SDK writes a buildable migration scaffold under --output. Every generated file passes a clean-room output denylist scan (framework source is rejected; copied-user-file DSP is exempt); a .pulp-import-provenance.json marker and migration_status.json are written by the SDK.
+        args:
+          - name: --from
+            kind: option
+            required: true
+            description: Framework id
+          - name: dir
+            kind: positional
+            required: true
+            description: Project directory
+          - name: --output
+            kind: option
+            required: true
+            description: Scaffold output directory
+          - name: --importer-cmd
+            kind: option
+            description: Override importer resolution with an explicit command string
+          - name: --accept-importer-terms
+            kind: flag
+            description: Accept the importer's terms of use non-interactively (CI); acceptance is recorded under ~/.pulp
+    docs: reference/cli.md#import
+
   - name: tool
     status: usable
     summary: Manage third-party developer tools (validators, formatters, importers) installed under ~/.pulp/tools/. Driven by tools/packages/tool-registry.json.
@@ -1141,7 +1652,7 @@ commands:
       - name: list
         summary: Show every registered tool and its install state
       - name: install
-        summary: Download and install a tool; --all installs every tool available on this platform; --force reinstalls even if present
+        summary: "Download and install a tool; --all installs every tool available on this platform; --force reinstalls even if present. For a framework importer (category: importer), installs a checksummed per-platform package after validating the SDK/SPI version window, then drops its SKILL.md into ~/.agents/skills/ and records the install under ~/.pulp/importers/. --from <path|file://...> installs from a local package."
         args:
           - name: --force
             kind: flag
@@ -1149,8 +1660,12 @@ commands:
           - name: --all
             kind: flag
             required: false
+          - name: --from
+            kind: option
+            required: false
+            description: Install an importer add-on from a local path or file:// URL instead of the registry URL (offline / pinned artifact)
       - name: uninstall
-        summary: Remove a pulp-managed tool install
+        summary: Remove a pulp-managed tool install; for an importer, also removes its installed skill and install record
       - name: path
         summary: Print the absolute path to the installed tool's binary
       - name: run
@@ -1173,24 +1688,6 @@ commands:
         kind: flag
         description: Verify package license compatibility
     docs: reference/cli.md#audit-package-extensions
-
-  - name: identity
-    status: experimental
-    summary: Manage `.pulp/identity.lock` — the committed pin of each plugin's AU 4CC, manufacturer code, AAX product code, optional VST3 FUID, and optional CLAP plugin id. Implements Track 3.12 of the macOS plugin-authoring plan.
-    args:
-      - name: record
-        kind: subcommand
-        description: Refresh `.pulp/identity.lock` from the project's current `pulp_add_plugin(...)` declarations. Refuses to overwrite drifted entries without `--allow-identity-change`.
-      - name: check
-        kind: subcommand
-        description: Compare `.pulp/identity.lock` against the project's current state. Exit 1 on drift, 0 with `--allow-identity-change`.
-      - name: --allow-identity-change
-        kind: flag
-        description: Treat identity drift as success (still prints the diff). Pairs with `record` and `check`.
-      - name: --dry-run
-        kind: flag
-        description: With `record`, print the would-be lock without touching disk.
-    docs: reference/identity-lock.md
 
   - name: help
     status: usable

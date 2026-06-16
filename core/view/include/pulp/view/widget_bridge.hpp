@@ -18,6 +18,7 @@
 
 namespace pulp::view { struct ClaudeBundle; }
 #include <chrono>
+#include <filesystem>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -82,6 +83,22 @@ public:
 
     // Load and execute a UI script
     void load_script(const std::string& code);
+
+    /// Set reviewed local roots used by JS asset loading for relative URLs.
+    /// These are scoped to this bridge instance and are intended for
+    /// post-review UI-kit assets copied under `pulp-kits/<kit-id>/`.
+    void set_asset_roots(std::vector<std::filesystem::path> roots) {
+        asset_roots_.clear();
+        asset_roots_.reserve(roots.size());
+        for (auto& root : roots) {
+            if (root.empty()) continue;
+            std::error_code ec;
+            auto abs = std::filesystem::absolute(root, ec).lexically_normal();
+            if (ec) abs = root.lexically_normal();
+            asset_roots_.push_back(std::move(abs));
+        }
+    }
+    const std::vector<std::filesystem::path>& asset_roots() const noexcept { return asset_roots_; }
 
     /// Phase 9: load_script overload that retains a script identifier.
     /// `script_id` is recorded as `active_script_id_` and threaded into
@@ -218,6 +235,7 @@ private:
     state::StateStore& store_;
     render::GpuSurface* gpu_surface_ = nullptr;
     std::unique_ptr<NativeGpuBridgeState> native_gpu_bridge_state_;
+    std::vector<std::filesystem::path> asset_roots_;
 
     // Track widgets by ID for JS access
     std::unordered_map<std::string, View*> widgets_;
@@ -299,6 +317,19 @@ private:
     // Install on_change/on_toggle callbacks that dispatch to JS
     void wire_callbacks(const std::string& id, View* w);
 
+    // pulp 2026-06-08 (routing-parity sweep) — the single source-of-truth
+    // table that maps a lowercase widget tag (`knob`/`fader`/`toggle`/`combo`/
+    // `checkbox`/`spectrum`/`waveform`/`meter`/`xypad`/`listbox`/`icon`, plus
+    // the `select`/`progress`/`img` HTML aliases) to a freshly constructed,
+    // id-set, callback-wired native widget. Returns nullptr for non-widget
+    // tags (so callers fall through to their container default). Used by the
+    // `__domAppend` React-commit fast path; mirrors the `createX` factory
+    // functions and the JS `_ensureNative` / `@pulp/react` host-config maps so
+    // the four widget-routing surfaces can't drift again (asserted by the
+    // routing-parity sweep test).
+    std::unique_ptr<View> make_widget_for_tag(const std::string& tag,
+                                              const std::string& id);
+
     // Called by the JS `__requestFrame__` / async-result chain whenever
     // pending work needs the surface to repaint. Routes through
     // `repaint_callback_`, which is wired in the constructor to
@@ -307,6 +338,79 @@ private:
     void request_repaint();
 
     void register_api();
+    void register_accessibility_api();
+    void register_dom_api();
+    void register_hover_event_api();
+    void register_pointer_event_api();
+    void register_wheel_event_api();
+    void register_context_menu_event_api();
+    void register_drop_event_api();
+    void register_widget_style_background_color_api(std::function<canvas::Color(const std::string&)> parse_color);
+    void register_widget_style_shadow_api(std::function<canvas::Color(const std::string&)> parse_color);
+    void register_widget_style_opacity_api();
+    void register_widget_style_overflow_api();
+    void register_widget_style_background_gradient_api(std::function<canvas::Color(const std::string&)> parse_color);
+    void register_widget_style_box_shadow_api(std::function<canvas::Color(const std::string&)> parse_color);
+    void register_widget_style_cursor_direction_api();
+    void register_widget_style_filter_clip_api(std::function<canvas::Color(const std::string&)> parse_color);
+    void register_widget_style_blend_api();
+    void register_widget_style_rn_compat_api(std::function<canvas::Color(const std::string&)> parse_color);
+    void register_widget_style_state_api(std::function<canvas::Color(const std::string&)> parse_color);
+    void register_widget_style_background_repeat_api();
+    void register_widget_style_mask_object_api();
+    void register_widget_style_background_subproperty_api();
+    void register_widget_style_visibility_api();
+    void register_widget_style_interaction_api();
+    void register_layout_grid_api();
+    void register_layout_flex_api();
+    void register_layout_query_api();
+    void register_layout_box_model_api();
+    void register_layout_position_api();
+    void register_list_style_api();
+    void register_metadata_removal_api();
+    void register_metadata_source_api();
+    void register_metadata_computed_api();
+    void register_platform_services_ai_api();
+    void register_platform_services_exec_api();
+    void register_platform_services_dialog_api();
+    void register_platform_services_clipboard_api();
+    void register_state_binding_api();
+    void register_storage_key_value_api();
+    void register_asset_loading_api();
+    void register_font_assets_api();
+    void register_svg_api(std::function<canvas::Color(const std::string&)> parse_color);
+    void register_shader_widget_api();
+    void register_shader_canvas_api();
+    void register_theme_api();
+    void register_tokens_api(std::function<canvas::Color(const std::string&)> parse_color);
+    void register_widget_assets_api();
+    void register_widget_schema_api();
+    void register_widget_factory_controls_api();
+    void register_widget_value_controls_api();
+    void register_widget_factory_form_api();
+    void register_widget_factory_container_api();
+    void register_widget_factory_composite_api();
+    void register_widget_value_list_api();
+    void register_widget_factory_text_editor_api();
+    void register_widget_value_label_api();
+    void register_widget_value_basic_api();
+    void register_widget_typography_api();
+    void register_widget_typography_color_api(std::function<canvas::Color(const std::string&)> parse_color);
+    void register_widget_typography_decoration_api(std::function<canvas::Color(const std::string&)> parse_color);
+    void register_widget_typography_overflow_api();
+    void register_widget_typography_extended_api();
+    void register_widget_typography_shadow_shorthand_api();
+    void register_widget_value_content_api();
+    void register_widget_text_runs_api(std::function<canvas::Color(const std::string&)> parse_color);
+    void register_widget_border_box_api(std::function<canvas::Color(const std::string&)> parse_color);
+    void register_widget_outline_api(std::function<canvas::Color(const std::string&)> parse_color);
+    void register_widget_border_radius_api();
+    void register_widget_border_side_api(std::function<canvas::Color(const std::string&)> parse_color);
+    void register_runtime_api();
+    void register_animation_api();
+    void register_animation_style_api();
+    void register_canvas2d_api(std::function<canvas::Color(const std::string&)> parse_color);
+    void register_gpu_api();
 };
 
 } // namespace pulp::view

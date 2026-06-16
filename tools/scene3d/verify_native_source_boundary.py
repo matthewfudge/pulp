@@ -45,6 +45,7 @@ SCENE_SOURCE_ALLOWLIST = [
     "core/scene/src/gltf_loader.cpp",
     "core/scene/src/material_key.cpp",
     "core/scene/src/render_packet.cpp",
+    "core/scene/src/renderer3d_characterization.cpp",
     "core/scene/src/scene3d_bake_preflight.cpp",
     "core/scene/src/scene3d_inspect.cpp",
     "core/scene/src/scene3d_sidecar.cpp",

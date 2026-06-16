@@ -80,6 +80,18 @@ wrapping it in the outer `Editor/Settings` `TabPanel`. The same
 ownership rule still applies: close the bridge before the released
 root view is destroyed.
 
+`run_with_editor()` also opts the host into the platform's native
+file-dialog backend by calling `platform::FileDialog::install_native_backend()`
+once the processor's editor is confirmed. This is a no-op on macOS (a
+native impl is compiled in) and on platforms with no built-in backend
+(iOS/Windows/Android), but on Linux it installs the xdg-desktop-portal
+FileChooser bridge (`core/platform/.../file_dialog_portal_linux.cpp`,
+talking to the portal over the runtime-dlopen `pulp::platform::DBus`
+client) so editor file pickers work natively. We install here — not via a
+static initializer — because raising a portal dialog blocks, so the
+default "no backend → no selection" contract must hold for headless/test
+callers until a host explicitly opts in.
+
 Standalone now also keeps the bridge's size in sync with the real host
 content area. `run_with_editor()` reads `WindowHost::get_content_size()`
 immediately after `notify_attached()`, subtracts any standalone chrome
@@ -96,6 +108,18 @@ window. `StandaloneConfig::headless`, `PULP_HEADLESS`, `PULP_TEST_MODE`,
 `capture_png()`. If a CI/test run is headless but has no screenshot path,
 `run_with_editor()` fails before creating the host so tests cannot park a
 hidden live window forever.
+
+The `--audio-probe-json` / `PULP_AUDIO_PROBE_JSON` path (gated by
+`PULP_ENABLE_AUDIO_PROBES`) is a SECOND headless one-shot that reuses the same
+`screenshot_frame_delay` counter (`detail::DelayedAction`): after the
+delay it writes `output_probe().latest()` as JSON via the pure
+`audio::audio_probe_snapshot_to_json()` helper, then closes the host. When a
+screenshot is ALSO requested the JSON write rides the screenshot `capture_fn`
+(same frame, before the window closes); when only the JSON dump is requested it
+drives a dedicated `DelayedAction` so no fake PNG bytes or cleared screenshot
+path are involved. So a headless run without a screenshot path is valid as long
+as `audio_probe_json_path` is set — don't tighten the "headless requires
+screenshot" guard to also reject it.
 
 ## AU v3 controller lifecycle — runs on XPC queue, NOT main (Phase 3.5)
 
@@ -691,6 +715,58 @@ AUv3 avoids constructing `PluginViewHost`. Do not replace this with
 post-hoc window cleanup; the contract is that no native editor host is
 created in the first place.
 
+## Keyboard-focus host etiquette — never hold the host's first responder when idle
+
+A plugin editor embeds an `NSView` in the DAW's window. If that view returns
+`acceptsFirstResponder = YES` unconditionally (or the plugin sets a *focusable
+root* via `set_focusable(true)`), then **clicking any control makes the plugin
+view the host window's first responder, and every keystroke routes into the
+plugin** — stealing the host's keyboard. In Logic this silences **Musical
+Typing** on software-instrument tracks the instant you touch a plugin control,
+which masquerades perfectly as an audio failure ("adjusting the plugin kills the
+instrument until I reopen it" — reopening just refocuses a host view). No crash,
+no log; unaffected by any audio/parameter fix; happens only on instrument
+tracks (audio tracks don't need keystrokes) and only via the plugin's own GUI
+(the host's generic control view never moves focus out of the host). Cost ~2
+days to find — see the `au-xpc-shared-process-crash` debug note.
+
+Contract (`core/view/platform/mac/plugin_view_host_mac.mm`, both the CPU
+`PulpPluginView` and GPU `PulpGpuPluginView` classes — shared by AU/VST3/CLAP):
+
+- `acceptsFirstResponder` returns true **only while** `View::focused_input_`
+  is set (a widget is in active text input), not unconditionally.
+- After every `mouseDown:`/`mouseUp:`/`keyDown:`, call `syncKeyFocus`:
+  `makeFirstResponder:self` when a widget wants keys; the instant it doesn't,
+  **restore the host's PRIOR first responder** (saved at claim time), not
+  nil — handing nil leaves Logic's key routing dead (Musical Typing stays
+  silent after a type-in commit until the user resets the track). The saved
+  pointer is never dereferenced: it is re-found *by identity* in the window's
+  live view tree (`pulp_plugin_live_prior_responder`), so a freed responder
+  degrades to nil instead of a dangling send (the file builds without ARC).
+- **The host's grab wins**: `resignFirstResponder` must end the focused
+  widget's text input (`pulp_plugin_end_text_input`: clear the slot, then
+  `on_focus_changed(false)` so the widget commits/closes its type-in).
+  Otherwise a type-in left open when the user clicks a host control keeps
+  `acceptsFirstResponder` true and re-steals the keyboard on the next event.
+  Widgets with type-in UIs should override `on_focus_changed(false)` to
+  commit, exactly like a click-away inside the plugin.
+- **Scope every focus decision to THIS editor's root.** `View::focused_input_`
+  is a process-GLOBAL static, so with two plugin editors open in one host
+  (two instances of the same plug-in is the common case) it can point into a
+  *different* editor's tree. `acceptsFirstResponder`, `syncKeyFocus`, the
+  keyDown dispatch, and the resignFirstResponder text-input teardown must all
+  gate on `pulp_focus_under_root(self.rootView)` (focused view is `root` or a
+  descendant — walk `View::parent()`), never on the bare global. Otherwise
+  editor B accepts/steals the keyboard, or routes keys into editor A, while A
+  holds a focused field. All four contracts (claim/restore, host-grab ends
+  input, freed-prior-responder safety, per-editor scoping) are pinned by
+  `test_plugin_view_host_key_focus.mm` (real `NSWindow` + responder dance,
+  single- and two-editor, CPU host).
+- Editors must NOT set a focusable ROOT. Claim focus per-field:
+  `claim_input_focus()` in `enter_typein()`, `release_input_focus()` in
+  `commit_typein()`/`cancel_typein()`. This is the JUCE default
+  (`wantsKeyboardFocus = false`; grab only for an active text field).
+
 ## GPU view host auto-selection — never hardcode `use_gpu=false`
 
 The format adapters (AU v2 / VST3 / CLAP / iOS AUv3) must NOT hand-set
@@ -899,3 +975,106 @@ overlay (`View::contains_native_overlay()`), the standalone now routes through
 `capture_native_overlay_png()` (e.g. `WebViewPanel::snapshot_png()` → WKWebView
 takeSnapshot) so WebView editors are self-verifiable headlessly. A plain Skia UI
 falls through to the back-buffer capture unchanged. See the `screenshot` skill.
+
+## Standalone audio callback: size for the device's MAX block, NOT the nominal buffer
+
+`StandaloneApp::start()` reads `audio_device_->buffer_size()` into
+`config_.buffer_size` and it is tempting to size the processor + every scratch
+buffer to that. **Don't.** The device's nominal buffer is not the largest block
+the render callback can deliver: when the hardware sample rate differs from the
+app's configured rate, CoreAudio (and other backends) splice in a resampler
+(`AudioConverter…fillComplexBuffer` in the crash stack) that pulls the callback
+in *variable, larger-than-nominal* blocks — up to the host's
+`MaximumFramesPerSlice` (4096 by default on macOS). A user simply selecting an
+output device at a different rate is enough to trigger it.
+
+The 2026-06 symptom: a standalone SIGABRT on `com.apple.audio.IOThread.client`,
+~85 min in, in `RealtimePitchTimeProcessor::process` →
+`assert(num_samples <= config_.max_block)`. The processor had been
+`prepare()`d for the nominal buffer; an oversized resampler pull blew the
+assert (and, in NDEBUG, would have overflowed the pre-allocated scratch).
+
+The contract (`core/format/src/standalone.cpp`, `start()` + the audio lambda):
+
+- Compute `max_callback_block_ = std::max(config_.buffer_size, 4096)` once, and
+  use it for `PrepareContext::max_buffer_size`, `test_buffer_`,
+  `silence_buffer_`, and `output_probe_.prepare(...)` — every buffer the
+  callback can write, sized to the MAX, not the nominal.
+- Guard the callback head: if `ctx.buffer_size > max_callback_block_`, fill the
+  output with silence, `log_error` once, and `return` — never let an
+  over-max block reach `process()`. A backend that ignores
+  `MaximumFramesPerSlice` degrades to a one-time warning, not a crash on a real
+  user's machine.
+- The silence early-return must STILL advance the transport clock
+  (`transport_position_samples_.fetch_add(ctx.buffer_size, ...)` when
+  `transport_playing`) before returning. The normal path advances after
+  `process()`; an early `return` that skips it lags the transport position —
+  and the MIDI timeline derived from it — by exactly the dropped frames.
+- The member lives in `standalone.hpp` (`int max_callback_block_`). The audio
+  device's `CallbackContext::buffer_size` is the *actual* frames this block
+  (it can exceed the nominal), so the guard compares against it, not
+  `config_.buffer_size`.
+
+Rule of thumb for any RT host you write: prepare for the worst-case block the
+backend may hand you, then assert/guard against anything larger. Nominal buffer
+size is a hint, not a ceiling.
+
+## Standalone audio-callback probe tap (Phase 5 observability harness)
+
+`StandaloneApp`'s audio callback carries an optional realtime output-boundary
+probe, gated behind the `PULP_ENABLE_AUDIO_PROBES` CMake option. The default is
+ON for dev/example builds; release and SDK build paths pass
+`-DPULP_ENABLE_AUDIO_PROBES=OFF` so shipped standalone artifacts do not export
+the dev probe surface unless a developer opts in. When ON, `start()`
+`prepare()`s `output_probe_` (the only place it allocates) and the callback
+calls `output_probe_.analyze_output(...)` immediately after
+`processor_->process(...)` — the "standalone processor-output boundary." This
+is the first wired probe stage for "UI works, no sound" reports. Gotchas:
+
+- It is NOT the input meter bridge. `input_meter_bridge_` is input-oriented and
+  lacks the snapshot's stage/sequence/NaN/clip/silence fields. Don't conflate.
+- The tap is fully `#if PULP_ENABLE_AUDIO_PROBES`-guarded; an OFF build links no
+  `AudioProbe` symbols into `standalone.cpp.o` (verified by `nm`). If you touch
+  the callback, keep the probe strictly inside that guard so OFF builds pay $0.
+- The probe is RT-safe (scalar-only, no FFT/alloc/locks) — `pulp::audio::AudioProbe`.
+  Do NOT model audio-thread work on `pulp::view::VisualizationBridge`, which runs
+  STFT and returns `std::vector` in its callback (explicitly quarantined).
+
+### Phase 6 — Audio Inspector tool window wired into the host
+
+`run_with_editor()` opens a `pulp::view::AudioInspectorWindow` (a SEPARATE
+floating window, sibling of the layout inspector — not a tab) that observes
+`output_probe_`. It is created only when a real `WindowHost` exists, behind the
+same `#if PULP_ENABLE_AUDIO_PROBES` guard. Wiring gotchas:
+
+- **Key routing must not clobber the layout inspector.** The audio inspector's
+  toggle (Cmd/Ctrl+Shift+A) dispatches through a shell-owned `CommandRegistry`
+  via `route_global_keys(window_root, registry)`, which writes
+  `window_root.on_global_key`. The layout inspector (Cmd+I) uses
+  `on_global_click` (`install_inspector_hooks`). Distinct hooks → they coexist;
+  do not move either onto the other's hook.
+- **Compose the idle callback, don't replace it.** `poll()` must run each tick
+  to refresh meters; capture the existing `pre_screenshot_idle` and call it
+  first, then `audio_inspector_->poll()` — clobbering `set_idle_callback` drops
+  the scripted-ui / settings / overlay paint.
+- **Open + live waveform are env-gated.** `PULP_AUDIO_INSPECTOR` shows the
+  window AND makes `start()` size `output_probe_`'s capture ring (to
+  `AudioWaveformView::kCapacity`); without it the probe stays summary-only (no
+  waveform allocation). Headless `--screenshot` also writes the inspector's own
+  surface to `<stem>.audio-inspector.png` when it is open.
+- **Teardown order:** destroy the window before the `CommandRegistry` (its RAII
+  handler removal targets a live registry) and before `output_probe_`.
+- **Panel colors:** `canvas::Color` channels are floats in `[0,1]` — build panel
+  colors with `Color::rgba8(r,g,b,a)`, NOT `Color{26,26,32,255}` brace-init,
+  which Skia clamps to opaque white (the white-on-white panel bug).
+- **The editor idle pump drains the param store (automation → widgets).**
+  `make_scripted_idle_pump(bridge)` (in `gpu_host_select.hpp`, set as every
+  format's `set_idle_callback`) calls `bridge.store().pump_listeners()` each
+  vsync. This is what makes `bind_parameter`-bound widgets follow host
+  automation playback / host-side edits: `ListenerThread::Main` store changes
+  are queued (the adapter writes the store from the audio thread) and ONLY
+  fire on `pump_listeners()` on the UI thread. Without this drain, bound
+  widgets never move during playback. The idle callback also keeps the GPU
+  host's frame loop alive (`has_idle`), so the pump runs even when nothing
+  else is animating. A custom view that reads the store directly each frame
+  (not via `bind_parameter`) instead needs `View::set_continuous_repaint(true)`.

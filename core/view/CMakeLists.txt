@@ -168,6 +168,17 @@ set_property(CACHE PULP_JS_ENGINE PROPERTY STRINGS auto quickjs jsc v8)
 # is selected, the provider is the pinned sealed libv8, nothing else.
 set(V8_LIBRARY_PATH "" CACHE FILEPATH "Advanced: full path to a V8 runtime library (local experiments)")
 
+# ── V8 provider-identity reporting (additive) ────────────────────────────────
+# The pinned V8 provider is resolved by FindV8.cmake (external/v8-build/<platform>/,
+# fetched by tools/scripts/fetch_v8_for_release.py). The V8 backend block below
+# fills in the provider-identity vars from the resolved sealed artifact and emits
+# them as compile definitions. Defaults describe an unknown/unselected provider.
+option(PULP_VALIDATE_V8_PROVIDER_STRICT
+    "Run the strict (no skip-pass) V8 provider-identity + cube-coexistence CTest" OFF)
+set(PULP_V8_PROVIDER_KIND "")
+set(PULP_V8_PROVIDER_PATH "")
+set(PULP_V8_EXPECTED_RUNTIME_VERSION "")
+
 # QuickJS backend is always compiled (portable fallback)
 set(PULP_JS_ENGINE_SOURCES
     src/js_quickjs_engine.cpp
@@ -214,6 +225,39 @@ if(PULP_JS_ENGINE STREQUAL "v8")
     endif()
     target_link_libraries(pulp-view-script PRIVATE v8::v8)
     set(PULP_HAS_V8_ACTUAL ON)
+
+    # Provider identity — the pinned provider IS the sealed v8-builder libv8
+    # (FindV8 resolves external/v8-build/<platform>/). Surface its kind, path,
+    # and the manifest-pinned runtime version so the runtime can report and
+    # cross-check the provider. The js_v8_engine.cpp accessors that read these
+    # defines are additive and degrade gracefully when a define is empty.
+    set(PULP_V8_PROVIDER_KIND "v8builder")
+    set(PULP_V8_PROVIDER_PATH "${V8_RUNTIME_LIBRARY}")
+    set(PULP_V8_EXPECTED_RUNTIME_VERSION "")
+    if(EXISTS "${CMAKE_SOURCE_DIR}/tools/deps/manifest.json")
+        file(READ "${CMAKE_SOURCE_DIR}/tools/deps/manifest.json" _pulp_v8_manifest_text)
+        # Match the V8 dependency's pinned tag (e.g. "v8-15.1.27") and reduce it
+        # to the bare runtime version (15.1.27) the runtime reports at startup.
+        if(_pulp_v8_manifest_text MATCHES "\"name\"[ \t]*:[ \t]*\"V8\"[^}]*\"version\"[ \t]*:[ \t]*\"v8-([0-9][^\"]*)\"")
+            set(PULP_V8_EXPECTED_RUNTIME_VERSION "${CMAKE_MATCH_1}")
+        endif()
+        unset(_pulp_v8_manifest_text)
+    endif()
+
+    # Publish the identity to the global cache so sibling subdirectories added
+    # after core/view (examples/threejs-native-demo's strict provider-identity
+    # CTest) can read the resolved kind + pinned version without re-deriving it.
+    set(PULP_V8_PROVIDER_KIND "${PULP_V8_PROVIDER_KIND}" CACHE INTERNAL "Resolved V8 provider kind")
+    set(PULP_V8_PROVIDER_PATH "${PULP_V8_PROVIDER_PATH}" CACHE INTERNAL "Resolved V8 provider library path")
+    set(PULP_V8_EXPECTED_RUNTIME_VERSION "${PULP_V8_EXPECTED_RUNTIME_VERSION}" CACHE INTERNAL "Manifest-pinned V8 runtime version")
+
+    # Windows: the sealed v8.dll exposes the Chromium libc++ (__Cr) ABI with
+    # pointer compression ON, so the V8 translation unit must be compiled
+    # with clang-cl + that libc++ + V8_COMPRESS_POINTERS. This is a no-op off
+    # Windows; on Windows it hard-fails if the compiler is MSVC cl rather
+    # than clang-cl. See tools/cmake/PulpV8Windows.cmake.
+    include(${CMAKE_SOURCE_DIR}/tools/cmake/PulpV8Windows.cmake)
+    pulp_v8_windows_apply_abi(pulp-view-script)
 endif()
 
 # JSC backend (Apple platforms only)
@@ -231,6 +275,15 @@ endif()
 # Set compile definitions for engine availability / defaults
 if(PULP_HAS_V8_ACTUAL)
     target_compile_definitions(pulp-view-script PRIVATE PULP_HAS_V8=1)
+
+    # Provider identity, consumed by V8Engine::provider_kind()/provider_path()/
+    # expected_runtime_version(). These describe WHERE the V8 runtime came from
+    # (sealed v8-builder seal vs Homebrew libnode vs a self-built monolith),
+    # independent of the runtime version V8 reports at startup.
+    target_compile_definitions(pulp-view-script PRIVATE
+        PULP_V8_PROVIDER_KIND="${PULP_V8_PROVIDER_KIND}"
+        PULP_V8_PROVIDER_PATH="${PULP_V8_PROVIDER_PATH}"
+        PULP_V8_EXPECTED_RUNTIME_VERSION="${PULP_V8_EXPECTED_RUNTIME_VERSION}")
 endif()
 
 # Only set non-QuickJS default when explicitly requested (not auto)
@@ -292,8 +345,13 @@ target_sources(pulp-view-core PRIVATE
     src/inspector.cpp
     src/sdl_window_host.cpp
     src/auto_ui.cpp
+    src/text_edit_model.cpp
     src/text_editor.cpp
+    src/text_editor_clipboard.cpp
+    src/text_editor_ime.cpp
+    src/text_editor_paint.cpp
     src/ui_components.cpp
+    src/context_menu.cpp
     src/scroll_bar.cpp
     src/anchor_strategy.cpp
     src/relative_point.cpp
@@ -324,6 +382,10 @@ target_sources(pulp-view-core PRIVATE
     src/widgets/svg_rect.cpp
     src/widgets/svg_line.cpp
     src/visualization_bridge.cpp
+    src/waveform_editor_primitives.cpp
+    src/waveform_gpu_primitives.cpp
+    src/waveform_gpu_render_controller.cpp
+    src/waveform_headless_render_backend.cpp
     src/frame_clock.cpp
     src/motion.cpp
     src/motion_geometry.cpp
@@ -334,6 +396,8 @@ target_sources(pulp-view-core PRIVATE
     src/color_picker.cpp
     src/theme_editor.cpp
     src/file_drop_zone.cpp
+    src/sample_asset_drop_target.cpp
+    src/drag_drop.cpp
     src/split_view.cpp
     src/property_list.cpp
     src/breadcrumb.cpp
@@ -348,6 +412,8 @@ target_sources(pulp-view-core PRIVATE
     src/splash_screen.cpp
     src/live_constant_editor.cpp
     src/inspector_window.cpp
+    src/audio_inspector_panel.cpp
+    src/audio_inspector_window.cpp
     src/command_registry.cpp
     src/key_mapping_editor.cpp
     src/window_classes.cpp
@@ -359,6 +425,45 @@ target_sources(pulp-view-script PRIVATE
     src/script_engine.cpp
     src/js_engine_recommend.cpp
     src/widget_bridge.cpp
+    src/widget_bridge/accessibility_api.cpp
+    src/widget_bridge/animation_api.cpp
+    src/widget_bridge/dom_api.cpp
+    src/widget_bridge/event_api.cpp
+    src/widget_bridge/gpu_api.cpp
+    src/widget_bridge/gpu_common.cpp
+    src/widget_bridge/style_cursor_api.cpp
+    src/widget_bridge/style_effects_api.cpp
+    src/widget_bridge/style_rn_compat_api.cpp
+    src/widget_bridge/style_state_api.cpp
+    src/widget_bridge/style_storage_api.cpp
+    src/widget_bridge/style_visual_api.cpp
+    src/widget_bridge/style_visibility_api.cpp
+    src/widget_bridge/layout_api.cpp
+    src/widget_bridge/list_style_api.cpp
+    src/widget_bridge/metadata_api.cpp
+    src/widget_bridge/platform_services_api.cpp
+    src/widget_bridge/runtime_api.cpp
+    src/widget_bridge/runtime_import_api.cpp
+    src/widget_bridge/state_binding_api.cpp
+    src/widget_bridge/storage_assets_api.cpp
+    src/widget_bridge/shader_api.cpp
+    src/widget_bridge/svg_api.cpp
+    src/widget_bridge/theme_api.cpp
+    src/widget_bridge/tokens_api.cpp
+    src/widget_bridge/widget_assets_api.cpp
+    src/widget_bridge/widget_schema_api.cpp
+    src/widget_bridge/factory_api.cpp
+    src/widget_bridge/widget_value_controls_api.cpp
+    src/widget_bridge/widget_value_basic_api.cpp
+    src/widget_bridge/typography_api.cpp
+    src/widget_bridge/text_runs_api.cpp
+    src/widget_bridge/border_box_api.cpp
+    src/widget_bridge/outline_api.cpp
+    src/widget_bridge/border_radius_api.cpp
+    src/widget_bridge/border_side_api.cpp
+    src/widget_bridge/canvas2d_api.cpp
+    src/widget_bridge/widget_value_list_api.cpp
+    src/widget_bridge/widget_value_content_api.cpp
     src/widget_bridge_input.cpp
     src/hot_reload.cpp
     src/scripted_ui.cpp
@@ -371,37 +476,18 @@ target_sources(pulp-view-script PRIVATE
 # AU/VST3/CLAP plugins.
 # The ObjC runtime loads WebKit on dylib load if any WKWebView references exist,
 # which crashes Logic Pro's sandboxed AUHostingServiceXPC process.
-# ── Linux ATK accessibility (#18 phase 1) ───────────────────────────────────
+# ── Linux AT-SPI accessibility (workstream 04, L7) ──────────────────────────
 #
-# Pulp publishes accessibility info to Linux screen readers (Orca) via
-# ATK + the at-spi2-atk bridge. This slice only wires the ATK headers
-# into the build so accessibility_linux.cpp can use the real AtkRole
-# enum instead of hard-coded integer constants. The full AtkObject
-# vtable + at-spi2 bridge runtime is a follow-up PR that needs
-# screen-reader validation on a real Linux desktop.
-#
-# Without libatk-dev, accessibility_linux.cpp keeps the pre-existing
-# fallback constants so contributors on minimal images still build.
-#
-# Install on Debian/Ubuntu: sudo apt install -y libatk1.0-dev
-if(UNIX AND NOT APPLE AND NOT ANDROID)
-    find_package(PkgConfig QUIET)
-    if(PkgConfig_FOUND)
-        pkg_check_modules(PULP_ATK QUIET IMPORTED_TARGET atk)
-        if(PULP_ATK_FOUND)
-            target_compile_definitions(pulp-view-core PRIVATE PULP_HAS_ATK=1)
-            target_link_libraries(pulp-view-core PRIVATE PkgConfig::PULP_ATK)
-            message(STATUS
-                "Pulp: Linux ATK ${PULP_ATK_VERSION} found — "
-                "accessibility_linux.cpp will use real AtkRole enum")
-        else()
-            message(STATUS
-                "Pulp: Linux ATK dev headers not found "
-                "(install: sudo apt install libatk1.0-dev) — "
-                "accessibility_linux.cpp will use stub constants")
-        endif()
-    endif()
-endif()
+# Pulp publishes accessibility info to Linux screen readers (Orca) by
+# implementing the AT-SPI2 *wire protocol* directly over D-Bus
+# (pulp::platform::DBus, libdbus-1 dlopen'd, honest-fail). There is NO
+# build-time or link-time dependency on libatk / libatspi / atk-bridge-2.0 —
+# the protocol numbers live in core/view/include/pulp/view/platform/atspi_mapping.hpp
+# and accessibility_linux.cpp exports the objects. Roles/states are unit-tested
+# offline; the live AT stack is exercised in the Linux VM lane. This also keeps
+# the build MIT-clean (the ATK runtime is LGPL-adjacent). PkgConfig is still
+# discovered below for X11 / WebView.
+find_package(PkgConfig QUIET)
 
 option(PULP_BUILD_WEBVIEW "Include native WebView support (WebKit / WebView2 / WebKitGTK)" OFF)
 if(PULP_BUILD_WEBVIEW)
@@ -556,6 +642,7 @@ if(APPLE)
             platform/mac/window_host_mac.mm
             platform/mac/window_host_mac_capture.mm
             platform/mac/window_host_mac_geometry.mm
+            platform/mac/window_host_mac_text_input.mm
             platform/mac/window_manager_mac.mm
             platform/mac/plugin_view_host_mac.mm
             platform/mac/screenshot_mac.mm
@@ -578,6 +665,10 @@ if(APPLE)
             "-framework Cocoa"
             "-framework ImageIO"
             "-framework UniformTypeIdentifiers"
+            # CVDisplayLink drives the continuous-frame / idle pump in BOTH the
+            # CPU (CoreGraphics) and GPU plugin hosts, so CoreVideo must link
+            # even when Skia is absent (the CG-only fallback build).
+            "-framework CoreVideo"
         )
         # GPU rendering: link render module and Metal for CAMetalLayer-backed window host
         if(PULP_HAS_SKIA)
@@ -596,10 +687,32 @@ elseif(WIN32)
         platform/win/appearance_win.cpp
         platform/win/motion_preferences_win.cpp
     )
+    # Win/Linux parity (#3329). When Skia is available, add the built-in
+    # Skia raster screenshot backend and the native HWND PluginViewHost.
+    # plugin_view_host_stub.cpp stays (it owns the always-compiled
+    # set_factory/has_factory registration API + the factory-dispatching
+    # create()); the native impl registers ITSELF as the factory via
+    # register_platform_plugin_view_host(). screenshot_skia.cpp self-guards
+    # on PULP_HAS_SKIA and supersedes the stub's render_* fallback (which is
+    # now compiled only when !PULP_HAS_SKIA).
+    if(PULP_HAS_SKIA)
+        target_sources(pulp-view-core PRIVATE
+            src/screenshot_skia.cpp
+            platform/win/plugin_view_host_win.cpp
+        )
+        # The native HWND host supplies register_platform_plugin_view_host();
+        # tell the stub not to compile its no-op default (one definition).
+        set_source_files_properties(src/plugin_view_host_stub.cpp PROPERTIES
+            COMPILE_DEFINITIONS PULP_HAS_PLATFORM_PLUGIN_VIEW_HOST=1)
+    endif()
     # Workstream 04 #247 phase 1: UIAutomationCore for
     # UiaClientsAreListening and (in phase 2) UiaReturnRawElementProvider +
     # UiaRaiseStructureChangedEvent.
     target_link_libraries(pulp-view-core PRIVATE uiautomationcore)
+    # OLE drag-drop on the plugin-host child HWND (WinPluginViewHost):
+    # ole32 = OleInitialize/RegisterDragDrop/ReleaseStgMedium; shell32 =
+    # DragQueryFileW for CF_HDROP file lists.
+    target_link_libraries(pulp-view-core PRIVATE ole32 shell32)
 elseif(ANDROID)
     target_sources(pulp-view-core PRIVATE
         src/plugin_view_host_stub.cpp
@@ -614,18 +727,30 @@ elseif(UNIX)
         src/window_host_stub.cpp
         platform/linux/accessibility_linux.cpp
     )
-    # Linux AT-SPI bridge (workstream 04 #248). Optional: linking atk-
-    # bridge-2.0 when pkg-config finds it enables screen-reader
-    # (Orca) registration via atk_bridge_adaptor_init. Skipped on
-    # minimal/headless distros so the library still loads.
-    if(PkgConfig_FOUND OR PKG_CONFIG_FOUND)
-        pkg_check_modules(ATK_BRIDGE IMPORTED_TARGET atk-bridge-2.0)
-        if(ATK_BRIDGE_FOUND)
-            target_compile_definitions(pulp-view-core PRIVATE PULP_HAS_ATSPI=1)
-            target_link_libraries(pulp-view-core PRIVATE PkgConfig::ATK_BRIDGE)
-            message(STATUS "Pulp: AT-SPI bridge enabled (atk-bridge-2.0)")
+    # Win/Linux parity (#3329). Same split as the WIN32 branch: when Skia is
+    # available add the built-in Skia raster screenshot backend and the native
+    # X11 PluginViewHost (which registers itself via
+    # register_platform_plugin_view_host()). The X11 host links Xlib; missing
+    # X11 dev headers degrade to the headless-render-only path.
+    if(PULP_HAS_SKIA)
+        target_sources(pulp-view-core PRIVATE src/screenshot_skia.cpp)
+        find_package(X11)
+        if(X11_FOUND)
+            target_sources(pulp-view-core PRIVATE platform/linux/plugin_view_host_linux.cpp)
+            target_link_libraries(pulp-view-core PRIVATE ${X11_LIBRARIES})
+            target_include_directories(pulp-view-core PRIVATE ${X11_INCLUDE_DIR})
+            target_compile_definitions(pulp-view-core PRIVATE PULP_HAS_X11=1)
+            # The native X11 host supplies register_platform_plugin_view_host();
+            # tell the stub not to compile its no-op default (one definition).
+            set_source_files_properties(src/plugin_view_host_stub.cpp PROPERTIES
+                COMPILE_DEFINITIONS PULP_HAS_PLATFORM_PLUGIN_VIEW_HOST=1)
+        else()
+            message(STATUS "Pulp: X11 not found — Linux PluginViewHost limited to headless render")
         endif()
     endif()
+    # Linux AT-SPI (workstream 04, L7) needs no link deps: accessibility_linux.cpp
+    # speaks the AT-SPI2 wire protocol directly over pulp::platform::DBus
+    # (libdbus-1 dlopen'd). No atk-bridge-2.0 / libatspi at build time.
 endif()
 
 # Link against render for native GPU bridge (Three.js, WebGPU canvas).

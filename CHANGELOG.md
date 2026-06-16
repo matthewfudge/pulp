@@ -8,6 +8,712 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v04350"></a>
+## [0.435.0] - 2026-06-16
+
+- feat/video proof reland ([#4084](https://github.com/danielraffel/pulp/pull/4084))
+
+<a id="v04340"></a>
+## [0.434.0] - 2026-06-16
+
+- feat(view): native file drag-out source on Windows (OLE) + Linux (XDND) ([#4073](https://github.com/danielraffel/pulp/pull/4073))
+- Sampler: LOOP toggle, GPU-host editor, sensitivity-mapping fix ([#4074](https://github.com/danielraffel/pulp/pull/4074))
+- ci(coverage): drop -object entries that vanish after the pre-flight probe ([#4075](https://github.com/danielraffel/pulp/pull/4075))
+- ci(coverage): pass llvm-cov objects via response file (fixes Windows ARG_MAX) ([#4070](https://github.com/danielraffel/pulp/pull/4070))
+- Sampler: interactive ⌘K keyboard, Open button, AU MIDI + slice-mapping fixes ([#4067](https://github.com/danielraffel/pulp/pull/4067))
+
+<a id="v04330"></a>
+## [0.433.0] - 2026-06-15
+
+- feature/view outbound file drag ([#4068](https://github.com/danielraffel/pulp/pull/4068))
+- ci(coverage): harden coverage VM lane + screenshot helper (post-merge review) ([#4066](https://github.com/danielraffel/pulp/pull/4066))
+- Sampler: waveform zoom + pan (scroll/pinch) ([#4059](https://github.com/danielraffel/pulp/pull/4059))
+- ci: add dedicated macOS coverage VM lane ([#4036](https://github.com/danielraffel/pulp/pull/4036))
+- docs(validation): autonomous REAPER HostBench re-validation on current main ([#4063](https://github.com/danielraffel/pulp/pull/4063))
+
+<a id="v04321"></a>
+## [0.432.1] - 2026-06-14
+
+- fix(cli): make kit-verify --execute-screenshots pass on Windows ([#4061](https://github.com/danielraffel/pulp/pull/4061))
+- refactor(local-ci): extract ssh bundle bindings ([#4027](https://github.com/danielraffel/pulp/pull/4027))
+- test(validation): fix two Windows-only host-lab test fixtures ([#4060](https://github.com/danielraffel/pulp/pull/4060))
+- Offline stretch engine + PulpTempoSampler (Phases 0-4) ([#4054](https://github.com/danielraffel/pulp/pull/4054))
+- test(validation): check AU gatekeeper preflight ([#4058](https://github.com/danielraffel/pulp/pull/4058))
+- Add package kit and content workflows ([#4044](https://github.com/danielraffel/pulp/pull/4044))
+- feature/dsp hostlab coverage summary ([#4052](https://github.com/danielraffel/pulp/pull/4052))
+
+<a id="v04320"></a>
+## [0.432.0] - 2026-06-13
+
+- feat(view): close text input behavior gaps ([#4055](https://github.com/danielraffel/pulp/pull/4055))
+- docs(audio): explain inspector signal and scope modes ([#4056](https://github.com/danielraffel/pulp/pull/4056))
+
+<a id="v04312"></a>
+## [0.431.2] - 2026-06-12
+
+- feature/round textbutton border ([#4047](https://github.com/danielraffel/pulp/pull/4047))
+
+<a id="v04311"></a>
+## [0.431.1] - 2026-06-12
+
+- feature/standalone oversize transport advance ([#4051](https://github.com/danielraffel/pulp/pull/4051))
+
+<a id="v04310"></a>
+## [0.431.0] - 2026-06-12
+
+- feature/standalone callback max block ([#4049](https://github.com/danielraffel/pulp/pull/4049))
+- Fix Audio Scope follow-up CI failures ([#4046](https://github.com/danielraffel/pulp/pull/4046))
+
+<a id="v04300"></a>
+## [0.430.0] - 2026-06-12
+
+- feature/cpu host continuous frames ([#4040](https://github.com/danielraffel/pulp/pull/4040))
+- Add Audio Scope analysis surface ([#4038](https://github.com/danielraffel/pulp/pull/4038))
+
+<a id="v04290"></a>
+## [0.429.0] - 2026-06-12
+
+- feature/standalone chrome editor fill ([#4041](https://github.com/danielraffel/pulp/pull/4041))
+- docs: link public shipping guide from migration notes ([#4033](https://github.com/danielraffel/pulp/pull/4033))
+
+<a id="v04280"></a>
+## [0.428.0] - 2026-06-11
+
+- test: prove DSP runtime RT contracts ([#4028](https://github.com/danielraffel/pulp/pull/4028))
+
+<a id="v04270"></a>
+## [0.427.0] - 2026-06-11
+
+- Expose Audio Inspector probe JSON to agents ([#3989](https://github.com/danielraffel/pulp/pull/3989))
+
+<a id="v04261"></a>
+## [0.426.1] - 2026-06-11
+
+- fix(view): CPU plugin-view host drives continuous frames + idle pump ([#4029](https://github.com/danielraffel/pulp/pull/4029))
+- refactor(local-ci): extract target preflight bindings ([#4026](https://github.com/danielraffel/pulp/pull/4026))
+- refactor(local-ci): expand execution helper bindings ([#4025](https://github.com/danielraffel/pulp/pull/4025))
+- refactor(local-ci): expand queue display bindings ([#4024](https://github.com/danielraffel/pulp/pull/4024))
+- refactor(local-ci): expand queue runner bindings ([#4023](https://github.com/danielraffel/pulp/pull/4023))
+- refactor(local-ci): expand source prep bindings ([#4022](https://github.com/danielraffel/pulp/pull/4022))
+- refactor(local-ci): extract desktop reporting bindings ([#4021](https://github.com/danielraffel/pulp/pull/4021))
+
+<a id="v04260"></a>
+## [0.426.0] - 2026-06-11
+
+- feat(view): per-view continuous-repaint opt-in for live custom views ([#4015](https://github.com/danielraffel/pulp/pull/4015))
+- refactor(local-ci): extract desktop probe bindings ([#4020](https://github.com/danielraffel/pulp/pull/4020))
+- refactor(local-ci): extract desktop command bindings ([#4019](https://github.com/danielraffel/pulp/pull/4019))
+- refactor(local-ci): extract utility command bindings ([#4018](https://github.com/danielraffel/pulp/pull/4018))
+- refactor(local-ci): extract command bindings ([#4017](https://github.com/danielraffel/pulp/pull/4017))
+- refactor(local-ci): extract dispatch bindings ([#4016](https://github.com/danielraffel/pulp/pull/4016))
+- refactor(local-ci): extract execution processing bindings ([#4014](https://github.com/danielraffel/pulp/pull/4014))
+- refactor(local-ci): extract queue lifecycle bindings ([#4013](https://github.com/danielraffel/pulp/pull/4013))
+- refactor(local-ci): extract validation execution bindings ([#4012](https://github.com/danielraffel/pulp/pull/4012))
+- refactor(local-ci): extract windows desktop facade bindings ([#4011](https://github.com/danielraffel/pulp/pull/4011))
+- refactor(local-ci): extract linux desktop facade bindings ([#4009](https://github.com/danielraffel/pulp/pull/4009))
+- refactor(local-ci): extract source prep facade bindings ([#4007](https://github.com/danielraffel/pulp/pull/4007))
+
+<a id="v04250"></a>
+## [0.425.0] - 2026-06-11
+
+- feat(signal): FreezeLoopSampler — capture-and-loop time-domain freeze ([#4006](https://github.com/danielraffel/pulp/pull/4006))
+- refactor(local-ci): extract macos desktop facade bindings ([#4005](https://github.com/danielraffel/pulp/pull/4005))
+
+<a id="v04240"></a>
+## [0.424.0] - 2026-06-11
+
+- feat(signal): optional sinc resampling in RealtimePitchTimeProcessor ([#4004](https://github.com/danielraffel/pulp/pull/4004))
+- refactor(local-ci): move artifact wait helper to io utils ([#4002](https://github.com/danielraffel/pulp/pull/4002))
+
+<a id="v04230"></a>
+## [0.423.0] - 2026-06-11
+
+- feat(signal): Kaiser-windowed sinc resampler primitive ([#4000](https://github.com/danielraffel/pulp/pull/4000))
+
+<a id="v04220"></a>
+## [0.422.0] - 2026-06-11
+
+- fix(host): wait for SignalGraph readers before release ([#3999](https://github.com/danielraffel/pulp/pull/3999))
+
+<a id="v04210"></a>
+## [0.421.0] - 2026-06-11
+
+- feat(signal): noise-morphing path in RealtimePitchTimeProcessor (STN-routed) ([#3997](https://github.com/danielraffel/pulp/pull/3997))
+
+<a id="v04200"></a>
+## [0.420.0] - 2026-06-10
+
+- feat(signal): NoiseMorpher — transparent noise time-stretch by morphing ([#3995](https://github.com/danielraffel/pulp/pull/3995))
+
+<a id="v04190"></a>
+## [0.419.0] - 2026-06-11
+
+- feat(signal): STN (sines/transients/noise) decomposition by median filtering ([#3994](https://github.com/danielraffel/pulp/pull/3994))
+
+<a id="v04180"></a>
+## [0.418.0] - 2026-06-10
+
+- test(midi): cover all bind_midi overloads + map remove-keep path ([#3992](https://github.com/danielraffel/pulp/pull/3992))
+- test(signal): align delay max block with debug test size ([#3988](https://github.com/danielraffel/pulp/pull/3988))
+- feature/parameter automation binding ([#3984](https://github.com/danielraffel/pulp/pull/3984))
+
+<a id="v04170"></a>
+## [0.417.0] - 2026-06-10
+
+- fix/spectral frame edge norm ([#3978](https://github.com/danielraffel/pulp/pull/3978))
+
+<a id="v04160"></a>
+## [0.416.0] - 2026-06-10
+
+- feature/dsp public dense param contract ([#3980](https://github.com/danielraffel/pulp/pull/3980))
+- feature/signal rt helper contract ([#3976](https://github.com/danielraffel/pulp/pull/3976))
+- feature/refactor local ci desktop management cli ([#3974](https://github.com/danielraffel/pulp/pull/3974))
+
+<a id="v04150"></a>
+## [0.415.0] - 2026-06-10
+
+- feature/signalgraph midi mailbox ([#3973](https://github.com/danielraffel/pulp/pull/3973))
+- feature/signal spectral primitives ([#3970](https://github.com/danielraffel/pulp/pull/3970))
+
+<a id="v04140"></a>
+## [0.414.0] - 2026-06-10
+
+- feature/signalgraph thread ownership ([#3967](https://github.com/danielraffel/pulp/pull/3967))
+- fix(release): make CLI backfills safe by default ([#3963](https://github.com/danielraffel/pulp/pull/3963))
+
+<a id="v04130"></a>
+## [0.413.0] - 2026-06-10
+
+- feature/graph midi block sidecars ([#3959](https://github.com/danielraffel/pulp/pull/3959))
+
+<a id="v04122"></a>
+## [0.412.2] - 2026-06-10
+
+- fix/win ble scan winrt init ([#3958](https://github.com/danielraffel/pulp/pull/3958))
+
+<a id="v04120"></a>
+## [0.412.0] - 2026-06-10
+
+- feat/audio inspector host wiring ([#3954](https://github.com/danielraffel/pulp/pull/3954))
+
+<a id="v04110"></a>
+## [0.411.0] - 2026-06-10
+
+- fix/audio harness sweep followups ([#3955](https://github.com/danielraffel/pulp/pull/3955))
+- refactor(local-ci): extract desktop status output helpers ([#3953](https://github.com/danielraffel/pulp/pull/3953))
+- fix/audio probe followups ([#3951](https://github.com/danielraffel/pulp/pull/3951))
+- refactor(local-ci): extract desktop summary output helpers ([#3952](https://github.com/danielraffel/pulp/pull/3952))
+
+<a id="v04100"></a>
+## [0.410.0] - 2026-06-10
+
+- fix/clap inbound sysex rt ([#3945](https://github.com/danielraffel/pulp/pull/3945))
+- refactor(local-ci): extract desktop recent proof output ([#3950](https://github.com/danielraffel/pulp/pull/3950))
+- feature/refactor local ci desktop cli lines ([#3946](https://github.com/danielraffel/pulp/pull/3946))
+- fix(ci): clean up release review sweep findings ([#3940](https://github.com/danielraffel/pulp/pull/3940))
+- feature/refactor local ci desktop action policy ([#3944](https://github.com/danielraffel/pulp/pull/3944))
+- feature/refactor local ci next slice ([#3943](https://github.com/danielraffel/pulp/pull/3943))
+
+<a id="v04090"></a>
+## [0.409.0] - 2026-06-10
+
+- fix/audio probe wiring ([#3941](https://github.com/danielraffel/pulp/pull/3941))
+- feature/refactor local ci desktop doctor probes ([#3939](https://github.com/danielraffel/pulp/pull/3939))
+
+<a id="v04080"></a>
+## [0.408.0] - 2026-06-10
+
+- feature/param event overflow contract ([#3905](https://github.com/danielraffel/pulp/pull/3905))
+- fix/local ci stale reconcile current queue ([#3942](https://github.com/danielraffel/pulp/pull/3942))
+
+<a id="v04070"></a>
+## [0.407.0] - 2026-06-10
+
+- feature/audio harness 7 cli ([#3934](https://github.com/danielraffel/pulp/pull/3934))
+- ci/codesign fatal ([#3938](https://github.com/danielraffel/pulp/pull/3938))
+- ci/review followups ([#3937](https://github.com/danielraffel/pulp/pull/3937))
+- feature/refactor local ci process job runner ([#3935](https://github.com/danielraffel/pulp/pull/3935))
+- ci/strip fail loud ([#3936](https://github.com/danielraffel/pulp/pull/3936))
+- feature/refactor local ci windows validation runner ([#3932](https://github.com/danielraffel/pulp/pull/3932))
+- ci/coverage scheduled refresh ([#3933](https://github.com/danielraffel/pulp/pull/3933))
+- feature/refactor local ci posix validation runner ([#3931](https://github.com/danielraffel/pulp/pull/3931))
+- ci/release make latest ([#3930](https://github.com/danielraffel/pulp/pull/3930))
+- feature/refactor local ci local validation runner ([#3929](https://github.com/danielraffel/pulp/pull/3929))
+- feature/refactor local ci target task planning ([#3928](https://github.com/danielraffel/pulp/pull/3928))
+- feature/refactor local ci execution planning ([#3927](https://github.com/danielraffel/pulp/pull/3927))
+- feature/refactor local ci target task runner ([#3926](https://github.com/danielraffel/pulp/pull/3926))
+- feature/refactor local ci target result ordering ([#3925](https://github.com/danielraffel/pulp/pull/3925))
+- feature/refactor local ci target state snapshot ([#3924](https://github.com/danielraffel/pulp/pull/3924))
+- feature/refactor local ci target progress state ([#3923](https://github.com/danielraffel/pulp/pull/3923))
+- feature/refactor local ci initial target state ([#3922](https://github.com/danielraffel/pulp/pull/3922))
+- feature/refactor local ci completed target state ([#3921](https://github.com/danielraffel/pulp/pull/3921))
+- feature/refactor local ci job result helpers ([#3920](https://github.com/danielraffel/pulp/pull/3920))
+- feature/refactor local ci unreachable result helper ([#3919](https://github.com/danielraffel/pulp/pull/3919))
+- feature/refactor local ci windows validation script ([#3918](https://github.com/danielraffel/pulp/pull/3918))
+- feature/refactor local ci posix validation command ([#3917](https://github.com/danielraffel/pulp/pull/3917))
+- feature/refactor local ci local validation command ([#3916](https://github.com/danielraffel/pulp/pull/3916))
+- feature/refactor local ci validation error result ([#3915](https://github.com/danielraffel/pulp/pull/3915))
+- feature/refactor local ci validation result helper ([#3914](https://github.com/danielraffel/pulp/pull/3914))
+- feature/refactor local ci validation helper policy ([#3913](https://github.com/danielraffel/pulp/pull/3913))
+- feature/refactor local ci execution runner ([#3912](https://github.com/danielraffel/pulp/pull/3912))
+- feature/refactor local ci drain active line ([#3911](https://github.com/danielraffel/pulp/pull/3911))
+- feature/refactor local ci enqueue result line ([#3910](https://github.com/danielraffel/pulp/pull/3910))
+- feature/refactor local ci pr list lines ([#3909](https://github.com/danielraffel/pulp/pull/3909))
+- feature/refactor local ci evidence command lines ([#3908](https://github.com/danielraffel/pulp/pull/3908))
+- feature/refactor local ci log command lines ([#3907](https://github.com/danielraffel/pulp/pull/3907))
+- feature/refactor local ci queue command lines ([#3906](https://github.com/danielraffel/pulp/pull/3906))
+- fix/release cli package overlay ([#3901](https://github.com/danielraffel/pulp/pull/3901))
+- feature/param event ramp contract ([#3900](https://github.com/danielraffel/pulp/pull/3900))
+
+<a id="v04060"></a>
+## [0.406.0] - 2026-06-10
+
+- chore/cut v0.406.0 ([#3902](https://github.com/danielraffel/pulp/pull/3902))
+- feature/refactor local ci cleanup lines ([#3898](https://github.com/danielraffel/pulp/pull/3898))
+- feature/signalgraph rt noalloc ([#3889](https://github.com/danielraffel/pulp/pull/3889))
+- feature/refactor local ci footprint lines ([#3896](https://github.com/danielraffel/pulp/pull/3896))
+
+<a id="v04050"></a>
+## [0.405.0] - 2026-06-10
+
+- feature/audio harness 6 inspector window ([#3895](https://github.com/danielraffel/pulp/pull/3895))
+- ci/package cli resign ([#3894](https://github.com/danielraffel/pulp/pull/3894))
+- feature/refactor local ci status runner lines ([#3893](https://github.com/danielraffel/pulp/pull/3893))
+- feature/audio harness plugin surface ([#3891](https://github.com/danielraffel/pulp/pull/3891))
+- ci/release cli rust selfheal ([#3865](https://github.com/danielraffel/pulp/pull/3865))
+- feature/refactor local ci result formatting ([#3892](https://github.com/danielraffel/pulp/pull/3892))
+- ci(release): keep backfill CLI CMake source-compatible ([#3890](https://github.com/danielraffel/pulp/pull/3890))
+- feature/refactor local ci status formatting ([#3869](https://github.com/danielraffel/pulp/pull/3869))
+
+<a id="v04040"></a>
+## [0.404.0] - 2026-06-10
+
+- feature/audio harness 5 rt probe ([#3864](https://github.com/danielraffel/pulp/pull/3864))
+- feature/refactor local ci status target states ([#3863](https://github.com/danielraffel/pulp/pull/3863))
+- feat: add sampler looper primitives ([#3808](https://github.com/danielraffel/pulp/pull/3808))
+- ci(release): tolerate pre-swap CLI backfills ([#3866](https://github.com/danielraffel/pulp/pull/3866))
+
+<a id="v04030"></a>
+## [0.403.0] - 2026-06-09
+
+- fix(signal): make oversampler processing allocation-free ([#3804](https://github.com/danielraffel/pulp/pull/3804))
+- test(audio): offline Audio Doctor analyzers — magnitude response + THD ([#3862](https://github.com/danielraffel/pulp/pull/3862))
+- ci/release cli rust path ([#3861](https://github.com/danielraffel/pulp/pull/3861))
+- feature/refactor local ci status recent jobs ([#3860](https://github.com/danielraffel/pulp/pull/3860))
+- feature/refactor local ci status active targets ([#3859](https://github.com/danielraffel/pulp/pull/3859))
+- test(audio): named contract coverage for PulpGain/PulpEffect/PulpTone (harness PR 3) ([#3854](https://github.com/danielraffel/pulp/pull/3854))
+- feature/refactor local ci status groups ([#3855](https://github.com/danielraffel/pulp/pull/3855))
+- feature/refactor local ci target state formatting ([#3853](https://github.com/danielraffel/pulp/pull/3853))
+
+<a id="v04020"></a>
+## [0.402.0] - 2026-06-09
+
+- feature/audio harness 2 render scenario ([#3852](https://github.com/danielraffel/pulp/pull/3852))
+- feature/refactor local ci log selection ([#3851](https://github.com/danielraffel/pulp/pull/3851))
+- feature/refactor local ci completion actions ([#3849](https://github.com/danielraffel/pulp/pull/3849))
+
+<a id="v04010"></a>
+## [0.401.0] - 2026-06-09
+
+- feature/devtools command routing ([#3847](https://github.com/danielraffel/pulp/pull/3847))
+- feature/refactor local ci command actions ([#3844](https://github.com/danielraffel/pulp/pull/3844))
+- ci/release cli macos strip ([#3846](https://github.com/danielraffel/pulp/pull/3846))
+- ci/release cli no lfs ([#3843](https://github.com/danielraffel/pulp/pull/3843))
+- ci(release): include manifest in backfill overlay ([#3837](https://github.com/danielraffel/pulp/pull/3837))
+- refactor(local-ci): extract runner active target update helper ([#3842](https://github.com/danielraffel/pulp/pull/3842))
+- test(audio): convert golden/matrix suites to shared helpers + tone regression scenario (harness PR 1B) ([#3841](https://github.com/danielraffel/pulp/pull/3841))
+- refactor(local-ci): extract runner stale selection helper ([#3838](https://github.com/danielraffel/pulp/pull/3838))
+
+<a id="v04000"></a>
+## [0.400.0] - 2026-06-09
+
+- chore/cut v0.400.0 ([#3840](https://github.com/danielraffel/pulp/pull/3840))
+- test(audio): add offline audio metrics/assertions/summary helpers (harness PR 1A) ([#3834](https://github.com/danielraffel/pulp/pull/3834))
+- ci/release cli macos self hosted ([#3835](https://github.com/danielraffel/pulp/pull/3835))
+- refactor(local-ci): extract running reconciliation helper ([#3836](https://github.com/danielraffel/pulp/pull/3836))
+- ci(release): restore linux-arm64 Skia asset + guard the require-GPU/asset invariant ([#3814](https://github.com/danielraffel/pulp/pull/3814))
+- refactor(local-ci): extract drain lifecycle helper ([#3825](https://github.com/danielraffel/pulp/pull/3825))
+- docs(licensing): recognize system/OS-provided dependencies (BlueZ, D-Bus, ALSA, JACK, WinRT, …) ([#3828](https://github.com/danielraffel/pulp/pull/3828))
+
+<a id="v03990"></a>
+## [0.399.0] - 2026-06-09
+
+- feat(midi): Windows WinRT GATT BLE MIDI connect/notify + MidiSystem port merge (W13 — completes BLE epic) ([#3830](https://github.com/danielraffel/pulp/pull/3830))
+
+<a id="v03980"></a>
+## [0.398.0] - 2026-06-09
+
+- feat(midi): Linux BlueZ BLE MIDI backend + virtual MIDI-port merge (L13) ([#3824](https://github.com/danielraffel/pulp/pull/3824))
+- refactor(local-ci): extract stale validator lifecycle helper ([#3823](https://github.com/danielraffel/pulp/pull/3823))
+- feat(midi): WinRT BLE MIDI scan-probe backend + advisory compile-gate (W13 part 1) ([#3811](https://github.com/danielraffel/pulp/pull/3811))
+
+<a id="v03970"></a>
+## [0.397.0] - 2026-06-09
+
+- feat(platform): D-Bus system-bus + signal subscription + GetManagedObjects (BLE prereq) ([#3812](https://github.com/danielraffel/pulp/pull/3812))
+- refactor(local-ci): extract target state lifecycle helpers ([#3822](https://github.com/danielraffel/pulp/pull/3822))
+- refactor(local-ci): extract enqueue lifecycle helper ([#3821](https://github.com/danielraffel/pulp/pull/3821))
+- refactor(local-ci): extract wait loop helper ([#3820](https://github.com/danielraffel/pulp/pull/3820))
+
+<a id="v03960"></a>
+## [0.396.0] - 2026-06-09
+
+- chore/cut v0.396.0 ([#3819](https://github.com/danielraffel/pulp/pull/3819))
+- fix/skia linux arm64 release asset ([#3817](https://github.com/danielraffel/pulp/pull/3817))
+- refactor(local-ci): extract finalize lifecycle helper ([#3818](https://github.com/danielraffel/pulp/pull/3818))
+- refactor(local-ci): extract locked job lifecycle helpers ([#3813](https://github.com/danielraffel/pulp/pull/3813))
+- feature/svgpath jsx parity contract ([#3810](https://github.com/danielraffel/pulp/pull/3810))
+- refactor(local-ci): extract runner state helpers ([#3809](https://github.com/danielraffel/pulp/pull/3809))
+- feature/svgpath wiring parity ([#3802](https://github.com/danielraffel/pulp/pull/3802))
+- refactor(local-ci): extract queue command mutation helpers ([#3805](https://github.com/danielraffel/pulp/pull/3805))
+- refactor(local-ci): extract stale-running action helper ([#3803](https://github.com/danielraffel/pulp/pull/3803))
+- refactor(local-ci): extract enqueue supersedence helper ([#3800](https://github.com/danielraffel/pulp/pull/3800))
+- refactor(local-ci): extract enqueue state helpers ([#3796](https://github.com/danielraffel/pulp/pull/3796))
+- feature/svgpath fill rule ([#3794](https://github.com/danielraffel/pulp/pull/3794))
+- ci/release artifact smoke ([#3795](https://github.com/danielraffel/pulp/pull/3795))
+
+<a id="v03950"></a>
+## [0.395.0] - 2026-06-09
+
+- fix(midi,view): address Codex P2 review on UMP system messages + Linux XDND HiDPI ([#3793](https://github.com/danielraffel/pulp/pull/3793))
+- refactor(local-ci): extract stale-running selection helper ([#3789](https://github.com/danielraffel/pulp/pull/3789))
+- ci(release): stop re-running the unit suite in sign-and-release (not a test gate) ([#3783](https://github.com/danielraffel/pulp/pull/3783))
+- feat(midi): implement WinRT MIDI 2.0 (UMP) backend with device hotplug ([#3781](https://github.com/danielraffel/pulp/pull/3781))
+- fix(view): @pulp/react forwards <img src> to setImageSource (parity-found) ([#3790](https://github.com/danielraffel/pulp/pull/3790))
+- refactor(local-ci): extract job completion helper ([#3788](https://github.com/danielraffel/pulp/pull/3788))
+- refactor(local-ci): extract stale-running queue helpers ([#3787](https://github.com/danielraffel/pulp/pull/3787))
+- refactor(local-ci): extract runner active-target helper ([#3786](https://github.com/danielraffel/pulp/pull/3786))
+
+<a id="v03940"></a>
+## [0.394.0] - 2026-06-09
+
+- feat(view): HiDPI for the Win/Linux plugin-editor host (W8/L9) ([#3774](https://github.com/danielraffel/pulp/pull/3774))
+- refactor(local-ci): extract terminal job completion ([#3784](https://github.com/danielraffel/pulp/pull/3784))
+- refactor(local-ci): extract job claim helper ([#3782](https://github.com/danielraffel/pulp/pull/3782))
+- refactor(local-ci): extract target state helper ([#3779](https://github.com/danielraffel/pulp/pull/3779))
+- refactor(local-ci): extract queue state helpers ([#3777](https://github.com/danielraffel/pulp/pull/3777))
+- refactor(local-ci): extract queue policy helpers ([#3776](https://github.com/danielraffel/pulp/pull/3776))
+- refactor(local-ci): extract Windows remote probes ([#3773](https://github.com/danielraffel/pulp/pull/3773))
+- refactor(local-ci): extract Windows SSH probe helpers ([#3771](https://github.com/danielraffel/pulp/pull/3771))
+
+<a id="v03930"></a>
+## [0.393.0] - 2026-06-09
+
+- feat(view): Linux XDND drag-drop on the plugin-host X11 window (#3645) ([#3770](https://github.com/danielraffel/pulp/pull/3770))
+- fix/ci release toolchain pin ([#3749](https://github.com/danielraffel/pulp/pull/3749))
+- refactor(local-ci): extract desktop reporting helpers ([#3759](https://github.com/danielraffel/pulp/pull/3759))
+- refactor(local-ci): extract desktop artifact layout helpers ([#3755](https://github.com/danielraffel/pulp/pull/3755))
+- refactor(local-ci): move stale validator cleanup helpers ([#3757](https://github.com/danielraffel/pulp/pull/3757))
+
+<a id="v03922"></a>
+## [0.392.2] - 2026-06-09
+
+- refactor(canvas): move Skia font shim to private TU ([#3756](https://github.com/danielraffel/pulp/pull/3756))
+- refactor(local-ci): extract cleanup planning helpers ([#3752](https://github.com/danielraffel/pulp/pull/3752))
+- refactor(local-ci): extract SSH bundle transport helpers ([#3748](https://github.com/danielraffel/pulp/pull/3748))
+- refactor(local-ci): extract evidence index module ([#3747](https://github.com/danielraffel/pulp/pull/3747))
+
+<a id="v03921"></a>
+## [0.392.1] - 2026-06-09
+
+- fix/release build cxx17 aggregate init ([#3745](https://github.com/danielraffel/pulp/pull/3745))
+- refactor: migrate Canvas2D bridge API to registry helper ([#3746](https://github.com/danielraffel/pulp/pull/3746))
+
+<a id="v03920"></a>
+## [0.392.0] - 2026-06-09
+
+- feat(view): Linux AT-SPI Value interface + focus/value/name event signals (L7c) ([#3744](https://github.com/danielraffel/pulp/pull/3744))
+- refactor: migrate GPU bridge API to registry helper ([#3741](https://github.com/danielraffel/pulp/pull/3741))
+- refactor: migrate typography bridge API to registry helper ([#3740](https://github.com/danielraffel/pulp/pull/3740))
+
+<a id="v03910"></a>
+## [0.391.0] - 2026-06-09
+
+- feat(view): per-widget AT-SPI Accessible + Component tree (L7b) ([#3737](https://github.com/danielraffel/pulp/pull/3737))
+- refactor: migrate animation bridge API to registry helper ([#3736](https://github.com/danielraffel/pulp/pull/3736))
+- refactor: migrate layout bridge API to registry helper ([#3735](https://github.com/danielraffel/pulp/pull/3735))
+- refactor: migrate widget factory bridge API to registry helper ([#3734](https://github.com/danielraffel/pulp/pull/3734))
+- refactor: migrate event bridge API to registry helper ([#3733](https://github.com/danielraffel/pulp/pull/3733))
+
+<a id="v03900"></a>
+## [0.390.0] - 2026-06-09
+
+- feat(view): register Linux AT-SPI root over direct D-Bus (L7a-2) ([#3732](https://github.com/danielraffel/pulp/pull/3732))
+- refactor: migrate runtime bridge API to registry helper ([#3731](https://github.com/danielraffel/pulp/pull/3731))
+- refactor: migrate SVG bridge API to registry helper ([#3726](https://github.com/danielraffel/pulp/pull/3726))
+- refactor: migrate platform services bridge API to registry helper ([#3725](https://github.com/danielraffel/pulp/pull/3725))
+- refactor: migrate widget asset bridge API to registry helper ([#3723](https://github.com/danielraffel/pulp/pull/3723))
+- refactor: migrate runtime import bridge API to registry helper ([#3720](https://github.com/danielraffel/pulp/pull/3720))
+- refactor: migrate widget schema bridge API to registry helper ([#3721](https://github.com/danielraffel/pulp/pull/3721))
+- feat(platform): generic D-Bus object-server layer (L7a-1) ([#3698](https://github.com/danielraffel/pulp/pull/3698))
+
+<a id="v03890"></a>
+## [0.389.0] - 2026-06-09
+
+- feat(audio): WASAPI shared low-latency (IAudioClient3) + device-invalidation recovery (W4b) ([#3717](https://github.com/danielraffel/pulp/pull/3717))
+- refactor: migrate RN compatibility bridge API to registry helper ([#3705](https://github.com/danielraffel/pulp/pull/3705))
+- refactor: migrate widget value content bridge API to registry helper ([#3716](https://github.com/danielraffel/pulp/pull/3716))
+
+<a id="v03880"></a>
+## [0.388.0] - 2026-06-09
+
+- feat(audio): WASAPI exclusive-mode output via DeviceConfig::share_mode (W4a) ([#3676](https://github.com/danielraffel/pulp/pull/3676))
+- refactor: migrate style effects bridge API to registry helper ([#3711](https://github.com/danielraffel/pulp/pull/3711))
+
+<a id="v03874"></a>
+## [0.387.4] - 2026-06-09
+
+- fix(runtime): address post-merge review feedback (#3488 sha256/collision + #3492 caret test) ([#3703](https://github.com/danielraffel/pulp/pull/3703))
+- ci(coverage): include importer CLI test targets in the diff-cover lane ([#3707](https://github.com/danielraffel/pulp/pull/3707))
+- refactor: migrate storage asset bridge API to registry helper ([#3706](https://github.com/danielraffel/pulp/pull/3706))
+
+<a id="v03873"></a>
+## [0.387.3] - 2026-06-08
+
+- refactor: migrate WidgetBridge DOM registrar to API registry ([#3687](https://github.com/danielraffel/pulp/pull/3687))
+- refactor: migrate storage style bridge API to registry helper ([#3699](https://github.com/danielraffel/pulp/pull/3699))
+- refactor: migrate value controls bridge API to registry helper ([#3697](https://github.com/danielraffel/pulp/pull/3697))
+- refactor: migrate visual style bridge API to registry helper ([#3696](https://github.com/danielraffel/pulp/pull/3696))
+- feat(import): pulp tool install/uninstall for framework importers ([#3693](https://github.com/danielraffel/pulp/pull/3693))
+- refactor: migrate visibility bridge API to registry helper ([#3695](https://github.com/danielraffel/pulp/pull/3695))
+- refactor: migrate border-box bridge API to registry helper ([#3692](https://github.com/danielraffel/pulp/pull/3692))
+- refactor: migrate basic value bridge API to registry helper ([#3694](https://github.com/danielraffel/pulp/pull/3694))
+
+<a id="v03861"></a>
+## [0.386.1] - 2026-06-08
+
+- refactor: migrate theme bridge API to registry helper ([#3689](https://github.com/danielraffel/pulp/pull/3689))
+- refactor: migrate tokens bridge API to registry helper ([#3688](https://github.com/danielraffel/pulp/pull/3688))
+- refactor: migrate border-side bridge API to registry helper ([#3686](https://github.com/danielraffel/pulp/pull/3686))
+- refactor: migrate border-radius bridge API to registry helper ([#3685](https://github.com/danielraffel/pulp/pull/3685))
+- refactor: migrate outline bridge API to registry helper ([#3684](https://github.com/danielraffel/pulp/pull/3684))
+- refactor: migrate metadata bridge API to registry helper ([#3683](https://github.com/danielraffel/pulp/pull/3683))
+- refactor: migrate shader bridge API to registry helper ([#3682](https://github.com/danielraffel/pulp/pull/3682))
+- refactor: migrate list-style bridge API to registry helper ([#3677](https://github.com/danielraffel/pulp/pull/3677))
+- feat(design-import): auto-label faithful interactive elements from layer names (§2.1) ([#3691](https://github.com/danielraffel/pulp/pull/3691))
+- feat(view): Windows UIA per-widget fragments (a11y Phase 3, W6) ([#3680](https://github.com/danielraffel/pulp/pull/3680))
+
+<a id="v03860"></a>
+## [0.386.0] - 2026-06-09
+
+- feat(import): IMPORTER_TERMS accept-gate + provenance PR-check ([#3681](https://github.com/danielraffel/pulp/pull/3681))
+- refactor: migrate WidgetBridge style-state registrar to API registry ([#3678](https://github.com/danielraffel/pulp/pull/3678))
+- feat(design-import): IRInteractiveElement.label — caption -> generated-param name ([#3671](https://github.com/danielraffel/pulp/pull/3671))
+- refactor: migrate WidgetBridge value-list registrar to API registry ([#3675](https://github.com/danielraffel/pulp/pull/3675))
+
+<a id="v03850"></a>
+## [0.385.0] - 2026-06-08
+
+- refactor(cli): split pulp import SPI-verb orchestration into import_run ([#3673](https://github.com/danielraffel/pulp/pull/3673))
+
+<a id="v03840"></a>
+## [0.384.0] - 2026-06-08
+
+- feat(view): Windows IDropTarget drag-drop on the plugin-host child HWND (#3645) ([#3670](https://github.com/danielraffel/pulp/pull/3670))
+- refactor: migrate WidgetBridge leaf registrars to API registry ([#3672](https://github.com/danielraffel/pulp/pull/3672))
+
+<a id="v03830"></a>
+## [0.383.0] - 2026-06-09
+
+- feat(view): deliver macOS native drops into the dispatch core (#3645) ([#3669](https://github.com/danielraffel/pulp/pull/3669))
+- refactor: split WidgetBridge visual style registrar ([#3661](https://github.com/danielraffel/pulp/pull/3661))
+
+<a id="v03821"></a>
+## [0.382.1] - 2026-06-08
+
+- ci(audio): compile the JACK backend in Linux CI + open/start/stop smoke (L5b) ([#3657](https://github.com/danielraffel/pulp/pull/3657))
+
+<a id="v03820"></a>
+## [0.382.0] - 2026-06-08
+
+- feat(import): materialize pulp import emit into a buildable scaffold + clean-room output scan ([#3634](https://github.com/danielraffel/pulp/pull/3634))
+- refactor: split WidgetBridge storage style registrar ([#3653](https://github.com/danielraffel/pulp/pull/3653))
+- refactor: split WidgetBridge visibility style registrar ([#3652](https://github.com/danielraffel/pulp/pull/3652))
+- refactor: split WidgetBridge event registrar ([#3649](https://github.com/danielraffel/pulp/pull/3649))
+
+<a id="v03810"></a>
+## [0.381.0] - 2026-06-08
+
+- refactor(view): unify drag-drop on DropReceiver + fix header self-containment ([#3647](https://github.com/danielraffel/pulp/pull/3647))
+- refactor: split WidgetBridge typography style registrars ([#3646](https://github.com/danielraffel/pulp/pull/3646))
+
+<a id="v03800"></a>
+## [0.380.0] - 2026-06-08
+
+- feat(view): native drag-drop dispatch core + SDL standalone producer ([#3638](https://github.com/danielraffel/pulp/pull/3638))
+- refactor: split WidgetBridge animation registrar ([#3644](https://github.com/danielraffel/pulp/pull/3644))
+- refactor: split WidgetBridge canvas2d registrar ([#3642](https://github.com/danielraffel/pulp/pull/3642))
+- fix(ci): give Tart ephemeral runners a static name per (host, slot) ([#3632](https://github.com/danielraffel/pulp/pull/3632))
+- feature/refactor widgetbridge runtime registrar ([#3643](https://github.com/danielraffel/pulp/pull/3643))
+- feature/refactor widgetbridge border side registrar ([#3641](https://github.com/danielraffel/pulp/pull/3641))
+- refactor: split WidgetBridge border radius registrar ([#3640](https://github.com/danielraffel/pulp/pull/3640))
+- refactor: split WidgetBridge runtime import registrar ([#3636](https://github.com/danielraffel/pulp/pull/3636))
+- refactor: split WidgetBridge outline registrar ([#3637](https://github.com/danielraffel/pulp/pull/3637))
+- docs(ci-skill): patch bumps auto-apply (#3626) + document --adopt-head SHA-drift recovery ([#3631](https://github.com/danielraffel/pulp/pull/3631))
+- refactor: split WidgetBridge border box registrar ([#3630](https://github.com/danielraffel/pulp/pull/3630))
+
+<a id="v03790"></a>
+## [0.379.0] - 2026-06-08
+
+- feat(view): Pulp-drawn ContextMenu (view-layer GPU popup menu) ([#3628](https://github.com/danielraffel/pulp/pull/3628))
+- refactor: split WidgetBridge DOM registrar ([#3624](https://github.com/danielraffel/pulp/pull/3624))
+- refactor: split WidgetBridge text runs registrar ([#3629](https://github.com/danielraffel/pulp/pull/3629))
+- refactor: split WidgetBridge typography registrar ([#3625](https://github.com/danielraffel/pulp/pull/3625))
+
+<a id="v03780"></a>
+## [0.378.0] - 2026-06-08
+
+- chore(deps): pin choc to fork tag for WebView file drag-and-drop (interim) ([#3620](https://github.com/danielraffel/pulp/pull/3620))
+- ci: fix SIGPIPE (exit 141) in auto-release tag lookup ([#3627](https://github.com/danielraffel/pulp/pull/3627))
+- feat(import): pulp import command + tool-registry importer fields + SPI runner ([#3608](https://github.com/danielraffel/pulp/pull/3608))
+- fix(scripts): apply patch bumps in version_bump apply_bumps (Shipyard#358) ([#3626](https://github.com/danielraffel/pulp/pull/3626))
+- fix(canvas): upload mask/pattern shader images to GPU texture (Graphite) ([#3607](https://github.com/danielraffel/pulp/pull/3607))
+- fix(view): route knob/fader/toggle DOM tags to native widgets in live-JSX path ([#3617](https://github.com/danielraffel/pulp/pull/3617))
+- refactor: split WidgetBridge storage/assets registrar ([#3623](https://github.com/danielraffel/pulp/pull/3623))
+- refactor: split WidgetBridge layout registrar ([#3622](https://github.com/danielraffel/pulp/pull/3622))
+- refactor: split WidgetBridge basic value registrar ([#3621](https://github.com/danielraffel/pulp/pull/3621))
+- feat(view): Windows V8 consumer via clang-cl + Chromium libc++ (__Cr) ([#3603](https://github.com/danielraffel/pulp/pull/3603))
+- feat(ship): Windows installer Start-menu shortcuts + signtool failure contract (W7) ([#3618](https://github.com/danielraffel/pulp/pull/3618))
+- fix(cmake): Linux SDK export — re-find ICU + expose fontconfig link helper ([#3616](https://github.com/danielraffel/pulp/pull/3616))
+- refactor: split WidgetBridge content value registrar ([#3604](https://github.com/danielraffel/pulp/pull/3604))
+- feat(runtime): Windows high-resolution OS timer-queue backend (W9) ([#3605](https://github.com/danielraffel/pulp/pull/3605))
+- deps(skia): migrate Skia/Dawn prebuilt toolchain m149 -> m150 ([#3606](https://github.com/danielraffel/pulp/pull/3606))
+- docs: codify no-Namespace, local-Macs-first macOS CI policy ([#3602](https://github.com/danielraffel/pulp/pull/3602))
+- refactor: split WidgetBridge list value registrar ([#3601](https://github.com/danielraffel/pulp/pull/3601))
+- refactor: split WidgetBridge value control registrar ([#3600](https://github.com/danielraffel/pulp/pull/3600))
+- refactor: split WidgetBridge platform services registrar ([#3599](https://github.com/danielraffel/pulp/pull/3599))
+- feature/refactor widgetbridge metadata registrar ([#3598](https://github.com/danielraffel/pulp/pull/3598))
+- feature/refactor widgetbridge widget assets registrar ([#3597](https://github.com/danielraffel/pulp/pull/3597))
+- feature/refactor widgetbridge shader registrar ([#3596](https://github.com/danielraffel/pulp/pull/3596))
+- feature/refactor widgetbridge factory api clean ([#3595](https://github.com/danielraffel/pulp/pull/3595))
+- feature/refactor widgetbridge theme registrar ([#3594](https://github.com/danielraffel/pulp/pull/3594))
+- feature/refactor widgetbridge widget schema registrar ([#3593](https://github.com/danielraffel/pulp/pull/3593))
+- feature/refactor widgetbridge state binding registrar ([#3592](https://github.com/danielraffel/pulp/pull/3592))
+- feature/refactor widgetbridge tokens registrar ([#3591](https://github.com/danielraffel/pulp/pull/3591))
+- feature/refactor widgetbridge svg registrar ([#3590](https://github.com/danielraffel/pulp/pull/3590))
+- feature/refactor widgetbridge list style registrar ([#3588](https://github.com/danielraffel/pulp/pull/3588))
+- feature/refactor widgetbridge registrar slice ([#3587](https://github.com/danielraffel/pulp/pull/3587))
+- feature/refactor debt inventory ([#3586](https://github.com/danielraffel/pulp/pull/3586))
+- feature/refactor rt safety harness ([#3585](https://github.com/danielraffel/pulp/pull/3585))
+- feature/refactor renderer3d cpu seams ([#3583](https://github.com/danielraffel/pulp/pull/3583))
+- feature/refactor test outliers ([#3582](https://github.com/danielraffel/pulp/pull/3582))
+- feature/refactor local ci contracts ([#3581](https://github.com/danielraffel/pulp/pull/3581))
+- feature/refactor downstream validation ([#3579](https://github.com/danielraffel/pulp/pull/3579))
+- ci/scene coverage tier ([#3577](https://github.com/danielraffel/pulp/pull/3577))
+- test: add WidgetBridge API manifest contract ([#3575](https://github.com/danielraffel/pulp/pull/3575))
+- ci: guard refactor hotspot sizes ([#3574](https://github.com/danielraffel/pulp/pull/3574))
+- test(view): cover ScriptEngine identity pass-throughs ([#3573](https://github.com/danielraffel/pulp/pull/3573))
+- feat(platform): Windows native file dialogs via IFileDialog (W5) ([#3571](https://github.com/danielraffel/pulp/pull/3571))
+- fix(platform): real Win32 clipboard (was fake in-process shadow) ([#3566](https://github.com/danielraffel/pulp/pull/3566))
+- chore(design-import): return the standalone demo knobs to inert (pulp #3562) ([#3565](https://github.com/danielraffel/pulp/pull/3565))
+- fix(design-import): tab-strip glow + digit doubling + dropdown label fit ([#3572](https://github.com/danielraffel/pulp/pull/3572))
+- feat(import): project-import SPI contract + plan/manifest/compat schemas ([#3568](https://github.com/danielraffel/pulp/pull/3568))
+- fix(design-import): skip overlay controls occluded by a later opaque node ([#3567](https://github.com/danielraffel/pulp/pull/3567))
+- feat(ship): Linux AppImage packaging for standalone apps (L8b) ([#3563](https://github.com/danielraffel/pulp/pull/3563))
+- feat(plugin): add claude.send_user_file config + SessionStart injection ([#3554](https://github.com/danielraffel/pulp/pull/3554))
+
+<a id="v03711"></a>
+## [0.371.1] - 2026-06-08
+
+- fix(cli): `pulp upgrade` self-heals PATH after a source/SDK-prefix install ([#3556](https://github.com/danielraffel/pulp/pull/3556))
+- fix(design-import): a single-option stepper paints nothing (no doubled header text) ([#3558](https://github.com/danielraffel/pulp/pull/3558))
+
+<a id="v03710"></a>
+## [0.371.0] - 2026-06-07
+
+- feat(platform): Linux binary clipboard via wl-copy/xclip custom types (L9a) ([#3557](https://github.com/danielraffel/pulp/pull/3557))
+
+<a id="v03701"></a>
+## [0.370.1] - 2026-06-07
+
+- fix(view): embedded plugin-view host routes keyDown to the focused input ([#3552](https://github.com/danielraffel/pulp/pull/3552))
+- feat(import): default design import to the interactive faithful-vector lane ([#3551](https://github.com/danielraffel/pulp/pull/3551))
+- test(import): codify design-import tab group as an interactive overlay ([#3550](https://github.com/danielraffel/pulp/pull/3550))
+
+<a id="v03700"></a>
+## [0.370.0] - 2026-06-07
+
+- fix(view): keep selected glyphs in place when selecting across a space ([#3549](https://github.com/danielraffel/pulp/pull/3549))
+
+<a id="v03690"></a>
+## [0.369.0] - 2026-06-07
+
+- fix(design-import): suppress the baked selected-tab highlight (no double-pill) ([#3544](https://github.com/danielraffel/pulp/pull/3544))
+- chore: de-brand the design-import example; credit ELYSIUM as a test reference ([#3527](https://github.com/danielraffel/pulp/pull/3527))
+
+<a id="v03680"></a>
+## [0.368.0] - 2026-06-07
+
+- fix(design-import): preserve a search field's leading icon (inset + bg-color match) ([#3526](https://github.com/danielraffel/pulp/pull/3526))
+- feat(platform): Linux file dialogs via xdg-desktop-portal + reusable DBus client ([#3539](https://github.com/danielraffel/pulp/pull/3539))
+
+<a id="v03670"></a>
+## [0.367.0] - 2026-06-07
+
+- feat(view): ScriptedUiSession explicit reload() / reload_from() (on-demand, last-good) ([#3541](https://github.com/danielraffel/pulp/pull/3541))
+
+<a id="v03660"></a>
+## [0.366.0] - 2026-06-07
+
+- feat(view): DesignFrameView event-driven binding API (on_element_changed + gestures + uniform value) ([#3537](https://github.com/danielraffel/pulp/pull/3537))
+
+<a id="v03650"></a>
+## [0.365.0] - 2026-06-07
+
+- feat(midi): Linux ALSA MIDI device hotplug; promote udev monitor to runtime (#3327 / L4) ([#3535](https://github.com/danielraffel/pulp/pull/3535))
+
+<a id="v03640"></a>
+## [0.364.0] - 2026-06-07
+
+- feat(audio): Linux ALSA device hotplug via libudev (#3327 / L4) ([#3533](https://github.com/danielraffel/pulp/pull/3533))
+- docs(status): reflect shipped Win/Linux catch-up slices in support matrix ([#3528](https://github.com/danielraffel/pulp/pull/3528))
+- test(view): harden render_to_rgba raster test against transient load (retry-on-blank) ([#3532](https://github.com/danielraffel/pulp/pull/3532))
+
+<a id="v03630"></a>
+## [0.363.0] - 2026-06-07
+
+- feat(view): cross-platform headless Skia screenshot + Win/Linux PluginViewHost ([#3500](https://github.com/danielraffel/pulp/pull/3500))
+- feat(figma-plugin): detect overlay controls in the TS lane (lockstep with REST) ([#3521](https://github.com/danielraffel/pulp/pull/3521))
+
+<a id="v03620"></a>
+## [0.362.0] - 2026-06-07
+
+- fix(canvas): render registered fonts in SkParagraph + instance variable-font weight ([#3499](https://github.com/danielraffel/pulp/pull/3499))
+
+<a id="v03610"></a>
+## [0.361.0] - 2026-06-07
+
+- feat(view): GPU plugin-view embedding hardening ([#3496](https://github.com/danielraffel/pulp/pull/3496))
+- test(view): harden capture_view raster tests against transient CI starvation ([#3520](https://github.com/danielraffel/pulp/pull/3520))
+
+<a id="v03602"></a>
+## [0.360.2] - 2026-06-07
+
+- fix(install): ship Skia static libs in the installed SDK ([#3497](https://github.com/danielraffel/pulp/pull/3497))
+- test(import-design): revive cli-import-design suite + guard the baked figma-plugin lane ([#3498](https://github.com/danielraffel/pulp/pull/3498))
+- fix(ci): force safe ccache config on macOS lane to stop false-hit corruption ([#3512](https://github.com/danielraffel/pulp/pull/3512))
+
+<a id="v03601"></a>
+## [0.360.1] - 2026-06-07
+
+- fix(signal): wire FFTW3/MKL dynamic loading on Windows (perf parity) ([#3511](https://github.com/danielraffel/pulp/pull/3511))
+
+<a id="v03600"></a>
+## [0.360.0] - 2026-06-07
+
+- fix(linux): JACK build break, real ALSA MIDI timestamps, .deb packaging routing ([#3495](https://github.com/danielraffel/pulp/pull/3495))
+- test(view): size capture_view sparse-UI chip via flex so it actually paints ([#3517](https://github.com/danielraffel/pulp/pull/3517))
+
+<a id="v03591"></a>
+## [0.359.1] - 2026-06-07
+
+- fix(design-import): emit only real option values; drop fabricated dropdown/stepper stubs ([#3514](https://github.com/danielraffel/pulp/pull/3514))
+
+<a id="v03590"></a>
+## [0.359.0] - 2026-06-07
+
+- feat(design-import): header < > steppers (detect + slide value in place) ([#3513](https://github.com/danielraffel/pulp/pull/3513))
+
 <a id="v03581"></a>
 ## [0.358.1] - 2026-06-07
 
@@ -3741,6 +4447,92 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.435.0]: https://github.com/danielraffel/pulp/releases/tag/v0.435.0
+[0.434.0]: https://github.com/danielraffel/pulp/releases/tag/v0.434.0
+[0.433.0]: https://github.com/danielraffel/pulp/releases/tag/v0.433.0
+[0.432.1]: https://github.com/danielraffel/pulp/releases/tag/v0.432.1
+[0.432.0]: https://github.com/danielraffel/pulp/releases/tag/v0.432.0
+[0.431.2]: https://github.com/danielraffel/pulp/releases/tag/v0.431.2
+[0.431.1]: https://github.com/danielraffel/pulp/releases/tag/v0.431.1
+[0.431.0]: https://github.com/danielraffel/pulp/releases/tag/v0.431.0
+[0.430.0]: https://github.com/danielraffel/pulp/releases/tag/v0.430.0
+[0.429.0]: https://github.com/danielraffel/pulp/releases/tag/v0.429.0
+[0.428.0]: https://github.com/danielraffel/pulp/releases/tag/v0.428.0
+[0.427.0]: https://github.com/danielraffel/pulp/releases/tag/v0.427.0
+[0.426.1]: https://github.com/danielraffel/pulp/releases/tag/v0.426.1
+[0.426.0]: https://github.com/danielraffel/pulp/releases/tag/v0.426.0
+[0.425.0]: https://github.com/danielraffel/pulp/releases/tag/v0.425.0
+[0.424.0]: https://github.com/danielraffel/pulp/releases/tag/v0.424.0
+[0.423.0]: https://github.com/danielraffel/pulp/releases/tag/v0.423.0
+[0.422.0]: https://github.com/danielraffel/pulp/releases/tag/v0.422.0
+[0.421.0]: https://github.com/danielraffel/pulp/releases/tag/v0.421.0
+[0.420.0]: https://github.com/danielraffel/pulp/releases/tag/v0.420.0
+[0.419.0]: https://github.com/danielraffel/pulp/releases/tag/v0.419.0
+[0.418.0]: https://github.com/danielraffel/pulp/releases/tag/v0.418.0
+[0.417.0]: https://github.com/danielraffel/pulp/releases/tag/v0.417.0
+[0.416.0]: https://github.com/danielraffel/pulp/releases/tag/v0.416.0
+[0.415.0]: https://github.com/danielraffel/pulp/releases/tag/v0.415.0
+[0.414.0]: https://github.com/danielraffel/pulp/releases/tag/v0.414.0
+[0.413.0]: https://github.com/danielraffel/pulp/releases/tag/v0.413.0
+[0.412.2]: https://github.com/danielraffel/pulp/releases/tag/v0.412.2
+[0.412.0]: https://github.com/danielraffel/pulp/releases/tag/v0.412.0
+[0.411.0]: https://github.com/danielraffel/pulp/releases/tag/v0.411.0
+[0.410.0]: https://github.com/danielraffel/pulp/releases/tag/v0.410.0
+[0.409.0]: https://github.com/danielraffel/pulp/releases/tag/v0.409.0
+[0.408.0]: https://github.com/danielraffel/pulp/releases/tag/v0.408.0
+[0.407.0]: https://github.com/danielraffel/pulp/releases/tag/v0.407.0
+[0.406.0]: https://github.com/danielraffel/pulp/releases/tag/v0.406.0
+[0.405.0]: https://github.com/danielraffel/pulp/releases/tag/v0.405.0
+[0.404.0]: https://github.com/danielraffel/pulp/releases/tag/v0.404.0
+[0.403.0]: https://github.com/danielraffel/pulp/releases/tag/v0.403.0
+[0.402.0]: https://github.com/danielraffel/pulp/releases/tag/v0.402.0
+[0.401.0]: https://github.com/danielraffel/pulp/releases/tag/v0.401.0
+[0.400.0]: https://github.com/danielraffel/pulp/releases/tag/v0.400.0
+[0.399.0]: https://github.com/danielraffel/pulp/releases/tag/v0.399.0
+[0.398.0]: https://github.com/danielraffel/pulp/releases/tag/v0.398.0
+[0.397.0]: https://github.com/danielraffel/pulp/releases/tag/v0.397.0
+[0.396.0]: https://github.com/danielraffel/pulp/releases/tag/v0.396.0
+[0.395.0]: https://github.com/danielraffel/pulp/releases/tag/v0.395.0
+[0.394.0]: https://github.com/danielraffel/pulp/releases/tag/v0.394.0
+[0.393.0]: https://github.com/danielraffel/pulp/releases/tag/v0.393.0
+[0.392.2]: https://github.com/danielraffel/pulp/releases/tag/v0.392.2
+[0.392.1]: https://github.com/danielraffel/pulp/releases/tag/v0.392.1
+[0.392.0]: https://github.com/danielraffel/pulp/releases/tag/v0.392.0
+[0.391.0]: https://github.com/danielraffel/pulp/releases/tag/v0.391.0
+[0.390.0]: https://github.com/danielraffel/pulp/releases/tag/v0.390.0
+[0.389.0]: https://github.com/danielraffel/pulp/releases/tag/v0.389.0
+[0.388.0]: https://github.com/danielraffel/pulp/releases/tag/v0.388.0
+[0.387.4]: https://github.com/danielraffel/pulp/releases/tag/v0.387.4
+[0.387.3]: https://github.com/danielraffel/pulp/releases/tag/v0.387.3
+[0.386.1]: https://github.com/danielraffel/pulp/releases/tag/v0.386.1
+[0.386.0]: https://github.com/danielraffel/pulp/releases/tag/v0.386.0
+[0.385.0]: https://github.com/danielraffel/pulp/releases/tag/v0.385.0
+[0.384.0]: https://github.com/danielraffel/pulp/releases/tag/v0.384.0
+[0.383.0]: https://github.com/danielraffel/pulp/releases/tag/v0.383.0
+[0.382.1]: https://github.com/danielraffel/pulp/releases/tag/v0.382.1
+[0.382.0]: https://github.com/danielraffel/pulp/releases/tag/v0.382.0
+[0.381.0]: https://github.com/danielraffel/pulp/releases/tag/v0.381.0
+[0.380.0]: https://github.com/danielraffel/pulp/releases/tag/v0.380.0
+[0.379.0]: https://github.com/danielraffel/pulp/releases/tag/v0.379.0
+[0.378.0]: https://github.com/danielraffel/pulp/releases/tag/v0.378.0
+[0.371.1]: https://github.com/danielraffel/pulp/releases/tag/v0.371.1
+[0.371.0]: https://github.com/danielraffel/pulp/releases/tag/v0.371.0
+[0.370.1]: https://github.com/danielraffel/pulp/releases/tag/v0.370.1
+[0.370.0]: https://github.com/danielraffel/pulp/releases/tag/v0.370.0
+[0.369.0]: https://github.com/danielraffel/pulp/releases/tag/v0.369.0
+[0.368.0]: https://github.com/danielraffel/pulp/releases/tag/v0.368.0
+[0.367.0]: https://github.com/danielraffel/pulp/releases/tag/v0.367.0
+[0.366.0]: https://github.com/danielraffel/pulp/releases/tag/v0.366.0
+[0.365.0]: https://github.com/danielraffel/pulp/releases/tag/v0.365.0
+[0.364.0]: https://github.com/danielraffel/pulp/releases/tag/v0.364.0
+[0.363.0]: https://github.com/danielraffel/pulp/releases/tag/v0.363.0
+[0.362.0]: https://github.com/danielraffel/pulp/releases/tag/v0.362.0
+[0.361.0]: https://github.com/danielraffel/pulp/releases/tag/v0.361.0
+[0.360.2]: https://github.com/danielraffel/pulp/releases/tag/v0.360.2
+[0.360.1]: https://github.com/danielraffel/pulp/releases/tag/v0.360.1
+[0.360.0]: https://github.com/danielraffel/pulp/releases/tag/v0.360.0
+[0.359.1]: https://github.com/danielraffel/pulp/releases/tag/v0.359.1
+[0.359.0]: https://github.com/danielraffel/pulp/releases/tag/v0.359.0
 [0.358.1]: https://github.com/danielraffel/pulp/releases/tag/v0.358.1
 [0.358.0]: https://github.com/danielraffel/pulp/releases/tag/v0.358.0
 [0.357.0]: https://github.com/danielraffel/pulp/releases/tag/v0.357.0

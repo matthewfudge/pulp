@@ -228,6 +228,141 @@ TEST_CASE("ScriptedUiSession reapplies sibling theme.json overrides", "[view][sc
     fs::remove_all(temp_dir);
 }
 
+TEST_CASE("ScriptedUiSession applies an explicit kit token theme path", "[view][scripted-ui][theme]") {
+    const auto temp_dir = make_temp_dir("pulp-scripted-kit-theme");
+    const auto script_path = temp_dir / "ui" / "main.js";
+    const auto theme_path = temp_dir / "pulp-kits" / "kit" / "ui" / "tokens.json";
+
+    fs::create_directories(script_path.parent_path());
+    fs::create_directories(theme_path.parent_path());
+    write_text(script_path, "createLabel('status', 'kit-theme', '');");
+    write_text(theme_path, R"({
+        "colors": {
+            "color.control.accent": "#4b8aef"
+        }
+    })");
+
+    View root;
+    root.set_bounds({0, 0, 320, 240});
+    root.set_theme(Theme::dark());
+
+    StateStore store;
+    ScriptedUiSession session(root, store, {
+        .script_path = script_path,
+        .theme_path = theme_path,
+        .enable_hot_reload = false,
+        .enable_theme_reload = true,
+    });
+
+    std::string error;
+    REQUIRE(session.load(&error));
+    REQUIRE(error.empty());
+
+    auto accent = root.theme().color("color.control.accent");
+    REQUIRE(accent.has_value());
+    REQUIRE(accent->r8() == 0x4b);
+    REQUIRE(accent->g8() == 0x8a);
+    REQUIRE(accent->b8() == 0xef);
+
+    fs::remove_all(temp_dir);
+}
+
+TEST_CASE("ScriptedUiSession resolves reviewed kit asset roots", "[view][scripted-ui][assets]") {
+    const auto temp_dir = make_temp_dir("pulp-scripted-kit-assets");
+    const auto script_path = temp_dir / "ui" / "main.js";
+    const auto asset_root = temp_dir / "pulp-kits" / "kit" / "assets";
+
+    fs::create_directories(script_path.parent_path());
+    fs::create_directories(asset_root / "meta");
+    write_text(asset_root / "meta" / "info.json", R"({"name":"kit asset"})");
+    write_text(temp_dir / "outside.json", R"({"name":"outside"})");
+    write_text(script_path, R"JS(
+        var asset = __loadAssetSync__('meta/info.json');
+        var traversal = __loadAssetSync__('../outside.json');
+        createLabel('asset', asset.ok ? asset.text : 'missing', '');
+        createLabel('traversal', traversal.ok ? 'leaked' : String(traversal.status), '');
+    )JS");
+
+    View root;
+    root.set_bounds({0, 0, 320, 240});
+    root.set_theme(Theme::dark());
+
+    StateStore store;
+    ScriptedUiSession session(root, store, {
+        .script_path = script_path,
+        .asset_roots = {asset_root},
+        .enable_hot_reload = false,
+        .enable_theme_reload = false,
+    });
+
+    std::string error;
+    REQUIRE(session.load(&error));
+    REQUIRE(error.empty());
+
+    auto* asset = dynamic_cast<Label*>(session.bridge()->widget("asset"));
+    REQUIRE(asset != nullptr);
+    REQUIRE(asset->text() == R"({"name":"kit asset"})");
+    auto* traversal = dynamic_cast<Label*>(session.bridge()->widget("traversal"));
+    REQUIRE(traversal != nullptr);
+    REQUIRE(traversal->text() == "404");
+
+    fs::remove_all(temp_dir);
+}
+
+TEST_CASE("ScriptedUiSession blocks reviewed kit asset root escape hatches", "[view][scripted-ui][assets]") {
+    const auto temp_dir = make_temp_dir("pulp-scripted-kit-asset-escape");
+    const auto script_path = temp_dir / "ui" / "main.js";
+    const auto asset_root = temp_dir / "pulp-kits" / "kit" / "assets";
+    const auto outside_path = temp_dir / "outside.json";
+
+    fs::create_directories(script_path.parent_path());
+    fs::create_directories(asset_root / "meta");
+    write_text(asset_root / "meta" / "info.json", R"({"name":"kit asset"})");
+    write_text(outside_path, R"({"name":"outside"})");
+
+    std::error_code ec;
+    fs::create_symlink(outside_path, asset_root / "meta" / "outside-link.json", ec);
+
+    const auto file_url = std::string("file://") + outside_path.string();
+    write_text(script_path,
+               "var fileAsset = __loadAssetSync__('" + file_url + "');\n"
+               "var absoluteAsset = __loadAssetSync__('" + outside_path.string() + "');\n"
+               "var symlinkAsset = __loadAssetSync__('meta/outside-link.json');\n"
+               "createLabel('file', fileAsset.ok ? 'leaked' : String(fileAsset.status), '');\n"
+               "createLabel('absolute', absoluteAsset.ok ? 'leaked' : String(absoluteAsset.status), '');\n"
+               "createLabel('symlink', symlinkAsset.ok ? 'leaked' : String(symlinkAsset.status), '');\n");
+
+    View root;
+    root.set_bounds({0, 0, 320, 240});
+    root.set_theme(Theme::dark());
+
+    StateStore store;
+    ScriptedUiSession session(root, store, {
+        .script_path = script_path,
+        .asset_roots = {asset_root},
+        .enable_hot_reload = false,
+        .enable_theme_reload = false,
+    });
+
+    std::string error;
+    REQUIRE(session.load(&error));
+    REQUIRE(error.empty());
+
+    auto* file = dynamic_cast<Label*>(session.bridge()->widget("file"));
+    REQUIRE(file != nullptr);
+    REQUIRE(file->text() == "403");
+
+    auto* absolute = dynamic_cast<Label*>(session.bridge()->widget("absolute"));
+    REQUIRE(absolute != nullptr);
+    REQUIRE(absolute->text() == "404");
+
+    auto* symlink = dynamic_cast<Label*>(session.bridge()->widget("symlink"));
+    REQUIRE(symlink != nullptr);
+    REQUIRE(symlink->text() == "404");
+
+    fs::remove_all(temp_dir);
+}
+
 TEST_CASE("ScriptedUiSession drops stale theme overrides after script reload", "[view][scripted-ui][theme][hotreload]") {
     const auto temp_dir = make_temp_dir("pulp-scripted-theme-reset");
     const auto script_path = temp_dir / "main.js";
@@ -385,4 +520,58 @@ TEST_CASE("ScriptedUiSession::attach_gpu_surface forwards to bridge",
     REQUIRE(session.bridge()->gpu_surface() == nullptr);
 
     fs::remove_all(tmp_dir);
+}
+
+TEST_CASE("ScriptedUiSession explicit reload() rebuilds without a watcher, preserving state + last-good",
+          "[view][scripted-ui][reload]") {
+    const auto temp_dir = make_temp_dir("pulp-scripted-ui");
+    const auto script_path = temp_dir / "main.js";
+    write_text(script_path, "createKnob('gain', 10, 10, 48, 48);\ncreateLabel('status', 'v1', '');\n");
+
+    View root;
+    root.set_bounds({0, 0, 320, 240});
+    root.set_theme(Theme::dark());
+    StateStore store;
+    // No hot-reload watcher: reload() is the on-demand path.
+    ScriptedUiSession session(root, store, {.script_path = script_path,
+                                            .enable_hot_reload = false,
+                                            .enable_theme_reload = false});
+    std::string error;
+    REQUIRE(session.load(&error));
+    REQUIRE(error.empty());
+
+    auto* knob = dynamic_cast<Knob*>(session.bridge()->widget("gain"));
+    REQUIRE(knob != nullptr);
+    knob->set_value(0.66f);
+
+    // Edit + explicit reload (no poll/watcher). State preserved, new widget present.
+    write_text(script_path,
+               "createKnob('gain', 10, 10, 48, 48);\n"
+               "createLabel('status', 'v2', '');\n"
+               "createLabel('added', 'yes', '');\n");
+    REQUIRE(session.reload(&error));
+    REQUIRE(error.empty());
+
+    auto* knob2 = dynamic_cast<Knob*>(session.bridge()->widget("gain"));
+    REQUIRE(knob2 != nullptr);
+    REQUIRE_THAT(knob2->value(), WithinAbs(0.66f, 0.001f));   // state preserved
+    auto* added = dynamic_cast<Label*>(session.bridge()->widget("added"));
+    REQUIRE(added != nullptr);                                 // new code applied
+    REQUIRE(added->text() == "yes");
+
+    // Last-good: a broken reload keeps the current UI and reports the error.
+    write_text(script_path, "this is not valid javascript {{{");
+    std::string bad_error;
+    REQUIRE_FALSE(session.reload(&bad_error));
+    REQUIRE_FALSE(bad_error.empty());
+    REQUIRE(session.bridge()->widget("added") != nullptr);     // old UI intact
+
+    // reload_from(): swap to a different bundle's script.
+    const auto other = temp_dir / "other.js";
+    write_text(other, "createLabel('only-here', 'B', '');\n");
+    REQUIRE(session.reload_from(other, &error));
+    REQUIRE(session.script_path() == other);
+    REQUIRE(session.bridge()->widget("only-here") != nullptr);
+
+    fs::remove_all(temp_dir);
 }

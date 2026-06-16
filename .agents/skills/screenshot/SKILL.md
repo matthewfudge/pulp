@@ -102,6 +102,18 @@ gradient-heavy design. Treat the % as a smoke signal; **eyeball the montage**
   `import-design` does not load that way (throws). Prefer `--validate` with the
   Skia backend for an imported `ui.js`.
 - **`pulp::view::render_to_file`** in tests — headless view-tree PNGs in CI.
+- **`pulp::view::render_to_rgba`** (`screenshot.hpp`) — raw-pixel sibling of
+  `render_to_png`. Returns the decoded **RGBA8** buffer (R,G,B,A byte order,
+  premultiplied alpha, sRGB, top-to-bottom, stride `*out_width*4`) + the pixel
+  dims, instead of PNG bytes — for callers that composite/upload the frame
+  themselves (e.g. the foreign-host embed SDK's offscreen mode) and don't want a
+  PNG encode+decode round-trip. **macOS-only** (forces the Skia raster path,
+  which is endianness-independent; the non-Apple stub returns empty — the
+  registered `ScreenshotProvider` is PNG-only). The internal `render_to_png_skia`
+  already holds these pixels before encoding; this just exposes them. Note
+  `AssetManager::decode_png` does NOT actually decode (it stores raw PNG bytes +
+  parses IHDR), so you cannot get RGBA by round-tripping a PNG through it — use
+  `render_to_rgba` for raw pixels.
 
 ## Render size: use the design's true root, not the source bbox
 
@@ -115,8 +127,44 @@ size from `scene.pulp.json` `root.style.width/height` (or the generated
 `setSize('root', …)`), and render at that. When in doubt, render at the root
 size — the result fills the canvas and matches the design's own proportions.
 
+## Headless GPU capture: use the offscreen `gpu` backend, NOT a live window
+
+The live-host path (`WindowHost::capture_png()`, and the standalone
+`--screenshot=PATH` flag it backs) is driven per-vsync by the macOS GPU host's
+`CVDisplayLink`. That clock only ticks for an **on-screen window in an
+interactive WindowServer session**. In a headless / SSH / CI / agent context —
+or for an `initially_hidden` accessory app — no vsync is vended, so the idle
+pump never fires, the one-shot capture never runs, and `run_event_loop()`
+blocks forever (the process sits in `[NSApplication run] →
+nextEventMatchingMask`). Showing the window does NOT help when there's no
+interactive session.
+
+So for a **headless** capture of a GPU-rendered view, use the offscreen surface
+— `render_to_file(root, w, h, path, scale, ScreenshotBackend::gpu)` /
+`render_to_png_gpu` (Dawn+Skia `HeadlessSurface`, no window, no display link).
+It renders the same tree through the real GPU stack and tears down cleanly, so
+it neither hangs nor wedges the GPU. Reserve the live `--screenshot` path for a
+real desktop session where you actually want to prove the on-screen window.
+
+`examples/PulpTempoSampler` is the worked example of all three:
+`pulp-tempo-sampler-shot OUT.png` (CPU raster, default), `… OUT.png --gpu`
+(offscreen GPU, headless), and the standalone
+`PulpTempoSampler … --screenshot=OUT.png` (live host window, interactive
+session only).
+
 ## Gotchas
 
+- **Absolute-positioned leaf views need `preferred_width`/`preferred_height`,
+  not just `dim_width`.** `yoga_layout.cpp` applies an explicit px size from
+  `FlexStyle::preferred_width/height`; `dim_width = {w, px}` only reaches Yoga
+  after `resolve_dimensions()` runs, which a bare `layout_children()` pass
+  (e.g. the screenshot path's `paint_root`) does NOT call for absolute leaves.
+  `Label`s survive on their text measure function, but a measure-less leaf like
+  `WaveformEditor` collapses to 0×0 and `paint()` early-returns on
+  `local_bounds().is_empty()` → blank. Set `v.flex().preferred_width = w;
+  v.flex().preferred_height = h;` directly when placing such a child; a
+  post-layout `set_bounds()` is futile because any later `layout_children()`
+  re-collapses it.
 - A fresh GPU-less build silently returns the CPU host on macOS
   (`PULP_HAS_SKIA` FALSE → `MacWindowHost`, not `MacGpuWindowHost`). Verify the
   binary contains `MacGpuWindowHost` before trusting a live capture (see the

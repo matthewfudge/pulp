@@ -44,6 +44,12 @@ add_subdirectory(mpe-synth)
 # Phase 17: PulpSampler (audio file sampler with MIDI + ADSR)
 add_subdirectory(PulpSampler)
 
+# OfflineStretch dev harness: stretchcli (file in -> render -> file out, --analyze)
+add_subdirectory(offline-stretch)
+
+# PulpTempoSampler — tempo-matching sampler built on the offline stretch engine
+add_subdirectory(PulpTempoSampler)
+
 # Phase 18: PulpPluck (Karplus-Strong synth — same code runs native + WASM)
 add_subdirectory(pulp-pluck)
 
@@ -54,6 +60,11 @@ add_subdirectory(faust-tremolo)
 
 # ViewBridge demo: custom create_view() + secondary-view attach
 add_subdirectory(view-bridge-demo)
+
+# Live Audio Inspector harness: run_with_editor plus steady output tone.
+if(NOT IOS)
+    add_subdirectory(audio-inspector-demo)
+endif()
 
 # Experimental native import preview: generated C++ view tree, no scripted UI.
 if(APPLE AND NOT PULP_IOS AND EXISTS "${CMAKE_SOURCE_DIR}/planning/artifacts/native-ui/nv0/reports/generated/chainer-phase-f-hybrid.cpp")
@@ -81,9 +92,10 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/design-tool/CMakeLists.txt)
     add_subdirectory(design-tool)
 endif()
 
-# ELYSIUM standalone: imports the committed figma-plugin .pulp.zip natively
-# (sprite-knob hoist) and renders it in a GPU window — launchable demo.
-add_subdirectory(elysium-standalone)
+# Design-import standalone: imports a figma-plugin .pulp.zip natively
+# (sprite-knob hoist) and renders it in a GPU window — launchable demo. The
+# default fixture is a private dev-only test design (not shipped).
+add_subdirectory(design-import-standalone)
 
 # TextEditor keyboard input test (Phase 21.1)
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/text-input-test/CMakeLists.txt)

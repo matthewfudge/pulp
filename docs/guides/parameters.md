@@ -50,7 +50,7 @@ Fields:
 - `group_id` — for hierarchical organization (0 = ungrouped)
 - `to_string` — optional display formatter
 - `from_string` — optional string parser
-- `rate` — `ControlRate` by default; `AudioRate` opts into future audio-rate graph edges
+- `rate` — `ControlRate` by default; `AudioRate` marks the parameter as audio-rate capable for adapters and graph/modulation integrations
 - `smoothing_ramp_seconds` — optional control-rate smoothing time; `0` means off
 
 ### ParamValue
@@ -126,11 +126,33 @@ state().reset_all_mod();                    // clear all offsets
 float cutoff = state().get_modulated(kCutoff);  // base + offset
 ```
 
-The CLAP adapter handles `CLAP_EVENT_PARAM_MOD` events and calls `set_mod_offset()` / `add_mod_offset()` before each process block.
+The CLAP adapter handles `CLAP_EVENT_PARAM_MOD` events and applies the current
+block's absolute modulation amount with `set_mod_offset()` before process runs.
+`add_mod_offset()` remains available for code that intentionally stacks
+multiple modulation sources in its own processing layer.
+
+For plugin-owned modulation matrices, `state::ModulationLane` records source
+identity, target parameter, scope (`Global`, `Voice`, `Note`, or `GraphNode`),
+rate (`Control` or `Audio`), units, mix mode, and depth separately from the
+base parameter value. `validate_modulation_lane()` rejects invalid source/target
+IDs, non-writable or non-modulatable targets, incompatible scopes, and
+audio-rate sources aimed at control-rate parameters before the route reaches
+audio processing.
+
+CLAP `PARAM_MOD` is represented as a global, control-rate host modulation lane
+before the adapter applies the block-local `StateStore` modulation offset.
+CLAP note identity fields (`note_id`, `port_index`, `channel`, `key`) are still
+accepted for compatibility but are not routed as per-note lanes yet.
+
+MPE expression events (`PitchBend`, `Pressure`, and `Timbre`) should be modeled
+as voice-scoped `state::ModulationLane` records when a synth turns them into a
+plugin-owned modulation matrix. Note on/off events are lifecycle events, not
+modulation lanes; expression events should use `Replace` because each event
+carries the current absolute per-voice expression value.
 
 ## Sample-Accurate Automation
 
-Format adapters preserve host automation points in a per-block
+Format adapters preserve sparse host automation points in a per-block
 `ParameterEventQueue` and expose it during `Processor::process()`:
 
 ```cpp
@@ -167,9 +189,38 @@ previous_gain_ = state().get_value(kGain);
 ```
 
 `for_each_subblock` never mutates `StateStore`; it advances a block-local
-cursor as event offsets are crossed. `ParamInfo::smoothing_ramp_seconds` and
-`format::ControlRateParamSmoother` provide an opt-in ramp for processors that
-want click-free block-rate changes without splitting into sub-blocks.
+cursor as event offsets are crossed. `ParamCursor` honors
+`ParameterEvent::ramp_duration_sample_frames` when you advance it to
+intermediate sample offsets, and `value_at(id, sample_offset)` can query an
+active ramp without moving the cursor. The interpolation is independent of host
+block size, so a 2048- or 4096-sample block still uses the sparse event offsets
+as split points and lets the processor query ramp values inside the long span.
+`ParamInfo::smoothing_ramp_seconds` and `format::ControlRateParamSmoother`
+provide an opt-in ramp for processors that want click-free block-rate changes
+without splitting into sub-blocks.
+
+SignalGraph automation follows the same split. Sparse `connect_automation()`
+delivers two source-block-relative control points per graph block; the
+processor decides whether to step, subblock, or interpolate them with
+`ParamCursor`. The sparse stream is not delayed for graph PDC. For modulation
+that must remain phase-aligned with a delayed audio path, use an audio-rate
+parameter and `connect_audio_rate_modulation()`.
+
+`ParameterEventQueue` is fixed-capacity and real-time safe. If more than
+1024 events arrive in one block, `push()` returns `false`, preserves the
+events already queued, and records the drop count for that block via
+`overflowed()` / `dropped_event_count()`. `clear()` starts the next block and
+resets the overflow counters. Format adapters drop excess events instead of
+allocating or resizing on the audio thread; legacy block-end `StateStore`
+writes still reflect the host's latest value.
+
+Dense audio-rate modulation is a separate ProcessBlock-native contract:
+`format::EventBlock::audio_rate_modulations` holds borrowed
+`AudioRateModulationView` lanes with one plain-domain value per frame. Do not
+encode those lanes as one `ParameterEventQueue` entry per sample. The legacy
+`process_processor_block()` adapter leaves dense lanes out of
+`Processor::param_events()` until a processor opts into a ProcessBlock-native
+path.
 
 ## Binding (UI Integration)
 

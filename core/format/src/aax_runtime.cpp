@@ -190,7 +190,10 @@ void copy_midi(const midi::MidiBuffer& in, midi::MidiBuffer& out) {
     // bulk dumps and MIDI-CI workflows in bypass mode specifically.
     // See #438 P2 Codex review on #408.
     for (const auto& sx : in.sysex()) {
-        out.add_sysex(sx.data, sx.sample_offset, sx.timestamp);
+        out.add_sysex_copy(sx.data.data(),
+                           sx.data.size(),
+                           sx.sample_offset,
+                           sx.timestamp);
     }
 }
 
@@ -743,7 +746,9 @@ void AAX_CALLBACK process_callback(AlgorithmContext* const instances_begin[],
         }
 
         state.midi_in.clear();
+        state.midi_in.clear_sysex();
         state.midi_out.clear();
+        state.midi_out.clear_sysex();
         if (definition.supports_midi_input) {
             decode_midi_node(context->midi_input_node, &state.midi_in);
         }
@@ -751,6 +756,8 @@ void AAX_CALLBACK process_callback(AlgorithmContext* const instances_begin[],
         ProcessContext process_context{
             .sample_rate = sample_rate,
             .num_samples = sample_count,
+            .process_mode = ProcessMode::Realtime,
+            .render_speed_hint = RenderSpeedHint::Realtime,
         };
         if (definition.uses_transport && context->transport_node) {
             read_transport(context->transport_node->GetTransport(), &process_context);

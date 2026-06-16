@@ -15,6 +15,7 @@ target_sources(pulp-platform PRIVATE
     src/registry.cpp
     src/clipboard_common.cpp
     src/environment.cpp
+    src/dbus.cpp
 )
 
 # Platform-specific UI services and child process
@@ -54,10 +55,13 @@ elseif(IOS)
 elseif(WIN32)
     target_sources(pulp-platform PRIVATE
         platform/win/clipboard_win.cpp
+        platform/win/file_dialog_win.cpp
         platform/win/child_process_win.cpp
         platform/win/environment_win.cpp
     )
-    target_link_libraries(pulp-platform PRIVATE user32 advapi32)
+    # ole32: COM (CoInitializeEx/CoCreateInstance/CoTaskMemFree) for the
+    # IFileDialog file-dialog backend in file_dialog_win.cpp.
+    target_link_libraries(pulp-platform PRIVATE user32 advapi32 ole32)
 elseif(ANDROID)
     # Android platform sources wired via PulpAndroid.cmake → pulp_wire_android_sources()
     # The Android permissions_backend.cpp (picked up by that glob) defines
@@ -74,6 +78,9 @@ elseif(UNIX AND NOT APPLE)
     target_sources(pulp-platform PRIVATE
         platform/linux/clipboard_linux.cpp
         platform/linux/environment_linux.cpp
+        platform/linux/file_dialog_portal_linux.cpp
         platform/posix/child_process_posix.cpp
     )
+    # dbus.cpp dlopen's libdbus-1 at runtime — needs libdl for dlopen/dlsym.
+    target_link_libraries(pulp-platform PRIVATE ${CMAKE_DL_LIBS})
 endif()

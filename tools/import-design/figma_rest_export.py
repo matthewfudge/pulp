@@ -608,6 +608,57 @@ def _first_text(n):
             return t
     return ""
 
+# A Figma node's auto-generated layer name (the designer never renamed it) carries
+# no semantic meaning — "Ellipse 12", "Rectangle 5", "Frame 41", a bare number, …
+_DEFAULT_NAME_RE = re.compile(
+    r"^(ellipse|rectangle|rect|frame|group|vector|line|polygon|star|component|"
+    r"instance|union|subtract|intersect|exclude|slice|boolean|arrow|image|mask)"
+    r"\s*\d*$", re.IGNORECASE)
+# Structural/kind words that name WHAT a control is, not the parameter it drives —
+# using them as a param name ("Dropdown", "Search") is noise, so drop them too.
+_LABEL_NOISE = {
+    "knob", "dial", "dropdown", "stepper", "tab", "tabs", "tab_group", "tabgroup",
+    "search", "button", "btn", "slider", "fader", "combo", "combobox", "select",
+    "field", "input", "control", "value", "param", "parameter", "widget", "icon",
+}
+
+def _node_label(name):
+    """A human-readable parameter name from a Figma layer name, or '' when the
+    name is auto-generated (Ellipse 12) or a structural/kind word (Dropdown) —
+    i.e. only when the designer named the layer something meaningful. Consumers
+    fall back to the binding key on ''. Conservative on purpose: a wrong name is
+    worse than the synthetic key, so anything ambiguous yields ''."""
+    s = (name or "").strip()
+    if not s or _DEFAULT_NAME_RE.match(s):
+        return ""
+    if s.lower() in _LABEL_NOISE:
+        return ""
+    return s
+
+def _solid_fill_hex(n):
+    """The node's first visible SOLID fill as '#RRGGBB', or '' if none."""
+    for f in (n.get("fills") or []):
+        if f.get("visible", True) and f.get("type") == "SOLID":
+            c = f.get("color") or {}
+            r = int(round(c.get("r", 0.0) * 255))
+            g = int(round(c.get("g", 0.0) * 255))
+            b = int(round(c.get("b", 0.0) * 255))
+            return "#%02x%02x%02x" % (r, g, b)
+    return ""
+
+def _field_bg_hex(field):
+    """The field's own box background ('#RRGGBB'): its own SOLID fill, else the
+    first child rect carrying one (e.g. ELYSIUM's 'Rectangle 66' box inside the
+    search group). '' when none — the overlay then uses its default color."""
+    own = _solid_fill_hex(field)
+    if own:
+        return own
+    for c in field.get("children", []):
+        h = _solid_fill_hex(c)
+        if h:
+            return h
+    return ""
+
 # SVG <rect> regex reused for panel detection (mirrors the C++ detect_panel).
 _RECT_RE = re.compile(r'<rect x="([-\d.]+)" y="([-\d.]+)" width="([-\d.]+)" height="([-\d.]+)"')
 
@@ -654,6 +705,73 @@ def detect_overlay_controls(figma_root, root_abs, panel_origin):
 
     out = []
 
+    # ── Occlusion guard ──────────────────────────────────────────────────────
+    # A control that is fully painted over by a later (higher-z) OPAQUE node is
+    # not actually visible — it must NOT become an interactive overlay, or we
+    # resurface a layer the design hides (e.g. a leftover radio strip buried
+    # under an envelope graph). Paint order = document preorder (children after
+    # parent, siblings in order); a node is occluded when some node painted AFTER
+    # it (greater preorder index — which naturally excludes its own ancestors and
+    # itself, since they paint earlier) has an opaque fill and a bbox containing
+    # it. A node nested INSIDE the occluder is a descendant of it and so paints
+    # later (higher index) → not flagged, so real controls inside an opaque panel
+    # are kept.
+    def _opaque_cover(nd):
+        if nd.get("opacity", 1.0) < 0.99:
+            return False
+        for f in (nd.get("fills") or []):
+            if not f.get("visible", True) or f.get("opacity", 1.0) < 0.99:
+                continue
+            t = f.get("type", "")
+            if t == "SOLID":
+                if f.get("color", {}).get("a", 1.0) >= 0.99:
+                    return True
+            elif t.startswith("GRADIENT"):
+                stops = f.get("gradientStops") or []
+                if stops and all(s.get("color", {}).get("a", 1.0) >= 0.99 for s in stops):
+                    return True
+        return False
+
+    # Key on Python object identity (id(node)), NOT the figma "id" string — the
+    # latter can be absent or duplicated, which would collide nodes in the maps.
+    _paint_index = {}
+    _subtree_end = {}  # last preorder index within a node's own subtree
+    _occluders = []    # (paint_index, x0, y0, x1, y1)
+
+    def _scan(nd, counter):
+        idx = counter[0]
+        counter[0] += 1
+        _paint_index[id(nd)] = idx
+        b = nd.get("absoluteBoundingBox")
+        if b and _opaque_cover(nd):
+            _occluders.append((idx, b["x"], b["y"],
+                               b["x"] + b.get("width", 0.0), b["y"] + b.get("height", 0.0)))
+        last = idx
+        for c in nd.get("children", []) or []:
+            last = _scan(c, counter)
+        _subtree_end[id(nd)] = last
+        return last
+
+    _scan(figma_root, [0])
+
+    def _occluded(nd):
+        b = nd.get("absoluteBoundingBox")
+        if not b:
+            return False
+        # Only nodes painted AFTER this node's ENTIRE subtree can occlude it.
+        # That excludes the node's own descendants (e.g. its background <rect>,
+        # which fills it and would otherwise look like an occluder of its parent).
+        after = _subtree_end.get(id(nd), _paint_index.get(id(nd), -1))
+        cx0, cy0 = b["x"], b["y"]
+        cx1, cy1 = b["x"] + b.get("width", 0.0), b["y"] + b.get("height", 0.0)
+        eps = 0.5
+        for oi, ox0, oy0, ox1, oy1 in _occluders:
+            if oi <= after:
+                continue
+            if ox0 - eps <= cx0 and oy0 - eps <= cy0 and ox1 + eps >= cx1 and oy1 + eps >= cy1:
+                return True
+        return False
+
     _CONTAINER_TYPES = ("FRAME", "INSTANCE", "COMPONENT", "GROUP")
 
     def detect_tab_group(n):
@@ -699,6 +817,10 @@ def detect_overlay_controls(figma_root, root_abs, panel_origin):
         }
 
     def visit(n, parent):
+        # Painted-over (occluded) subtrees hold no visible controls — skip the
+        # whole subtree so a buried layer never becomes an interactive overlay.
+        if _occluded(n):
+            return
         name = (n.get("name") or "").lower()
         ntype = n.get("type", "")
         bb = n.get("absoluteBoundingBox")
@@ -710,8 +832,10 @@ def detect_overlay_controls(figma_root, root_abs, panel_origin):
         # ── search (text_field) ─────────────────────────────────────────
         # ELYSIUM names the placeholder TEXT "Search" (the field itself is its
         # parent group); the magnifier is "ic:round-search". Match the search
-        # TEXT/field but skip the icon, and overlay the PARENT group's rect so the
-        # whole field is clickable.
+        # TEXT/field but skip the icon. The overlay is INSET past the leading
+        # icon (start at the placeholder TEXT's x) so the baked magnifier stays
+        # visible, and it carries the field's own bg color so the inset edge
+        # blends seamlessly with the baked box.
         is_search = ("search" in name and not name.startswith("ic")
                      and not name.startswith("icon"))
         if bb and is_search:
@@ -720,13 +844,27 @@ def detect_overlay_controls(figma_root, root_abs, panel_origin):
             use_parent = (n.get("type") == "TEXT" and parent
                           and parent.get("absoluteBoundingBox"))
             field = parent if use_parent else n
-            fx, fy, fw, fh = to_svg(field["absoluteBoundingBox"])
-            out.append({
+            fbb = field["absoluteBoundingBox"]
+            # Inset the left edge to the placeholder text's x (past the icon) when
+            # the matched node is the TEXT sitting inside the field group.
+            if use_parent and bb.get("x", fbb["x"]) > fbb["x"]:
+                ox = bb["x"]
+                ow = fbb["x"] + fbb.get("width", 0.0) - bb["x"]
+            else:
+                ox = fbb["x"]
+                ow = fbb.get("width", 0.0)
+            fx, fy, fw, fh = to_svg(
+                {"x": ox, "y": fbb["y"], "width": ow, "height": fbb.get("height", 0.0)})
+            el = {
                 "kind": "text_field",
                 "x": fx, "y": fy, "w": fw, "h": fh,
                 "placeholder": _first_text(n) or n.get("name", "Search"),
                 "source_node_id": field.get("id", n.get("id", "")),
-            })
+            }
+            bgc = _field_bg_hex(field)
+            if bgc:
+                el["bg_color"] = bgc
+            out.append(el)
             return  # the field is a leaf overlay — don't recurse into it
         # ── dropdown ────────────────────────────────────────────────────
         # A real dropdown is a FRAME named ~"dropdown", field-sized, that contains
@@ -751,7 +889,47 @@ def detect_overlay_controls(figma_root, root_abs, panel_origin):
             out.append({
                 "kind": "dropdown",
                 "x": dx, "y": dy, "w": dw, "h": dh,
-                "options": [current, "Option 2", "Option 3"],  # TODO: source variants
+                # Faithful options: emit ONLY the real shown value. A static design
+                # defines no alternatives, and these selectors are plain frames
+                # (not component instances), so there are no variants to enumerate.
+                # Fabricating "Option 2/3" placeholders would be misleading; a
+                # design that DID define variants would source the full list from
+                # the component set's property definitions.
+                "options": [current],
+                "selected_index": 0,
+                "source_node_id": n.get("id", ""),
+            })
+            return  # leaf overlay
+        # ── stepper (< > header preset selector) ──────────────────────────
+        # Same "Dropdown"-named FRAME family, but its chevron child is a < > PAIR
+        # ("Frame 41" in ELYSIUM), NOT a down-chevron. These cycle a header value
+        # in place rather than opening a popup — emit a stepper so the value can
+        # slide via the chevrons once alternatives exist. As with dropdowns, a
+        # static design defines only the shown value (no component variants), so
+        # emit just that — the developer (or a variant-carrying design) supplies
+        # the full list.
+        def _cname(c):
+            return (c.get("name") or "").lower()
+        kids = n.get("children", [])
+        has_stepper_pair = any(_cname(c).startswith("frame 41") for c in kids) or (
+            any(k in _cname(c) for c in kids
+                for k in ("chevron_left", "navigate_before",
+                          "keyboard_arrow_left", "arrow_left", "arrow_back"))
+            and any(k in _cname(c) for c in kids
+                    for k in ("chevron_right", "navigate_next",
+                              "keyboard_arrow_right", "arrow_right", "arrow_forward")))
+        is_stepper = ("dropdown" in name and ntype == "FRAME" and bb
+                      and bb.get("width", 0.0) >= 40.0
+                      and 14.0 <= bb.get("height", 0.0) <= 44.0
+                      and not has_down_chevron
+                      and has_stepper_pair
+                      and current != "Dropdown")
+        if is_stepper:
+            sx, sy, sw, sh = to_svg(bb)
+            out.append({
+                "kind": "stepper",
+                "x": sx, "y": sy, "w": sw, "h": sh,
+                "options": [current],  # real shown value only (see note above)
                 "selected_index": 0,
                 "source_node_id": n.get("id", ""),
             })
@@ -793,10 +971,56 @@ def apply_faithful_vector(root_node, figma_root, svg, file_key, node_id, out_dir
     elements += _name_override_knobs(figma_root, knob_names, elements)
     elements += detect_overlay_controls(figma_root, root_abs, (px, py))
 
+    _label_elements(elements, figma_root, root_abs)
+
     root_node["render_mode"] = "faithful_svg"
     root_node["svg_asset_id"] = asset_id
     root_node["interactive_elements"] = elements
     return entry
+
+def _label_elements(elements, figma_root, root_abs):
+    """Attach a human-readable `label` (the generated-parameter name) to each
+    interactive element from its source Figma layer name, when meaningful (see
+    _node_label). Overlay controls already carry source_node_id → look the node up
+    directly; geometry-detected knobs have no node link, so match the named node
+    whose frame-local center lands within the knob's hit radius (same coordinate
+    convention as _name_override_knobs). Sets `label` only when non-empty, so an
+    unnamed control keeps falling back to its binding key — no regression."""
+    ox, oy = root_abs
+    # id -> node, and a flat list of (cx_local, cy_local, label) for named leaves.
+    id2node = {}
+    named_pts = []  # (cx, cy, label)
+    def walk(n):
+        nid = n.get("id")
+        if nid:
+            id2node[nid] = n
+        bb = n.get("absoluteBoundingBox")
+        lbl = _node_label(n.get("name", ""))
+        if bb and lbl:
+            cx = bb.get("x", 0.0) - ox + bb.get("width", 0.0) / 2.0
+            cy = bb.get("y", 0.0) - oy + bb.get("height", 0.0) / 2.0
+            named_pts.append((cx, cy, lbl))
+        for c in n.get("children", []) or []:
+            walk(c)
+    walk(figma_root)
+
+    for el in elements:
+        sid = el.get("source_node_id")
+        if sid and sid in id2node:
+            lbl = _node_label(id2node[sid].get("name", ""))
+            if lbl:
+                el["label"] = lbl
+            continue
+        # Geometry knob: nearest named node whose center is within the hit radius.
+        if el.get("kind") == "knob":
+            kx, ky, r = el.get("cx", 0.0), el.get("cy", 0.0), el.get("hit_radius", 0.0)
+            best, bd = None, 1e18
+            for cx, cy, lbl in named_pts:
+                d2 = (cx - kx) ** 2 + (cy - ky) ** 2
+                if d2 <= r * r and d2 < bd:
+                    bd, best = d2, lbl
+            if best:
+                el["label"] = best
 
 def _rewrite_image_fills(node, ref_to_rel):
     """Replace style.background_image 'pending:<ref>' with the resolved relative
@@ -813,7 +1037,7 @@ def _rewrite_image_fills(node, ref_to_rel):
     for c in node.get("children", []):
         _rewrite_image_fills(c, ref_to_rel)
 
-def main():
+def build_argparser():
     ap = argparse.ArgumentParser(description="Headless Figma REST → Pulp figma-plugin envelope")
     ap.add_argument("--file-key"); ap.add_argument("--node")
     ap.add_argument("--url", help="Figma design URL (extracts --file-key + --node)")
@@ -821,14 +1045,29 @@ def main():
     ap.add_argument("--token", help="Figma PAT (else $FIGMA_TOKEN or ~/.config/pulp/figma-token)")
     ap.add_argument("--no-assets", action="store_true", help="skip /images PNG capture (geometry+style only)")
     ap.add_argument("--node-json", help="use a pre-fetched /v1/.../nodes JSON instead of calling REST")
-    ap.add_argument("--faithful-vector", action="store_true",
-                    help="faithful-vector lane (Plan B): capture the frame's own SVG and render it "
-                         "pixel-faithfully via DesignFrameView, with auto-detected interactive knobs")
+    # Faithful-vector is the DEFAULT import lane (Plan B): it captures the frame's
+    # own SVG and renders it pixel-faithfully via DesignFrameView, overlaying the
+    # auto-detected INTERACTIVE controls (knobs, search field, dropdowns, steppers,
+    # tab groups). Without it the importer emits a flat, STATIC node tree with no
+    # live widgets — which is almost never what a plugin UI wants — so it is opt-OUT
+    # (`--no-faithful-vector`) rather than opt-in. When no frame SVG is obtainable
+    # (e.g. --node-json with no token and no --frame-svg) the lane degrades
+    # gracefully to the flat export with a warning.
+    ap.add_argument("--faithful-vector", action=argparse.BooleanOptionalAction, default=True,
+                    help="faithful-vector lane (Plan B, DEFAULT ON): capture the frame's own SVG and "
+                         "render it pixel-faithfully via DesignFrameView, with auto-detected interactive "
+                         "overlays (knobs, search, dropdowns, steppers, tab groups). "
+                         "Use --no-faithful-vector for the legacy flat node-tree export.")
     ap.add_argument("--frame-svg",
                     help="use a pre-fetched frame SVG file instead of calling /images (with --faithful-vector)")
     ap.add_argument("--knob-name", action="append", default=[],
                     help="name-override (repeatable): also treat any node whose name contains this "
                          "substring as a knob, supplementing geometry auto-detect (with --faithful-vector)")
+    return ap
+
+
+def main():
+    ap = build_argparser()
     args = ap.parse_args()
 
     file_key, node_id = args.file_key, args.node

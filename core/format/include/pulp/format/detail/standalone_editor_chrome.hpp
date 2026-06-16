@@ -1,67 +1,18 @@
 #pragma once
 
-#include <pulp/format/detail/editor_environment.hpp>
+#include <pulp/format/detail/standalone_environment.hpp>
 #include <pulp/format/processor.hpp>
 #include <pulp/format/settings_panel.hpp>
 #include <pulp/runtime/log.hpp>
-#include <pulp/runtime/system.hpp>
 #include <pulp/view/window_host.hpp>
 
-#include <charconv>
 #include <functional>
 #include <memory>
 #include <string>
-#include <string_view>
-#include <system_error>
 #include <utility>
+#include <vector>
 
 namespace pulp::format::detail {
-
-inline bool standalone_env_truthy(std::string_view name) {
-    return environment_flag_truthy(name);
-}
-
-inline bool parse_positive_frame_delay(std::string_view value, int& frames) {
-    if (value.empty() || value.front() == '+') return false;
-
-    int parsed = 0;
-    const char* first = value.data();
-    const char* last = first + value.size();
-    auto result = std::from_chars(first, last, parsed);
-    if (result.ec != std::errc{} || result.ptr != last || parsed <= 0)
-        return false;
-
-    frames = parsed;
-    return true;
-}
-
-inline StandaloneConfig standalone_config_from_environment(StandaloneConfig config) {
-    if (standalone_env_truthy("PULP_HEADLESS")
-        || standalone_env_truthy("PULP_TEST_MODE")
-        || standalone_env_truthy("CI")) {
-        config.headless = true;
-    }
-
-    if (auto screenshot = runtime::get_env("PULP_SCREENSHOT");
-        screenshot && config.screenshot_path.empty()) {
-        config.screenshot_path = *screenshot;
-    }
-
-    if (auto frames = runtime::get_env("PULP_FRAMES")) {
-        int parsed = 0;
-        if (parse_positive_frame_delay(*frames, parsed))
-            config.screenshot_frame_delay = parsed;
-    }
-
-    if (!config.screenshot_path.empty())
-        config.headless = true;
-
-    return config;
-}
-
-inline bool standalone_headless_requires_screenshot(const StandaloneConfig& config) {
-    return config.headless && config.screenshot_path.empty();
-}
 
 struct StandaloneSettingsActions {
     std::function<bool(const StandaloneConfig&)> apply_config;
@@ -130,7 +81,8 @@ private:
         midi::MidiSystem*,
         view::AudioBridge*,
         StandaloneSettingsActions,
-        std::vector<Processor::SettingsSection>);
+        std::vector<Processor::SettingsSection>,
+        view::AudioBridge*);
 
     view::View* window_root_ = nullptr;
     SettingsPanel* settings_panel_ = nullptr;
@@ -146,7 +98,8 @@ inline StandaloneEditorChrome make_standalone_editor_chrome(
     midi::MidiSystem* midi_system,
     view::AudioBridge* input_bridge,
     StandaloneSettingsActions actions,
-    std::vector<Processor::SettingsSection> plugin_sections = {}) {
+    std::vector<Processor::SettingsSection> plugin_sections = {},
+    view::AudioBridge* output_bridge = nullptr) {
     StandaloneEditorChrome chrome(std::move(editor_root));
     if (!config.show_settings_tab) {
         return chrome;
@@ -157,6 +110,7 @@ inline StandaloneEditorChrome make_standalone_editor_chrome(
     settings_panel->bind_systems(audio_system, midi_system);
     settings_panel->set_current_config(config);
     settings_panel->set_input_meter_bridge(input_bridge);
+    settings_panel->set_output_meter_bridge(output_bridge);
     settings_panel->set_callbacks(
         make_standalone_settings_callbacks(*settings_panel, std::move(actions)));
 
@@ -166,6 +120,15 @@ inline StandaloneEditorChrome make_standalone_editor_chrome(
 
     auto tab_panel = std::make_unique<view::TabPanel>();
     tab_panel->flex().flex_grow = 1.0f;
+    // Make the editor tab FILL the (letterboxed) design area. TabPanel::add_tab
+    // applies no flex to tab content, and FlexStyle defaults to flex_grow=0 in a
+    // column, so a fill-based editor (one with no intrinsic height — e.g. a
+    // design-viewport editor that lays out from local_bounds()) collapses to a
+    // thin strip while the cross axis stretches. SettingsPanel avoids this by
+    // setting flex_grow=1 on itself in its own ctor; do the same for the editor
+    // root here. Harmless for editors that already size themselves (flex_grow
+    // only claims remaining space). Fixes the Bendr-tracker #45 standalone squish.
+    chrome.editor_root_->flex().flex_grow = 1.0f;
     tab_panel->add_tab("Editor", std::move(chrome.editor_root_));
     tab_panel->add_tab("Settings", std::move(settings_panel));
     // No outer [Editor][Settings] tab bar — the editor reaches Settings via its own
@@ -289,27 +252,32 @@ inline void attach_standalone_editor_bridge(
         });
 }
 
+inline std::function<void()> make_standalone_idle_callback(
+    std::function<void()> poll_scripted_ui,
+    std::function<void()> poll_settings) {
+    if (poll_scripted_ui) {
+        return [poll_scripted_ui = std::move(poll_scripted_ui),
+                poll_settings = std::move(poll_settings)] {
+            poll_scripted_ui();
+            if (poll_settings) {
+                poll_settings();
+            }
+        };
+    }
+
+    return [poll_settings = std::move(poll_settings)] {
+        if (poll_settings) {
+            poll_settings();
+        }
+    };
+}
+
 inline void install_standalone_idle_callback(
     view::WindowHost& window,
     std::function<void()> poll_scripted_ui,
     std::function<void()> poll_settings) {
-    if (poll_scripted_ui) {
-        window.set_idle_callback(
-            [poll_scripted_ui = std::move(poll_scripted_ui),
-             poll_settings = std::move(poll_settings)] {
-                poll_scripted_ui();
-                if (poll_settings) {
-                    poll_settings();
-                }
-            });
-        return;
-    }
-
-    window.set_idle_callback([poll_settings = std::move(poll_settings)] {
-        if (poll_settings) {
-            poll_settings();
-        }
-    });
+    window.set_idle_callback(make_standalone_idle_callback(
+        std::move(poll_scripted_ui), std::move(poll_settings)));
 }
 
 template <typename ScriptedUi>

@@ -100,7 +100,7 @@ void write_registry_fixture(const fs::path& root,
     "signalsmith-dsp": {
       "name": "Signalsmith DSP",
       "version": ")" + signalsmith_version + R"(",
-      "description": "Fast DSP helpers for filters and resampling",
+      "description": "Fast \"DSP\" helpers for filters and resampling\nwith newline",
       "license": "MIT",
       "category": "DSP",
       "url": "https://example.com/signalsmith",
@@ -165,6 +165,102 @@ void write_registry_fixture(const fs::path& root,
         "verified_version": "3.0.0",
         "build_status": {
           "macOS": "pass"
+        }
+      }
+    },
+    "aubio": {
+      "name": "Aubio",
+      "version": "0.4.9",
+      "description": "Pitch, onset, beat, and tempo detection",
+      "license": "GPL-3.0",
+      "category": "DSP",
+      "url": "https://example.com/aubio",
+      "fetch": {
+        "method": "header-only",
+        "git_repository": "https://example.com/aubio.git",
+        "git_tag": "0.4.9"
+      },
+      "cmake": {
+        "targets": ["aubio"],
+        "header_only": true,
+        "include_dir": "include"
+      },
+      "platforms": {
+        "macOS": {"architectures": ["arm64"]},
+        "Windows": {"architectures": ["x64"]},
+        "Linux": {"architectures": ["x64"]}
+      },
+      "tags": ["pitch", "onset", "beat", "tempo"],
+      "provides": ["pitch-detection", "onset-detection", "beat-detection", "tempo-detection"],
+      "verification": {
+        "last_verified": "2026-06-08",
+        "verified_version": "0.4.9",
+        "build_status": {
+          "macOS": "metadata-only"
+        }
+      }
+    },
+    "btrack": {
+      "name": "BTrack",
+      "version": "master",
+      "description": "Real-time beat tracking via onset detection",
+      "license": "GPL-3.0",
+      "category": "DSP",
+      "url": "https://example.com/btrack",
+      "fetch": {
+        "method": "header-only",
+        "git_repository": "https://example.com/btrack.git",
+        "git_tag": "master"
+      },
+      "cmake": {
+        "targets": ["btrack"],
+        "header_only": true,
+        "include_dir": "include"
+      },
+      "platforms": {
+        "macOS": {"architectures": ["arm64"]},
+        "Windows": {"architectures": ["x64"]},
+        "Linux": {"architectures": ["x64"]}
+      },
+      "tags": ["onset", "beat-tracking", "tempo"],
+      "provides": ["beat-detection", "tempo-detection"],
+      "verification": {
+        "last_verified": "2026-06-08",
+        "verified_version": "master",
+        "build_status": {
+          "macOS": "metadata-only"
+        }
+      }
+    },
+    "essentia": {
+      "name": "Essentia",
+      "version": "v2.1_beta6",
+      "description": "MIR analysis toolkit with beat and onset detection",
+      "license": "AGPL-3.0",
+      "category": "DSP",
+      "url": "https://example.com/essentia",
+      "fetch": {
+        "method": "header-only",
+        "git_repository": "https://example.com/essentia.git",
+        "git_tag": "v2.1_beta6"
+      },
+      "cmake": {
+        "targets": ["essentia"],
+        "header_only": true,
+        "include_dir": "include"
+      },
+      "platforms": {
+        "macOS": {"architectures": ["arm64"]},
+        "Windows": {"architectures": ["x64"]},
+        "Linux": {"architectures": ["x64"]}
+      },
+      "tags": ["onset", "beat", "mir"],
+      "provides": ["onset-detection", "beat-detection", "spectral-analysis"],
+      "verification": {
+        "last_verified": "2026-06-08",
+        "verified_version": "v2.1_beta6",
+        "build_status": {
+          "macOS": "metadata-only"
         }
       }
     },
@@ -467,6 +563,34 @@ TEST_CASE("search, list, suggest, and audit commands use staged local data",
     REQUIRE(suggest_description.exit_code == 0);
     REQUIRE(suggest_description.stdout_text.find("Suggested packages for") != std::string::npos);
     REQUIRE(suggest_description.stdout_text.find("signalsmith-dsp") != std::string::npos);
+    REQUIRE(suggest_description.stdout_text.find("gpl-filter") == std::string::npos);
+    REQUIRE(suggest_description.stdout_text.find("license-gated match") != std::string::npos);
+
+    auto suggest_license_gated = run_in_project(tmp.path, [&] {
+        return cmd_suggest({"--description", "filter", "--include-license-gated"});
+    });
+    REQUIRE(suggest_license_gated.exit_code == 0);
+    REQUIRE(suggest_license_gated.stdout_text.find("gpl-filter") != std::string::npos);
+    REQUIRE(suggest_license_gated.stdout_text.find("license incompatible") != std::string::npos);
+
+    auto suggest_onset_default = run_in_project(tmp.path, [&] {
+        return cmd_suggest({"--description", "onset"});
+    });
+    REQUIRE(suggest_onset_default.exit_code == 0);
+    REQUIRE(suggest_onset_default.stdout_text.find("aubio") == std::string::npos);
+    REQUIRE(suggest_onset_default.stdout_text.find("btrack") == std::string::npos);
+    REQUIRE(suggest_onset_default.stdout_text.find("essentia") == std::string::npos);
+    REQUIRE(suggest_onset_default.stdout_text.find("license-gated match") != std::string::npos);
+
+    auto suggest_onset_gated = run_in_project(tmp.path, [&] {
+        return cmd_suggest({"--description", "onset", "--include-license-gated"});
+    });
+    REQUIRE(suggest_onset_gated.exit_code == 0);
+    REQUIRE(suggest_onset_gated.stdout_text.find("aubio") != std::string::npos);
+    REQUIRE(suggest_onset_gated.stdout_text.find("btrack") != std::string::npos);
+    REQUIRE(suggest_onset_gated.stdout_text.find("essentia") != std::string::npos);
+    REQUIRE(suggest_onset_gated.stdout_text.find("GPL-3.0") != std::string::npos);
+    REQUIRE(suggest_onset_gated.stdout_text.find("AGPL-3.0") != std::string::npos);
 
     auto suggest_analyze = run_in_project(tmp.path, [&] {
         return cmd_suggest({"--analyze", "demo.cpp"});
@@ -474,6 +598,17 @@ TEST_CASE("search, list, suggest, and audit commands use staged local data",
     REQUIRE(suggest_analyze.exit_code == 0);
     REQUIRE(suggest_analyze.stdout_text.find("Based on includes in demo.cpp") != std::string::npos);
     REQUIRE(suggest_analyze.stdout_text.find("signalsmith-dsp") != std::string::npos);
+    REQUIRE(suggest_analyze.stdout_text.find("gpl-filter") == std::string::npos);
+
+    auto suggest_analyze_json = run_in_project(tmp.path, [&] {
+        return cmd_suggest({"--analyze", "demo.cpp", "--format", "json"});
+    });
+    REQUIRE(suggest_analyze_json.exit_code == 0);
+    REQUIRE(suggest_analyze_json.stdout_text.find("\"mode\": \"analyze\"") != std::string::npos);
+    REQUIRE(suggest_analyze_json.stdout_text.find("\"source\": \"demo.cpp\"") != std::string::npos);
+    REQUIRE(suggest_analyze_json.stdout_text.find("\"id\": \"signalsmith-dsp\"") != std::string::npos);
+    REQUIRE(suggest_analyze_json.stdout_text.find("\"id\": \"gpl-filter\"") == std::string::npos);
+    REQUIRE(suggest_analyze_json.stdout_text.find("\"omitted_license_gated\": 1") != std::string::npos);
 
     auto suggest_alternative = run_in_project(tmp.path, [&] {
         return cmd_suggest({"--alternative", "gpl-filter"});
@@ -481,6 +616,15 @@ TEST_CASE("search, list, suggest, and audit commands use staged local data",
     REQUIRE(suggest_alternative.exit_code == 0);
     REQUIRE(suggest_alternative.stdout_text.find("Alternatives to GPL Filter") != std::string::npos);
     REQUIRE(suggest_alternative.stdout_text.find("signalsmith-dsp") != std::string::npos);
+
+    auto suggest_alternative_json = run_in_project(tmp.path, [&] {
+        return cmd_suggest({"--alternative", "gpl-filter", "--format", "json"});
+    });
+    REQUIRE(suggest_alternative_json.exit_code == 0);
+    REQUIRE(suggest_alternative_json.stdout_text.find("\"mode\": \"alternative\"") != std::string::npos);
+    REQUIRE(suggest_alternative_json.stdout_text.find("\"id\": \"gpl-filter\"") != std::string::npos);
+    REQUIRE(suggest_alternative_json.stdout_text.find("\"id\": \"signalsmith-dsp\"") != std::string::npos);
+    REQUIRE(suggest_alternative_json.stdout_text.find("\"noted\": [\"signalsmith-dsp\"]") != std::string::npos);
 
     auto audit_pkgs = run_in_project(tmp.path, [&] { return audit_packages(tmp.path); });
     REQUIRE(audit_pkgs.exit_code == 1);
@@ -542,6 +686,9 @@ TEST_CASE("search, list, suggest, and audit commands cover empty and error modes
     });
     REQUIRE(suggest_json.exit_code == 0);
     REQUIRE(suggest_json.stdout_text.find("\"id\": \"signalsmith-dsp\"") != std::string::npos);
+    REQUIRE(suggest_json.stdout_text.find("Fast \\\"DSP\\\" helpers") != std::string::npos);
+    REQUIRE(suggest_json.stdout_text.find("\\nwith newline") != std::string::npos);
+    REQUIRE(suggest_json.stdout_text.find("\"id\": \"gpl-filter\"") == std::string::npos);
 
     auto suggest_empty_json = run_in_project(tmp.path, [&] {
         return cmd_suggest({"--description", "zzzz-no-match", "--format", "json"});
@@ -902,6 +1049,37 @@ TEST_CASE("cmd_add covers guarded installs and installed-version guards",
     auto installed_old = run_in_project(tmp.path, [&] { return cmd_add({"signalsmith-dsp"}); });
     REQUIRE(installed_old.exit_code == 0);
     REQUIRE(installed_old.stdout_text.find("Use 'pulp update' to upgrade") != std::string::npos);
+}
+
+TEST_CASE("cmd_add does not accept arbitrary external sources for dependency packages",
+          "[cli][package-commands][add-remove][trust-boundary]") {
+    TempDir tmp;
+    write_project_scaffold(tmp.path);
+    write_registry_fixture(tmp.path);
+    REQUIRE(write_project_targets(tmp.path, {PlatformTarget{"macOS", "arm64"}}));
+    REQUIRE(save_lock_file(tmp.path / "packages.lock.json", make_lock({})));
+
+    auto github_url = run_in_project(tmp.path, [&] {
+        return cmd_add({"https://github.com/example/random-package.git"});
+    });
+    REQUIRE(github_url.exit_code == 1);
+    REQUIRE(github_url.stderr_text.find("not found in registry") != std::string::npos);
+    REQUIRE(load_lock_file(tmp.path / "packages.lock.json").packages.empty());
+
+    auto gitlab_url = run_in_project(tmp.path, [&] {
+        return cmd_add({"https://gitlab.com/example/random-package.git"});
+    });
+    REQUIRE(gitlab_url.exit_code == 1);
+    REQUIRE(gitlab_url.stderr_text.find("not found in registry") != std::string::npos);
+    REQUIRE(load_lock_file(tmp.path / "packages.lock.json").packages.empty());
+
+    auto from_on_dependency = run_in_project(tmp.path, [&] {
+        return cmd_add({"signalsmith-dsp", "--from", "./local-package"});
+    });
+    REQUIRE(from_on_dependency.exit_code == 2);
+    REQUIRE(from_on_dependency.stderr_text.find(
+                "--from is only valid when adding a framework importer") != std::string::npos);
+    REQUIRE(load_lock_file(tmp.path / "packages.lock.json").packages.empty());
 }
 
 TEST_CASE("cmd_add accepts commercial override for proprietary packages",

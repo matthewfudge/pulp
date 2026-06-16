@@ -299,14 +299,20 @@ enum class NodeRenderMode {
 // Two materialization mechanisms (see DesignFrameView):
 //   - `knob` is SVG-PATCH: its needle path is rotated in the SVG and re-rendered
 //     (pixel-perfect, uses cx/cy/hit_radius/svg_patch_d/default_value).
-//   - `dropdown` / `text_field` / `tab_group` are NATIVE-OVERLAY: an opaque child
-//     widget (ComboBox / TextEditor / tab group) is positioned over the element's
-//     `rect` and replaces that baked SVG region with a live control.
+//   - `dropdown` / `text_field` / `tab_group` / `stepper` are NATIVE-OVERLAY: an
+//     opaque child widget (ComboBox / TextEditor / tab group / < > stepper) is
+//     positioned over the element's `rect` and replaces that baked SVG region
+//     with a live control.
 enum class InteractiveElementKind {
     knob,
     dropdown,
     text_field,
     tab_group,
+    // A `< >` stepper: a header value cycled by prev/next chevrons (the design's
+    // section-header preset selectors — named "Dropdown" but carrying a `< >`
+    // pair, not a down-chevron). Uses `options` + `selected_index` like a
+    // dropdown, but steps through them in place instead of opening a popup.
+    stepper,
 };
 
 // One source-identified interactive element overlaid on a faithful_svg render.
@@ -338,6 +344,17 @@ struct IRInteractiveElement {
     int selected_index = 0;
     /// text_field: placeholder text shown until focused/typed.
     std::string placeholder;
+    /// text_field: the design's own field background ("#RRGGBB"), so the overlay
+    /// matches it exactly and the inset-past-the-icon edge is seamless. Empty →
+    /// the default dark field color.
+    std::string bg_color;
+
+    /// Human-readable name for the control, taken from the design's own caption
+    /// text (e.g. the "DEPTH" label under a knob). Empty when the importer found
+    /// no confident caption — consumers then fall back to the binding key. This is
+    /// the name a host surfaces for the generated parameter (embed ABI v5
+    /// PulpEmbedParamInfo.name); unit/range remain importer follow-ups.
+    std::string label;
 
     std::optional<std::string> source_node_id;  ///< Figma node id (binding key)
 };

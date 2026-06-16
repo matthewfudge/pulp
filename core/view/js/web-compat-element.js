@@ -56,6 +56,30 @@ function Element(tagName, nativeId) {
     __nativeElements__[this._id] = this;
 }
 
+// pulp 2026-06-08 (routing-parity sweep) — shared lowercase widget-tag →
+// native-widget factory. `@pulp/react`'s capitalized widget intrinsics
+// (<Knob>, <Fader>, …) lower to lowercase DOM tags (knob, fader, …) on the
+// live-JSX / web-compat path; this table routes each to the new-API
+// createX(id, …) bridge call that constructs the native widget AND wires its
+// callbacks. Single source of truth for `_ensureNative` (below); kept in
+// lockstep with the C++ `__domAppend` table (widget_bridge.cpp
+// make_widget_for_tag) and the `@pulp/react` host-config lowercase aliases —
+// the routing-parity sweep test asserts the surfaces agree. Closures (not
+// eager calls) so the bridge globals only need to exist at call time.
+var __widgetTagFactory__ = {
+    knob:     function(id) { createKnob(id, ""); },
+    fader:    function(id) { createFader(id, "vertical", ""); },
+    toggle:   function(id) { createToggle(id, ""); },
+    combo:    function(id) { createCombo(id, ""); },
+    checkbox: function(id) { createCheckbox(id, ""); },
+    spectrum: function(id) { createSpectrum(id, ""); },
+    waveform: function(id) { createWaveform(id, ""); },
+    meter:    function(id) { createMeter(id, "vertical", ""); },
+    xypad:    function(id) { createXYPad(id, ""); },
+    listbox:  function(id) { createListBox(id, ""); },
+    icon:     function(id) { createIcon(id, "image_upload", ""); }
+};
+
 // Create the native widget based on tag + type
 Element.prototype._ensureNative = function() {
     if (this._nativeCreated) return;
@@ -178,6 +202,18 @@ Element.prototype._ensureNative = function() {
         setMultiLine(id, 1);
     } else if (tag === "select") {
         createCombo(id, "");
+    } else if (Object.prototype.hasOwnProperty.call(__widgetTagFactory__, tag)) {
+        // pulp 2026-06-08 (routing-parity sweep) — lowercase `@pulp/react`
+        // widget intrinsics (<Knob>/<Fader>/<Toggle>/<Combo>/<Checkbox>/
+        // <Spectrum>/<Waveform>/<Meter>/<XYPad>/<ListBox>/<Icon>) lower to
+        // lowercase DOM tags in the live-JSX path. Route them to native
+        // widgets via the shared __widgetTagFactory__ table (defined above),
+        // whose new-API createX(id, …) forms wire callbacks. Before this they
+        // fell to the createCol container default below — no drag, no
+        // on_change — so e.g. a knob never fired onChange. Keeps this surface
+        // in lockstep with __domAppend (widget_bridge.cpp) and the
+        // @pulp/react host-config lowercase map.
+        __widgetTagFactory__[tag](id);
     } else if (tag === "canvas") {
         createCanvas(id, "");
     } else if (tag === "progress") {
@@ -518,6 +554,16 @@ function __replaySvgPathAttributes__(el) {
             fillVal = __resolveCurrentColor__(el);
         }
         setSvgFill(el._id, fillVal);
+    }
+    // fill-rule / fillRule — winding rule ("nonzero" | "evenodd").
+    // pulp #3656 — compound annular paths (a stroked ellipse lowered to
+    // `M…Z M…Z` by JUCE's SVGGraphicsContext) only render the hole under
+    // even-odd. Accept either the HTML hyphen spelling or the JSX
+    // camelCase spelling, mirroring stroke-width / strokeWidth above.
+    var fr = a["fill-rule"];
+    if (fr === undefined) fr = a.fillRule;
+    if (fr !== undefined && typeof setSvgFillRule === "function") {
+        setSvgFillRule(el._id, String(fr));
     }
     // viewBox — inherited from the parent <svg>. The SVG spec attaches
     // viewBox to the outer <svg>, but the SvgPathWidget needs the (w,h)
@@ -991,7 +1037,13 @@ Element.prototype.setAttribute = function(name, value) {
     // and is a no-op when the widget isn't created yet — appendChild
     // re-runs the replay once the native node exists.
     else if (name === "width" || name === "height") {
-        if (typeof __replayMediaAttributes__ === "function") {
+        // <rect> uses width/height as geometry — route those to the
+        // SvgRect replay so post-mount resizes reach the native widget.
+        // Other tags (img/video/svg) keep the media-attr reservation path.
+        if (this.tagName === "RECT" &&
+            typeof __replaySvgRectAttributes__ === "function") {
+            __replaySvgRectAttributes__(this);
+        } else if (typeof __replayMediaAttributes__ === "function") {
             __replayMediaAttributes__(this);
         }
     }
@@ -1054,6 +1106,7 @@ Element.prototype.setAttribute = function(name, value) {
     // the replay flush from _attributes for the pre-mount case.
     else if (this.tagName === "PATH" &&
              (name === "d" || name === "stroke" || name === "fill" ||
+              name === "fill-rule" || name === "fillRule" ||
               name === "stroke-width" || name === "strokeWidth")) {
         if (this._nativeCreated) {
             if (name === "d" && typeof setSvgPath === "function") {
@@ -1062,11 +1115,40 @@ Element.prototype.setAttribute = function(name, value) {
                 setSvgStroke(this._id, String(value));
             } else if (name === "fill" && typeof setSvgFill === "function") {
                 setSvgFill(this._id, String(value));
+            } else if ((name === "fill-rule" || name === "fillRule") &&
+                       typeof setSvgFillRule === "function") {
+                // pulp #3656 — live winding-rule update on an existing path.
+                setSvgFillRule(this._id, String(value));
             } else if ((name === "stroke-width" || name === "strokeWidth") &&
                        typeof setSvgStrokeWidth === "function") {
                 var p = parseFloat(value);
                 if (p === p) setSvgStrokeWidth(this._id, p);
             }
+        }
+    }
+    // Raw <rect> / <line> live setAttribute parity with <path>: mount-time
+    // replay already runs from appendChild, but post-mount attribute
+    // mutations (x/y/fill/stroke/... ) were dropped for rect/line because
+    // only PATH was wired here. Re-run the replay helper, which reads the
+    // now-current this._attributes (setAttribute stores it above before
+    // dispatch). width/height for <rect> are handled in the media-attr
+    // branch above.
+    else if (this.tagName === "RECT" &&
+             (name === "x" || name === "y" || name === "fill" ||
+              name === "stroke" || name === "stroke-width" ||
+              name === "strokeWidth")) {
+        if (this._nativeCreated &&
+            typeof __replaySvgRectAttributes__ === "function") {
+            __replaySvgRectAttributes__(this);
+        }
+    }
+    else if (this.tagName === "LINE" &&
+             (name === "x1" || name === "y1" || name === "x2" ||
+              name === "y2" || name === "stroke" ||
+              name === "stroke-width" || name === "strokeWidth")) {
+        if (this._nativeCreated &&
+            typeof __replaySvgLineAttributes__ === "function") {
+            __replaySvgLineAttributes__(this);
         }
     }
 };

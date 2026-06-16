@@ -12,6 +12,37 @@ requires:
 
 Validate branches and ship code safely. This skill handles all CI workflows for Pulp across local machines and VMs.
 
+## Runner timing metrics
+
+When asked whether Pulp's local runners are fast, stuck, regressing, or worth
+monitoring, query Shipyard's metrics surface before guessing. Pulp does not
+mirror these records into `pulp` CLI or `pulp-mcp`; Shipyard is the metrics
+store and tartci is an optional VM runtime emitter.
+
+This metrics surface requires a Shipyard build that includes the
+`shipyard metrics` subcommand. Pulp's current pinned source-checkout Shipyard in
+`tools/shipyard.toml` is `v0.68.0`, which does not include it yet. If a checkout
+only has the pinned binary, use a newer Shipyard binary or source checkout for
+the optional metrics workflow, or skip metrics and inspect live jobs directly.
+
+Use these commands as the normal agent loop:
+
+```bash
+shipyard metrics import github --repo danielraffel/pulp --limit 50 --json
+tartci runtime export --repo danielraffel/pulp --since-days 14 \
+  | shipyard metrics import tartci --json
+shipyard metrics summary --project pulp --json
+shipyard metrics watch --project pulp --since 14d --json
+shipyard metrics advise --project pulp --json
+```
+
+Read `watch` as a triage signal, not as a hard failure. `insufficient_samples`
+means the lane does not have enough history yet; drift, failure-rate, or slowest
+findings are the useful prompts to inspect runner logs, VM boot behavior, cache
+state, or GitHub queue time. If tartci is not installed for a repo, skip the
+`tartci runtime export` import and still use the GitHub import plus Shipyard
+summary/watch commands.
+
 > **If a PR's required `macos` check has been queued >30 min** or the
 > repo's PRs are all in `mergeable_state=blocked` with no movement,
 > jump to **"Self-hosted runner ops"** near the end of this file.
@@ -54,6 +85,13 @@ Slice 6 (#551).
   build with `-DPULP_BUILD_EXAMPLES=OFF` (matching `build.yml`). If you add a
   new release/packaging workflow, configure with examples OFF (or a populated
   `SKIA_DIR`), or the design-tool Skia gate will block it.
+- **Release/SDK builds must pass `-DPULP_ENABLE_AUDIO_PROBES=OFF`.** The
+  standalone audio probe is a dev/example inspection surface and defaults ON
+  for local development, but shipped CLI, standalone, and SDK artifacts must
+  not export it. Keep `release-cli.yml`, `release-path-pr-gate.yml`,
+  `release-dry-run.yml`, `sign-and-release.yml`, `release-cli-local.sh`, and
+  checkout-backed SDK configure paths aligned when touching release CMake
+  flags.
 - **Hooks inherit `GIT_DIR` — tests that shell out to git can corrupt the live
   worktree.** Git exports `GIT_DIR`/`GIT_WORK_TREE` into hook environments, and
   a set `GIT_DIR` *overrides* `git -C <dir>` discovery. So when the pre-push
@@ -81,6 +119,44 @@ Slice 6 (#551).
   build/packaging/appcast-generation regression surfaces BEFORE a real tag.
   Keep it credential-free (notarize/sign stay in the real path) so it can run
   on a schedule without secrets.
+- **Release-runner Xcode must be pinned (C++20 parity).** `sign-and-release.yml`
+  runs on GitHub-hosted `macos-14`, whose DEFAULT Xcode is 15.4 — its Apple clang
+  lacks C++20 **P0960** (parenthesized aggregate init, `Type p(arg)` for a
+  ctor-less aggregate). The self-hosted PR `macos` lane uses a much newer clang
+  that accepts it, so a CLI/import TU compiled on every PR but FAILED only in the
+  release build — silently breaking GitHub Releases v0.372–v0.391 (tags kept
+  being cut; only the release-cadence watchdog noticed). The job now selects the
+  newest installed Xcode 16.x via `xcode-select` (shell, no third-party action so
+  an actions-allowlist can't hold the release hostage), restoring C++20 parity
+  with the PR lane. **When a release/packaging workflow builds C++ on a GitHub-
+  hosted macOS runner, pin a modern Xcode** — the default lags and silently
+  diverges from the PR toolchain. (Code-side defense: always brace aggregate init
+  `Type p{arg}` in CLI/import code — see the import-design skill.)
+- **The release build is NOT a test gate.** `sign-and-release.yml` no longer
+  re-runs the unit suite (`ctest`). By the time a commit is tagged it has already
+  passed the FULL suite on the PR/merge gate (self-hosted lane, real
+  GPU/display/iOS-SDK). Re-running on the HEADLESS GitHub-hosted release runner is
+  redundant and yields false failures from environment-only tests (Skia-raster
+  screenshot → empty, cmake-require-gpu → timeout, cmake-ios-hostapp-links) that
+  pass on real hardware — that blocked Releases AFTER the Xcode-pin let the build
+  through. Principle: tests gate at PR on representative hardware; the release
+  builds + signs + notarizes + packages the validated commit (the Build step is
+  the release-config compile smoke; `validate.yml` gates format validators). The
+  replacement gate is a built-ARTIFACT smoke (the "Smoke built plugins" step):
+  it `nm`-reads each built `build/CLAP/*.clap` and FAILS only if a Mach-O was
+  produced without its `clap_entry` C-ABI export (a real linkage regression),
+  warning-and-passing when no artifact is found (a path/setup miss must never
+  re-block the release). Static symbol read = NO execution, so it's headless-safe
+  — never use dlopen+init (loads GPU/Skia libs the headless runner lacks) or
+  re-run the hardware-dependent ctest suite.
+- **Sandbox E2E macOS has a long cold C++ CLI build.**
+  `.github/workflows/sandbox-e2e.yml` builds the `pulp-cli` target before
+  running the Python sandbox harness. On GitHub-hosted `macos-latest`, a cold
+  C++ CLI build can exceed 30 minutes and be reported as `cancelled` with
+  `The operation was canceled` plus orphaned `clang` processes, before pytest
+  starts. Treat that as a job timeout/build-cost issue, not a sandbox assertion
+  failure. The workflow uses `timeout-minutes: 60` so the cold macOS build has
+  room to finish while still bounding genuinely wedged runs.
 - `.github/workflows/header-self-contained.yml` (pulp #2576) is a BLOCKING gate
   for the "compiles on Apple Clang, breaks on Linux" transitive-include class
   (e.g. `uint32_t` without `#include <cstdint>` — broke the v0.197.4 release).
@@ -89,6 +165,14 @@ Slice 6 (#551).
   it only fails on a header that genuinely won't compile alone (no "unused
   include" false positives), so it is safe to block on. Headers whose module
   isn't in the GPU-off compile DB are skipped, not failed.
+- **Windows FetchContent subbuilds need a short base dir.** GitHub-hosted
+  Windows runners can still route MSBuild metadata through the legacy
+  260-character path limit. The wgpu prebuilt-populate subbuild has deeply
+  nested stamp paths, so `build-windows/_deps/...` can exceed MAX_PATH during
+  configure even before compilation. `build.yml` passes
+  `-DFETCHCONTENT_BASE_DIR="$PWD/fc"` only on Windows to keep dependency
+  subbuilds short while preserving the normal `build-windows` artifact/test
+  directory.
 - `.github/workflows/watchdog-reaper.yml` (pulp #2576) sweeps ALL open release
   watchdog trackers daily and closes any whose version is released or superseded
   — the existing watchdogs only auto-close inside a recent window, so historical
@@ -140,6 +224,17 @@ Do not push empty commits just to churn queued macOS checks. Cancel
 superseded SHAs, rebase or push only when a PR needs current `main`, and
 wait unless a check has actually failed.
 
+`coverage.yml`'s macOS leg resolves its `runs-on` via
+`resolve_runs_on.py --deny-labels pulp-build,pulp-build-vm`: a coverage
+selector (repo var `PULP_COVERAGE_MACOS_RUNS_ON_JSON` or a dispatch input)
+that names the shared gate pool **fails the resolver fast** rather than
+letting a long advisory coverage run contend with the required `macos`
+check. The dedicated coverage lane uses `pulp-coverage-vm-macos`; a bare
+GitHub-hosted label (`macos-15`) is never denied. (Push-triggered coverage
+on a busy `main` is *designed* to be superseded while queued — the
+supersession-immune **scheduled** run, cron `17 */8 * * *`, is the one that
+produces the green full-matrix upload that clears the coverage-stale watchdog.)
+
 ### Advisory cross-lane workflow: `macos-cross-advisory.yml`
 
 `.github/workflows/macos-cross-advisory.yml` is a path-scoped advisory
@@ -154,6 +249,39 @@ scaffolding (`tools/cmake/toolchains/macos-arm64-osxcross.cmake`,
 unit tests still pass. It is non-gating by design; do not promote it to
 a required check until a self-hosted Linux runner with pinned osxcross
 + private SDK is provisioned and the matching full-build job lands.
+
+### Advisory compile-gate: `windows-midi2-gate`
+
+`build.yml`'s `windows-midi2-gate` job (`continue-on-error: true`, NOT a
+required check, NOT part of the build matrix) compile-verifies Pulp's
+opt-in WinRT MIDI 2.0 backend (`core/midi/platform/win/winrt_midi_device.cpp`,
+gated by `PULP_HAS_WINRT_MIDI`). That backend consumes the
+`Microsoft.Windows.Devices.Midi2` C++/WinRT projection, which ships
+out-of-band with the Windows MIDI Services SDK — a GitHub-only NuGet, NOT in
+the base Windows SDK, so no other lane can compile it. The job provisions it
+through Microsoft's official **vcpkg port** `microsoft-windows-devices-midi2`
+(it downloads the SDK NuGet, runs cppwinrt to generate the projection headers,
+and exports the `Microsoft::Windows::Devices::Midi2` CMake target). Pins +
+rationale live in `tools/ci/midi2/` (`vcpkg.json` + `README.md`). The default
+Windows build never sets `PULP_HAS_WINRT_MIDI`, so this is purely additive.
+Watch points: the port requires Windows SDK >= 10.0.26100.0 (windows-latest is
+right at that floor), and the drafted backend's API surface may still drift
+from the real `winrt::Microsoft::Windows::Devices::Midi2` namespace.
+
+### Advisory compile-gate: `windows-ble-gate`
+
+`build.yml`'s `windows-ble-gate` job (`continue-on-error: true`, NOT a required
+check, NOT part of the build matrix) compile-verifies Pulp's WinRT Bluetooth-LE
+scan backend (`core/midi/platform/win/ble_midi_win.cpp`). Unlike
+`windows-midi2-gate`, the BLE GATT / advertisement APIs
+(`Windows.Devices.Bluetooth*`) ship in the BASE Windows SDK cppwinrt
+projection, so this gate needs NO vcpkg / out-of-band NuGet provisioning — the
+default Windows build already compiles the backend (it links `WindowsApp` +
+`runtimeobject`). The job is a fast, isolated `cmake --build … --target
+pulp-midi` so a blind (macOS-authored) Windows TU gets a compile signal without
+waiting on the full matrix. Watch point: the backend's
+`winrt::Windows::Devices::Bluetooth::Advertisement` API surface is written
+without a local Windows compiler, so signature drift surfaces here first.
 
 ## PR Review Thread Hygiene
 
@@ -199,7 +327,11 @@ in `tools/shipyard.toml`). It:
    or a `Skill-Update:` trailer.
 2. Calls `tools/scripts/version_bump_check.py --mode=apply` to bump SDK,
    Claude plugin, and marketplace versions consistently, honoring any
-   `Version-Bump:` trailers.
+   `Version-Bump:` trailers. This applies `patch`/`minor`/`major` bumps —
+   **including `patch`, which every `fix:` PR gets** (fixed in pulp #3626;
+   before that, patch bumps were silently skipped and `fix:`/`feat:` PRs
+   stranded at the gate, forcing a manual `chore: bump versions` commit — no
+   longer needed).
 3. Runs the no-build source-contract registry gate:
    `tools/import-validation/check-source-contracts.py --strict` plus
    `tools/import-validation/test_source_contracts.py`. This mirrors the
@@ -470,6 +602,7 @@ shipyard cloud run build <branch>         # dispatch the GHA build workflow
 shipyard rescue <PR>                      # recover a wedged PR by redispatching queued runs
 shipyard rescue <PR> --rerun-failed       # v0.67.0+: also re-dispatches FAILED/timed-out runs (not just cancelled), and — with --to omitted — RE-RESOLVES the provider local-first (overflow-aware) instead of forcing github-hosted. This is the lever to recover a saturated/timed-out macOS leg (re-run it on a real local runner). Pass --to <provider> to force.
 shipyard rescue <PR> --rerun-failed --to local   # force a re-run onto the local runner
+shipyard ship --pr N --base main --adopt-head     # recover "ship state SHA drift" after a force-push (Shipyard #346): adopt the current branch head + re-validate, instead of re-shipping from scratch
 shipyard runner watch --kill-hung-workers # host-side prevention daemon for self-hosted runners
 shipyard update --check --json            # installed vs latest Shipyard drift report
 shipyard update                           # apply latest stable Shipyard
@@ -514,20 +647,25 @@ shipyard run --targets windows --resume-from test   # ~2 min vs 15 min
 shipyard run --resume-from build
 ```
 
-### Linux/Windows self-hosted routing (opt-in)
+### Linux self-hosted routing (opt-in) and Windows x64 authority
 
-`build.yml`'s `resolve-provider` feeds the Linux/Windows leg selectors from
-(in precedence): the `linux_runner_selector_json` / `windows_runner_selector_json`
-workflow_dispatch input → the `PULP_LOCAL_LINUX_RUNS_ON_JSON` /
-`PULP_LOCAL_WINDOWS_RUNS_ON_JSON` repo var → `''` (github-hosted, the default).
+`build.yml`'s `resolve-provider` feeds the Linux leg selector from (in
+precedence): the `linux_runner_selector_json` workflow_dispatch input →
+`PULP_LOCAL_LINUX_RUNS_ON_JSON` repo var → `''` (github-hosted, the default).
 Set the repo var (e.g. `["self-hosted","Linux","ARM64","pulp-build-linux"]`) to
-route that leg to the self-hosted blackbook pool, served by
-`tools/ci/tart-runner-linux.sh` / `qemu-runner-windows.sh` (see the `tart-ci`
-skill) and toggled per-platform in the Shipyard macOS GUI. The explicit selector
-has NO capacity fallback, so only set it when blackbook reliably serves that
-lane — else legs route to a label with no online runner and queue. The pilot
-labels (`pulp-build-{linux,windows}`) are non-required, so a stuck pilot can't
-block PRs.
+route that leg to the self-hosted Linux pool, served by
+`tools/ci/tart-runner-linux.sh` (see the `tart-ci` skill) and toggled in the
+Shipyard macOS GUI. The explicit selector has NO capacity fallback, so only set
+it when the pool reliably serves that lane — else legs route to a label with no
+online runner and queue.
+
+Windows is intentionally different. The required `Windows (x64)` gate must stay
+on real GitHub-hosted `windows-latest` unless a local x64 lane is explicitly
+proven and promoted. The current local Windows pool is Windows ARM64 on QEMU
+(`qemu-system-aarch64`): it can maybe smoke x64 via Windows-on-ARM translation,
+but it is not the authoritative Intel/x64 gate. Do not wire
+`PULP_LOCAL_WINDOWS_RUNS_ON_JSON` into the required Build-and-Test Windows x64
+matrix leg; use a separate/dedicated label for any local Windows ARM64 smoke.
 
 ### macOS runner routing (current)
 
@@ -1022,6 +1160,40 @@ For an already-corrupted dir (no sentinel yet), clean it once with the personal
 Pulp's local macOS runner runs through `actions-runner` (PIDs surfaced
 via `ps aux | grep Runner.Listener`); the daemon co-exists with the
 existing service.
+
+### Prevent: ccache false-hit guard (#3504 follow-up)
+
+The build-dir sentinel above does **not** cover the *ccache*, and the
+self-hosted macОS runners share one cache (`CCACHE_DIR=…/cache/ccache`,
+configured in each runner's `~/actions-runner-*/.env`). That `.env` sets
+`CCACHE_DEPEND=true` with the default `compiler_check=mtime` — depend mode
+skips the preprocessor and trusts the compiler's dependency manifest, and
+`mtime` keys the compiler weakly; on a shared cache a stale/false-hit object
+gets served and corrupts unrelated TUs **even on a clean build dir**. Observed
+2026-06-07: the same change-unrelated tests failed on *every* PR's `macos`
+gate — including a pure function `resolve_checkpoint_url()` returning `""` —
+while the identical tests passed on clean local Debug **and** Release builds on
+the same machine. A one-time `ccache -C` does **not** fix it: concurrent builds
+repopulate the cache within minutes, so the bad entries come right back.
+
+The fix is a *config* override, not a clear. `build.yml`'s `build` job `env:`
+forces the safe ccache path (job env overrides the runner-service `.env` for
+those steps): `CCACHE_COMPILERCHECK=content` (key the compiler by content, which
+also changes the cache-key namespace so the contaminated mtime-keyed entries are
+never hit — self-cleaning), `CCACHE_NODEPEND=true` (disable depend mode, the
+actual culprit), and `CCACHE_SLOPPINESS=time_macros` (pulp uses no PCH, so
+`pch_defines` was inert). **Gotcha:** ccache rejects `CCACHE_DEPEND=false` with
+`invalid boolean environment variable value "false" (did you mean
+CCACHE_NODEPEND=true?)` — the env spelling to *disable* a ccache boolean is the
+negated `CCACHE_NO<X>=true` form, not `CCACHE_<X>=false`. Direct mode is left
+**on** (the fast path) on purpose: it hashes the source + include manifest and
+is correct once depend mode is off and the compiler is content-keyed, so there's
+no need to force full preprocessor mode (`CCACHE_NODIRECT=true`) and pay its
+speed cost. A `Ccache effective config (proof of override)` step prints
+`ccache --show-config` before Configure so the run log proves the override
+reached the step. Durable host-side hardening (not required once the env
+override is in place): give each runner its own `CCACHE_DIR`, or set
+`compiler_check=content` in the runner `.env`.
 
 ### Keep current: `shipyard update`
 
@@ -1621,6 +1793,12 @@ not provide the same Shipyard state discipline as `shipyard pr`.
 been moved into sibling modules so newer code can import them without
 pulling in the entire 11k-line file.
 
+The authoritative extraction map is
+`tools/local-ci/MODULE_MAP.md`. When touching local-CI extraction
+boundaries, keep that map and `tools/local-ci/test_local_ci_contracts.py`
+in sync so future code-motion PRs preserve the queue/evidence, target
+preflight, source-prep, cleanup, and artifact-publishing contracts.
+
 - `state_paths.py` — owns `state_dir()`, `queue_path()`, `results_dir()`,
   `logs_dir()`, `ensure_state_dirs()`, and the lock-path helpers.
 - `normalize.py` — owns priority/validation/desktop normalization
@@ -1661,10 +1839,29 @@ pulling in the entire 11k-line file.
   `resolve_workflow_dispatch_defaults`, `summarize_workflow_provider_defaults`,
   `resolve_cli_dispatch_field_values`). Pure resolution — the actual
   subprocess `gh-api` dispatch still lives in `local_ci.py`.
+- `evidence_index.py` — owns the local-CI evidence index: result-to-evidence
+  normalization, latest passing target records, evidence index persistence,
+  branch/SHA grouping, and evidence summaries. Queue mutation, runner state,
+  result creation, and target execution stay out of this module.
+- `desktop_doctor.py` — owns desktop automation capability derivation,
+  writable-artifact checks, WebDriver status probing, and doctor-check
+  assembly. Keep CLI output formatting, desktop action execution, artifact
+  persistence, and launch-adapter orchestration outside this module.
+- `desktop_actions.py` — owns pure desktop action helper policy:
+  action artifact path layout, interaction detection/summaries, coordinate
+  parsing, view-tree click selection, inspector summaries, content-size
+  mapping, screen-point mapping, default labels, and view-tree counts. Keep
+  target execution, artifact persistence, report rollups, and OS-specific
+  launch/probe helpers out of this module.
+- `desktop_cli.py` — owns desktop automation CLI line fragments for status,
+  config, action success, recent-run, proof, publish, and cleanup output. Keep
+  target execution, artifact persistence, report rollups, proof selection, and
+  desktop action policy out of this module.
 
 All original symbols are re-exported from `local_ci.py`, so any old
 `mod.state_dir()` / `mod.normalize_priority()` / `mod.current_sha()` /
-`mod.file_lock(...)` / `mod.BUILTIN_GITHUB_WORKFLOWS` test patch keeps
+`mod.file_lock(...)` / `mod.BUILTIN_GITHUB_WORKFLOWS` /
+`mod.collect_evidence_groups(...)` test patch keeps
 working — but new code should import directly from the sibling module
 to avoid the god-module dependency.
 
@@ -1991,17 +2188,35 @@ use `CMAKE_CURRENT_LIST_DIR`. The two existing helpers paths
 (`_pulp_add_standalone` for fontconfig, top-level fallbacks for
 `_PULP_FORMAT_SOURCE_DIR` etc.) demonstrate the pattern.
 
+### Downstream validation manifest (P0.4)
+
+`tools/validation/downstream/consumer-validation.json` records the
+external consumer checklist for refactors that can affect installed SDK,
+embed ABI, ProjectIR, or generated UI bundle behavior. It is not a
+per-PR external-build gate; it is the canonical inventory of which
+downstream repos must be run for a given API/schema/ABI surface and what
+evidence each run must produce.
+
+`tools/scripts/verify_downstream_validation_manifest.py` is the fast
+schema/checklist guard. `version-skill-check.yml` runs
+`tools/scripts/test_downstream_validation_manifest.py` with the other
+gate-script fixture tests so the manifest cannot drift to a stale SDK
+recipe, drop a roadmap P0.4 consumer, or conflate ProjectIR importer
+coverage with Pulp DesignIR coverage. Use `--check-local` only on a
+developer machine when you want advisory checkout presence and current
+HEAD reporting.
+
 ## Versioning & Skill-Sync gates (Layer 3)
 
-`pulp pr` orchestrates the full shipping flow. CI enforces three gates on every PR to `main`:
+`pulp pr` orchestrates the full shipping flow. CI enforces the fast invariant gates on every PR to `main`:
 
-- `.github/workflows/version-skill-check.yml` — runs `tools/scripts/version_bump_check.py`, `tools/scripts/skill_sync_check.py`, `tools/scripts/compat_sync_check.py`, and `tools/scripts/node_abi_gate.py` in `--mode=report`. Failure blocks merge. No bypass except the commit trailers documented in `docs/guides/versioning.md` and `docs/guides/compat-sync.md`; the node ABI gate is fixed by preserving existing virtual declarations or appending new virtuals at the tail.
+- `.github/workflows/version-skill-check.yml` — runs `tools/scripts/version_bump_check.py`, `tools/scripts/skill_sync_check.py`, `tools/scripts/compat_sync_check.py`, `tools/scripts/node_abi_gate.py`, and `tools/scripts/hotspot_size_guard.py` in `--mode=report`. Failure blocks merge. No bypass except the commit trailers documented in `docs/guides/versioning.md` and `docs/guides/compat-sync.md`; the node ABI gate is fixed by preserving existing virtual declarations or appending new virtuals at the tail, and the hotspot-size guard is fixed by shrinking the tracked file, moving code behind a split, or intentionally raising the baseline in `tools/scripts/hotspot_size_guard.json` with the reason in the PR.
 - `.shipyard/config.toml` → `[validation.gates]` pipeline — same scripts via `shipyard run --pipeline gates`. Runs with `PULP_ENFORCE_PREPUSH=1` so warnings become errors.
 
 Locally:
 
-- `.githooks/pre-push` (install via `tools/scripts/install-githooks.sh`) runs the same fast scripts, including the node ABI gate, advisory-by-default. `PULP_ENFORCE_PREPUSH=1` upgrades to hard fail; `PULP_SKIP_PREPUSH=1` is the single-push emergency bypass.
-- `tools/scripts/gates.sh` — on-demand runner for JUST the cheap gates (skill-sync + version-bump + compat-sync + node-ABI + deps-audit). Runs in ~1 second, exits non-zero on any failure with a one-liner pointing at the right surgical bypass. Use it before `git push` when you've made changes that might touch mapped paths but you don't want to wait for the pre-push hook OR the 20-minute CI roundtrip. Independent of the git hook (no install step needed). Named to align with Shipyard's planned `shipyard gates` subcommand (see `planning/2026-05-19-shipyard-preflight-upstream-proposal.md`); avoids collision with Shipyard's existing `preflight` namespace (SSH backend reachability probes).
+- `.githooks/pre-push` (install via `tools/scripts/install-githooks.sh`) runs the same fast scripts, including the node ABI and hotspot-size gates, advisory-by-default. `PULP_ENFORCE_PREPUSH=1` upgrades to hard fail; `PULP_SKIP_PREPUSH=1` is the single-push emergency bypass.
+- `tools/scripts/gates.sh` — on-demand runner for JUST the cheap gates (skill-sync + version-bump + compat-sync + node-ABI + hotspot-size + deps-audit). Runs in ~1 second, exits non-zero on any hard failure with a one-liner pointing at the right surgical bypass. Use it before `git push` when you've made changes that might touch mapped paths but you don't want to wait for the pre-push hook OR the 20-minute CI roundtrip. Independent of the git hook (no install step needed). Named to align with Shipyard's planned `shipyard gates` subcommand (see `planning/2026-05-19-shipyard-preflight-upstream-proposal.md`); avoids collision with Shipyard's existing `preflight` namespace (SSH backend reachability probes).
 
 **Bypass-priority cheat sheet** — reach for the surgical knob first; the nuclear one masks fast checks too:
 
@@ -2019,6 +2234,8 @@ The 2026-05-18 Pulp #2374 lesson: `PULP_SKIP_PREPUSH=1` on a NEW commit (not a r
 **Compat-sync (#1029):** `tools/scripts/compat_sync_check.py` is the new third leg, mirroring the skill-sync / version-bump shape for the `compat.json` matrix at the repo root. The bypass trailer is `Compat-Update: skip prefix=<section|*> reason="..."` (multiple lines allowed). Path map: `tools/scripts/compat_path_map.json`. Until #1027 ships the populated matrix, empty `compat.json` sections are tolerated. See `docs/guides/compat-sync.md` for the full design.
 
 **CLI ↔ MCP parity (pulp #1997):** `tools/scripts/check_cli_mcp_parity.py` is the fourth invariant gate, added by pulp #1997. It enforces that every top-level CLI command added to `tools/cli/pulp_cli.cpp` either gets a matching `pulp_<command>` tool in `tools/mcp/pulp_mcp.cpp` OR an entry in `tools/scripts/cli_mcp_parity_baseline.json` with a one-line reason. Whole-tree check (no diff base needed) — runs as the `CLI ↔ MCP parity check` step in `version-skill-check.yml` in `--mode=report` (hard fail) and as a hint in `hooks/scripts/cli-plugin-sync.sh`. There is no commit-trailer bypass — the baseline file is itself the bypass mechanism. To intentionally defer MCP exposure for a new CLI command, add an entry to `cli_mcp_parity_baseline.json` in the same PR. The full guidance lives in the `cli-maintenance` skill ("Decide: does this need an MCP tool?").
+
+**Hotspot-size guard (P0.1 refactor roadmap):** `tools/scripts/hotspot_size_guard.py` hard-fails when a tracked monolith exceeds the frozen LOC ceiling in `tools/scripts/hotspot_size_guard.json`. It also warns, without blocking, when a newly added `core/**` or `tools/**` file is already over the configured warning threshold. Lower a ceiling in the same PR that shrinks a hotspot; only raise one when the PR explains why the growth is intentional and still reviewable.
 
 **Auto-release:** `.github/workflows/auto-release.yml` fires on push to `main`. It diffs the two version-bearing files (`CMakeLists.txt` project version, `.claude-plugin/plugin.json` version) against the previous push range and creates the corresponding `v<x.y.z>` or `plugin-v<x.y.z>` tag. The existing tag-triggered release workflows (`release-cli.yml`, `sign-and-release.yml`) then build and publish. `Release: skip reason="..."` on the merging commit suppresses the tag.
 
@@ -2044,14 +2261,14 @@ canonical subject `chore: bump versions`.
 
 **Linux release-cli requires libfontconfig1-dev (#1970):** chrome/m144 Skia exposes fontconfig symbols that the previous release kept private. Without `libfontconfig1-dev` in the apt-install step, the Linux link fails on `undefined reference to FcInitLoadConfigAndFonts` et al. Both `release-cli.yml` and `build.yml` Linux deps steps install it. When bumping `tools/deps/manifest.json` Skia pin, run `nm -D` over the new `libskia.a` and grep for unfamiliar prefixes (`Fc`, `Hb`, `FT_`, etc.) — any new symbol class means a matching system package needs to be added.
 
-**Safe backfill of a stuck release-cli tag (#1962):** raw `gh workflow run release-cli.yml --ref vX.Y.Z` re-runs the BROKEN workflow file from the tag's source — useless when the breakage is in the workflow or the scripts it calls. `release-cli.yml` now exposes a `source_ref` `workflow_dispatch` input plus a `build-cli` step that overlays the current `main` copy of `tools/scripts/fetch_skia_for_release.py` over the in-tree copy on every dispatch with `source_ref` set. To backfill a tag whose source predates a fetch-script fix on main:
+**Safe backfill of a stuck release-cli tag (#1962):** raw `gh workflow run release-cli.yml --ref vX.Y.Z` re-runs the BROKEN workflow file from the tag's source — useless when the breakage is in the workflow or the scripts it calls. Run the workflow from `main`, pass the old tag as `version`, and leave `source_ref` blank; checkout then uses the tag's source tree and the overlay step copies the current `main` release-pipeline helper files over the in-tree copies. `source_ref` is only for the unusual case where you intentionally want to build another ref under the requested version label. Leave `make_latest` false for old-tag backfills so `/releases/latest` does not move backward; set it true only when backfilling the current newest tag after the automatic tag run failed. To backfill a tag whose source predates a fetch-script fix on main:
 
 ```
 gh workflow run release-cli.yml --ref main \
-    -f version=v0.97.0 -f source_ref=v0.97.0
+    -f version=v0.97.0
 ```
 
-The workflow file comes from main (fixed), the source tree comes from the tag (correct content), and the overlay step picks up post-tag script fixes automatically. `release-guard.yml` and `release-cli-watchdog.yml` will auto-close their trackers when the SDK assets land. This was the fix for the four-day stall on v0.95.0..v0.97.0 caused by a skia-builder chrome/m144 zip layout drift (`Release/<arch>/libskia.a` instead of `Release/libskia.a`). The fetch script flattens the arch subdir; regression coverage lives in `tools/scripts/test_fetch_skia_for_release.py`.
+The workflow file comes from main (fixed), the source tree comes from the tag (correct content), and the overlay step picks up post-tag script fixes automatically. `release-guard.yml` and `release-cli-watchdog.yml` will auto-close their trackers when the SDK assets land. This was the fix for the four-day stall on v0.95.0..v0.97.0 caused by a skia-builder chrome/m144 zip layout drift (`Release/<arch>/libskia.a` instead of `Release/libskia.a`). The fetch script flattens the arch subdir; regression coverage lives in `tools/scripts/test_fetch_skia_for_release.py`, with workflow-condition coverage in `tools/scripts/test_release_workflow_test_step.py`.
 
 **Nightly cross-platform check (`.github/workflows/cross-platform-check.yml`):** Pulp's team develops and tests on macOS; Linux, Windows, and Android are advisory "tell us if it breaks" signal, and per-PR CI has been slimmed so those legs no longer run on every PR. This scheduled workflow is the backstop. It runs nightly (`cron: '17 7 * * *'` — odd minute, off-peak; also `workflow_dispatch` for manual bisect) and builds + tests **Linux** (`ubuntu-latest`), **Windows** (`windows-latest`), and **Android** (NDK build on `ubuntu-latest`) as three independent jobs with `fail-fast: false` so one platform breaking never masks the others — catching ALL cross-platform breakage in one pass is the point. GitHub-hosted runners only: it must never consume the scarce self-hosted macOS capacity. A final `tracking-issues` job (`needs:` all three, `if: always()`) maintains **one tracking issue PER platform**, keyed by the EXACT titles `Cross-platform Linux check is broken` / `Cross-platform Windows check is broken` / `Cross-platform Android check is broken`. It reuses `auto-release-watchdog.yml`'s find-or-create / edit / reopen / close gh-api pattern: a failed platform job opens (or reopens + edits) its issue; a passing one closes its open issue. De-dup is by `gh issue list --search "in:title <title>" --state all` matching the exact title — never a fresh issue per night. Created issues carry `bug`, `ci`, `cross-platform`, and `platform:linux`/`platform:windows`/`platform:android` labels, and the body includes the run URL, tip SHA, per-job results, artifact name, and the commit range since the last green run (derived from the Actions API) so a regression can be bisected within a night's batch. Distinct from `nightly-full-build.yml`, which does the full macOS `make all` to catch test targets PR CI never compiles; this workflow is the *non-macOS* coverage PR CI no longer provides. If you slim or restore a per-PR advisory platform leg, keep this nightly in sync — it is the only thing keeping cross-platform debt visible.
 
@@ -2075,7 +2292,7 @@ would make CI flakier than it needs to be.
 
 `.github/workflows/coverage.yml`'s major jobs include:
 
-- `resolve-runners` — shared-helper resolver (`tools/scripts/resolve_runs_on.py`) that picks per-OS runs-on labels in priority order: workflow_dispatch input → `PULP_COVERAGE_<OS>_RUNS_ON_JSON` repo variable → hard-coded default (`ubuntu-latest` / `macos-latest` / `windows-latest`). Same pattern as `sanitizers.yml`. Change runner for one OS by setting the repo variable — no workflow edit required.
+- `resolve-runners` — shared-helper resolver (`tools/scripts/resolve_runs_on.py`) that picks per-OS runs-on labels in priority order: workflow_dispatch input → `PULP_COVERAGE_<OS>_RUNS_ON_JSON` repo variable → hard-coded default (`ubuntu-latest` / `macos-latest` / `windows-latest`). Coverage deliberately does not read `PULP_NAMESPACE_BUILD_*`; use dedicated ephemeral coverage labels such as `pulp-coverage-vm-macos`, never the warm macOS gate labels or shared build-pilot labels. Change runner for one OS by setting the repo variable — no workflow edit required.
 - `coverage` — event-conditional matrix over {macos} on PRs and {linux, macos, windows} on push-to-main / workflow_dispatch. Every leg builds with Clang source-based coverage, runs the native test suite, uploads HTML + summary + Cobertura artifacts, and pushes to Codecov with exactly one per-OS flag (`os-linux`, `os-macos`, `os-windows`). The Linux leg also installs `coverage.py >= 7.10`, runs `tools/scripts/run_python_coverage.py` for `tools/scripts/**`, `tools/deps/**`, and `tools/local-ci/**`, uploads the Python HTML + summary + Cobertura artifacts, and includes `build-coverage/python/coverage.python.xml` in the same Codecov upload. The macOS leg additionally runs `tools/scripts/run_swift_coverage.py`, stages `build-coverage/apple/coverage.apple.lcov`, uploads the Apple summary artifact, and includes that LCOV in the same Codecov upload when present. Subsystem / platform / surface slicing comes from `codecov.yml`'s `component_management` path globs, not from a multi-flag CSV on the upload step. Has `fail-fast: false` on the matrix — a flake on any one OS never cancels the others and never blocks a merge.
 - `android-kotlin-coverage` — Gradle/JaCoCo coverage for `android/app/src/main/kotlin/**`, uploaded to Codecov from the canonical Coverage workflow on push-to-main / workflow_dispatch so main snapshots keep Android JVM coverage fresh without spending a PR runner.
 - `pulp-react-coverage` — Vitest/Cobertura coverage for `packages/pulp-react/**` on push-to-main and workflow_dispatch. PR upload remains in `pulp-react-build.yml`; main upload is centralized here so side coverage cannot advance Codecov when native Coverage for the same SHA was cancelled before upload.
@@ -2095,6 +2312,9 @@ Gotchas:
 - **Global vs per-tier enforcement**: `diff-cover --fail-under=75` is already required. The per-tier gate is still `continue-on-error: true` while the tier definitions soak; don't silently flip that to required without updating `docs/guides/coverage.md` and the issue trail.
 - **Don't `|| ...` the `merge_cobertura` step in `coverage-diff-gate`.** The script uses a DEDICATED exit code (2 = `EXIT_ALL_INPUTS_MISSING`) for the intentionally-tolerated "every input XML missing or empty" case; the diff-cover step then renders the no-XML fallback. Any other non-zero exit (1 = real error: parse failure, script bug, IO error) MUST fail the gate — otherwise a corrupted artifact silently bypasses the required 75% diff-coverage check. Codex P1 reviews on both PR #654 (original `|| echo` shape masked everything) and PR #660 (collapsing rc==1 into the tolerated case let `xml.etree.ParseError` slip through) drove the current shape. The workflow branches on the exact code with `if rc -eq 0` / `elif rc -eq 2` / `else fail`. The script's `EXIT_ALL_INPUTS_MISSING` constant + the workflow's literal `2` are paired — change them in lockstep, and add fixture-tests in `test_merge_cobertura.py` if you alter the contract.
 - **Local mirror of the diff-cover gate.** `tools/scripts/local_diff_cover.sh` runs the same `diff-cover --fail-under=$THRESHOLD` flow CI runs, so coverage-only failures don't cost a 20-min CI roundtrip. The threshold + filters are read from `tools/scripts/coverage_config.json` — both the workflow's diff-cover step and the local script consume that file, so editing the JSON in one place keeps CI + local + the pre-push hook in lockstep. Bypass with `PULP_SKIP_DIFF_COVER=1` for workflow-only or doc-only PRs. The Claude Code `/coverage-diff` slash command and `pulp coverage diff` CLI subcommand are thin wrappers over the same script. The pre-push hook runs this check enforcing-by-default; `PULP_DISABLE_PREPUSH_DIFF_COVER=1` demotes it to advisory for an intentional one-push escape hatch. For focused PRs, pass build targets and set `PULP_DIFF_COVER_CTEST_REGEX` to run only the relevant CTest subset while still enforcing the shared 75% floor. Test coverage in `tools/scripts/test_local_diff_cover.py` includes anti-drift gates that fail if a future edit hardcodes `--fail-under=NN` back into `coverage.yml` or drops the targeted CTest selector.
+- Local diff-cover configures with `PULP_ENABLE_GPU=OFF` and
+  `PULP_BUILD_EXAMPLES=OFF`; it needs the test targets and coverage
+  instrumentation, not Skia-dependent example apps.
 - **`diff_cover_excludes` pattern + flag-shape contract** (PR #1005, learned the hard way). diff-cover's `--exclude` is `nargs='+'` with default action — repeated `--exclude=foo --exclude=bar` keeps only the LAST entry. AND its matching is fnmatch against (a) the file's basename and (b) its absolute path; a literal relative path like `tools/cli/cmd_loop.cpp` matches NEITHER and is a silent no-op. So entries in `coverage_config.json` MUST be a basename (`cmd_loop.cpp`) or a glob (`**/cmd_loop.cpp`), and both `local_diff_cover.sh` and `coverage.yml` MUST splat them under a SINGLE `--exclude val1 val2 ...` flag (NOT a per-entry `--exclude=PATH` loop). The previous shape was silent-broken since #919; a new exclude (scanner_clap.cpp) on PR #1005 surfaced the latent bug because it was a 2-entry config that suddenly mattered. Don't introduce a 3-entry config without re-checking that the splatted form still works.
 - **llvm-cov mis-attribution: inline header virtuals + `break;` inside nested `if`** (PR #2120 case study). llvm-cov-export's Cobertura sometimes reports lines as uncovered when a passing test demonstrably executes them. Two known shapes:
     1. **Inline virtual function bodies in headers** (e.g. `virtual bool accepts_text_input() const { return false; }`) get 0% attribution when the test calls them through a base pointer. Move the body to the matching `.cpp` file (keep the declaration in the header) and coverage attributes correctly.
@@ -2102,7 +2322,11 @@ Gotchas:
   Before refactoring code to satisfy diff-cover, **open `build-coverage/coverage/index.html`** and confirm whether the lines are genuinely unexercised or whether llvm-cov is misattributing. Adding tests that don't actually reach the lines won't help if the attribution itself is broken. Do NOT expand `diff_cover_excludes` to paper over instrumentation quirks — that mechanism is for thin dispatchers exercised end-to-end via shell-out tests, not for "the tooling is confused." Full write-up: `docs/guides/coverage.md` § "llvm-cov mis-attribution gotchas".
 - **`merge_cobertura.py` normalises Windows backslash paths and applies `COVERAGE_IGNORE_REGEX` itself.** Two sneaky bugs found together on PR #660 by walking the actual merged XML: (1) the Windows cobertura emits filenames with backslash separators (`core\\format\\src\\clap_adapter.cpp`), Linux/macOS use forward slashes — without normalisation the merge stores them as TWO files and diff-cover matches the backslash variant against the git diff (which uses forward slashes), finding 0 hits and silently reporting 0% on cross-platform code that was actually exercised on Linux. (2) The Windows leg was leaking ~250 `test\*` entries into the cobertura because run_coverage.sh's `COVERAGE_IGNORE_REGEX` matches `/test/` only — backslash paths slipped past. The merge now normalises slashes AND mirrors the same exclude regex (`tools/scripts/merge_cobertura.py::_IGNORE_RE`) so the gate's view is consistent regardless of which OS produced an artifact. Keep the regex in lockstep with `scripts/run_coverage.sh::COVERAGE_IGNORE_REGEX`.
 - **Install PyYAML before any step that imports it.** `tools/scripts/test_coverage_tier_check.py` calls `ctc.load_targets()` which imports `yaml`, so the `Install PyYAML` step in `coverage.yml` must run BEFORE both the fixture-tests step and the per-tier gate step. Issue #900 caught the original ordering where the install ran after the test, so runners without preinstalled PyYAML hard-failed the required coverage job. If you add another script under `tools/scripts/` that imports `yaml` and gets wired into a workflow, make sure the PyYAML install step precedes every step that runs it.
-- **Every first-party source must classify into exactly one tier (#1056).** `ci/coverage-targets.yaml` tier globs are silent no-ops if a new source path falls outside every tier — it inherits the looser global 75% floor instead of its intended tier. The `TierCoverageCompleteness` cases in `tools/scripts/test_coverage_tier_check.py` lock this in (every tier matches at least one file; every first-party source under `core/`, `tools/`, `apple/`, `android/`, `inspect/` lands in exactly one tier). Non-instrumented surfaces (`apple/**.swift`, `android/**.kt`, `apple/Package.swift`) classify under `infrastructure` for audit-completeness; the `is_instrumented_source` filter in `coverage_tier_check.py` keeps them out of the score so they don't bias the per-tier number.
+- **Every first-party source must classify into exactly one tier (#1056).** `ci/coverage-targets.yaml` tier globs are silent no-ops if a new source path falls outside every tier — it inherits the looser global 75% floor instead of its intended tier. The `TierCoverageCompleteness` cases in `tools/scripts/test_coverage_tier_check.py` lock this in (every tier matches at least one file; every first-party source under `core/`, `tools/`, `apple/`, `android/`, `inspect/` lands in exactly one tier). Non-instrumented surfaces (`apple/**.swift`, `android/**.kt`, `apple/Package.swift`) classify under `infrastructure` for audit-completeness; the `is_instrumented_source` filter in `coverage_tier_check.py` keeps them out of the score so they don't bias the per-tier number. New native user-facing render surfaces, such as `core/scene/**`, belong in the `user-facing` tier alongside `core/render/**` rather than falling through to the global diff-cover fallback.
+- **Realtime graph runtime code belongs in `audio-critical`.** `core/graph/**`
+  contains graph planning/queue primitives consumed by DSP/host execution; keep
+  it on the same 80% tier as `core/audio/**`, `core/host/**`, and
+  `core/midi/**`, not the looser infrastructure tier.
 - **Don't `cancel-in-progress: true` the coverage workflow (#1884).** `coverage.yml` deliberately sets `concurrency.cancel-in-progress: false`. Codecov's `after_n_builds: 4` (pulp#1883) waits for all per-OS uploads before posting; if a force-push cancels an in-flight run mid-upload, some legs upload and others don't, Codecov gets stuck waiting for the missing leg, and the PR merges with no coverage signal. A 2026-05-12 audit found this pattern on 21/30 most-recent merged PRs (~70% of merges shipping without the `Diff coverage required` check). The fix costs some compute on stale commits but guarantees every push ends with a real check conclusion. If you ever need to flip cancellation back on for this workflow, you MUST also change the Codecov side (drop `after_n_builds` or accept partial reports) or you re-open the same silent-skip.
 
 ## IWYU advisory gate (`#594` Phase 2)

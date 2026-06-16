@@ -16,17 +16,26 @@
 # d1df9788a).
 
 # ── Third-Party Dependencies ────────────────────────────────────────────────
+include(${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/PulpFetchContent.cmake)
 include(FetchContent)
 set(FETCHCONTENT_UPDATES_DISCONNECTED ${PULP_FETCHCONTENT_UPDATES_DISCONNECTED})
-include(${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/PulpFetchContent.cmake)
 
 # CHOC: header-only C++ utilities (ISC license)
-# Used for: JS engine abstraction, MIDI utilities
-pulp_register_fetchcontent_source(choc REF f0f5cdf5a938b8b779fea6c083571cce5ccab925)
+# Used for: JS engine abstraction, MIDI utilities, WebView (drag-and-drop)
+#
+# ⚠ INTERIM FORK PIN — see pulp #3619. Temporarily pinned to a fork tag that
+# adds WebView file drag-and-drop (window.chocStartFileDrag([...]) +
+# `chocfilesdropped` event) — the PoC from upstream Tracktion/choc#64. The fork
+# is upstream f0f5cdf5a938 + 5 commits, 0 behind, so reverting is a one-line
+# repoint. WHEN choc#64 MERGES UPSTREAM, restore:
+#     GIT_REPOSITORY https://github.com/Tracktion/choc.git
+#     GIT_TAG        <upstream merge commit>   (was f0f5cdf5a938b8b779fea6c083571cce5ccab925)
+# and update tools/deps/manifest.json + DEPENDENCIES.md back to Tracktion/choc.
+pulp_register_fetchcontent_source(choc REF df148a41a6bc9cbd67727532c4d5c9d8aa6d5d60)
 FetchContent_Declare(
     choc
-    GIT_REPOSITORY https://github.com/Tracktion/choc.git
-    GIT_TAG f0f5cdf5a938b8b779fea6c083571cce5ccab925
+    GIT_REPOSITORY https://github.com/danielraffel/choc.git
+    GIT_TAG pulp-webview-dnd-poc1  # df148a41 — fork of Tracktion/choc#64 PoC; see pulp #3619
 )
 FetchContent_MakeAvailable(choc)
 include(${CMAKE_CURRENT_SOURCE_DIR}/tools/cmake/PulpPatchChoc.cmake)
@@ -437,9 +446,18 @@ target_include_directories(pulp-cpp-httplib INTERFACE
     ${CMAKE_SOURCE_DIR}/external/cpp-httplib)
 if(TARGET mbedcrypto)
     target_compile_definitions(pulp-cpp-httplib INTERFACE CPPHTTPLIB_MBEDTLS_SUPPORT)
+    if(IOS OR PULP_IOS)
+        # cpp-httplib enables the macOS Keychain root-certificate loader by
+        # default on all Apple SDKs when a TLS backend is present. That path
+        # calls SecTrustCopyAnchorCertificates(), which is not available in the
+        # iOS Simulator SDK, so opt iOS out while keeping the macro set shared
+        # across every httplib consumer.
+        target_compile_definitions(pulp-cpp-httplib INTERFACE
+            CPPHTTPLIB_DISABLE_MACOSX_AUTOMATIC_ROOT_CERTIFICATES)
+    endif()
     target_include_directories(pulp-cpp-httplib INTERFACE ${mbedtls_SOURCE_DIR}/include)
     target_link_libraries(pulp-cpp-httplib INTERFACE mbedcrypto mbedx509 mbedtls)
-    if(APPLE)
+    if(APPLE AND NOT IOS AND NOT PULP_IOS)
         # httplib's mbedTLS path loads system trust anchors from the macOS
         # keychain via the Security framework. Carried here (not on individual
         # consumers) so every TU that compiles the SSL-enabled header also

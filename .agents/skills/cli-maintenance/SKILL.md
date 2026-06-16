@@ -46,7 +46,18 @@ requires:
 audio, cache, clean, export-tokens, ci-local, design-debug, harness, help, projects, project
 
 **Commands that DO have slash commands** (list for cross-reference, not exhaustive — `ls .claude/commands/` is authoritative):
-build, test, run, validate, ship, version, doctor, create, docs, status, design, import-design, inspect, pr, ci, ci-host, upgrade, prototype-loop, motion
+build, test, run, validate, ship, version, doctor, create, docs, status, design, import-design, inspect, pr, ci, ci-host, upgrade, prototype-loop, motion, audio-harness, audio-inspect
+
+`audio-harness` is a workflow slash command (wraps the audio observability harness `ctest` targets + the `audio-harness` skill) — it is NOT a `pulp` CLI subcommand. Note the distinction from the `pulp audio` CLI: that command owns both the model/bundle tooling (model/excerpt-find/read-bundle) AND the offline `pulp audio validate <verb>` harness CLI (summarize/doctor/compare/assert, `tools/cli/cmd_audio_validate.cpp`, over captured WAVs / `audio-run/` bundles — no live plugin). `pulp audio` intentionally has no slash command of its own; the `/audio-harness` command documents the `validate` verbs. When adding a `validate` verb, update `cmd_audio_validate.cpp`, `docs/status/cli-commands.yaml` (nested under `audio`), `docs/reference/cli.md#audio`, and both the `audio-harness` and this skill.
+
+Not every slash command wraps a `pulp` CLI subcommand. A slash command may
+also document a developer-tool *surface* with no CLI backing — e.g.
+`audio-inspect` opens the in-app Audio Inspector window
+(`pulp::view::AudioInspectorWindow`, registered via `CommandRegistry`), so
+it needs no `cli-commands.yaml` entry and no `pulp <name>` subcommand. When a
+slash command is window/feature documentation rather than a CLI wrapper, skip
+the CLI-source / manifest / `docs/reference/cli.md` steps and just keep the
+`.md` and this cross-reference accurate.
 
 ### 4. Update docs
 - [ ] Add/update section in `docs/reference/cli.md`
@@ -83,6 +94,14 @@ Decision heuristics for "does this deserve MCP exposure":
 - Trivial Bash equivalent (clean, version, config) → **NO**, baseline it.
 - Interactive surface (design, ship) → **NO**, baseline it.
 - Subcommand under an umbrella tool already present (audio, docs, inspect) → **NO**, baseline it (the umbrella's sub-tools cover the surface).
+- Trust-boundary workflows with many reviewable subcommands (kit/content) →
+  **YES for the umbrella and explicit MCP sub-tools.** Keep `pulp kit` and
+  `pulp content` documented as top-level CLI commands, but expose agent-safe
+  sub-tools such as `pulp_kit_plan`, `pulp_kit_apply`,
+  `pulp_content_preview`, and `pulp_content_install` so MCP callers cannot blur
+  inspect/preview/approve/apply boundaries. Add those sub-tools to the
+  `mcp_only` baseline with a reason that they are sub-tools of the umbrella CLI
+  command, not missing top-level CLI peers.
 
 The gate runs in three places, all pinned to the same script:
 
@@ -134,6 +153,14 @@ Same as above, focus on steps 2, 4, 5, 6, 7. Key risks:
   tests proving malformed argv is rejected before platform guards or side
   effects, especially for commands like `pulp ship release` where macOS-only
   execution follows cross-platform flag parsing.
+- Platform-specific flags are still parsed cross-platform but only *act*
+  inside a platform `#if`. E.g. `pulp ship package --format appimage --binary
+  <exe> [--icon <png>]` parses everywhere, yet only the `#if defined(__linux__)`
+  arm routes to `pulp::ship::create_appimage`; on other platforms the flags are
+  accepted-but-inert. Document the flag in `cli-commands.yaml` regardless, and
+  put the behavioral assertion in a platform-gated unit test (here:
+  `test_linux_packaging.cpp`) rather than a cross-platform shellout, since the
+  required macOS lane can't exercise the Linux-only branch.
 
 ### Rust CLI cutover path convention
 
@@ -144,6 +171,183 @@ on PATH for installed users and `./build/pulp` for source-tree examples.
 Do not point new docs at `./build/tools/cli/pulp`; that path was the old
 C++ default. Use `pulp-cpp` only when documenting fallthrough, rollback, or
 debug comparisons.
+
+### `pulp import` — framework-importer substrate
+
+`pulp import` (`tools/cli/cmd_import.cpp` + `import_run.{hpp,cpp}` +
+`import_detect.{hpp,cpp}` + `import_spi.{hpp,cpp}` + `import_emit.{hpp,cpp}` +
+`import_emit_scan.{hpp,cpp}`) reads an existing audio-plugin project read-only
+and emits a Pulp migration scaffold. The SDK owns only the *generalized*
+substrate; the framework-specific parsers are **vendor-specific add-on tools**
+in their own private repos, driven over a JSON-over-stdio SPI.
+
+Gotchas / invariants when touching this surface:
+
+- **`cmd_import.cpp` is arg-parse + dispatch only.** The SPI-verb orchestration
+  (`run_detect` / `run_inspect` / `run_emit` and their shared helpers —
+  framework-index + importer resolution, the SPI request/response envelope
+  `run_verb`, the analyze/emit payload builders, the clean-room output gate,
+  and scaffold materialisation) lives in `import_run.{hpp,cpp}` under namespace
+  `pulp::cli::import_run`. `cmd_import.cpp` only parses flags into
+  `import_run::ImportOptions` and calls the three `run_*` entry points. Keep new
+  verb logic in `import_run.cpp`; keep `cmd_import.cpp` small. Both files (and
+  any new `tools/cli/*import*` file) must stay vendor-free — the
+  `pulp-test-cli-import` directory scan asserts no `juce`/`iplug`/`steinberg`/
+  `wdl` token appears in any of them.
+
+- **Vendor-agnostic is enforced.** SDK code, mainline tests, and generic CI
+  name NO vendor or framework. The ONLY place real markers (`.jucer`,
+  `juce_add_plugin`, iPlug `PLUG_NAME`, `Steinberg::Vst::`, …) may appear is
+  the DATA file `tools/import/known-frameworks.json`. Tests use a NEUTRAL id
+  (`example-framework`) and a temp index. `test_cli_import.cpp` has a guard
+  that greps `tools/cli/*import*` for `juce/iplug/steinberg/wdl` — keep new
+  import code clean of those tokens (put markers in the data file).
+- **Detection markers are DATA, not code.** `import_detect.cpp` only knows
+  the *shape* of a marker (`file_glob` / `content_match` + `weight`), never a
+  specific marker. Add a framework by editing the JSON index, not the engine.
+- **The Rust front routes `import` via fallthrough automatically.** `import`
+  is NOT a declared clap subcommand in `experimental/pulp-rs/src/main.rs`, so
+  it hits `ErrorKind::InvalidSubcommand` and `clap_exit_code` delegates to
+  `pulp-cpp`. You still add an `Entry` to `help.rs::COMMANDS` so the usage
+  banner lists it (and the C++ `commands[]` table in `pulp_cli.cpp`).
+- **SPI version is negotiated every call.** `import_spi::check_version`
+  compares the importer's response `spi_version` against the registry's
+  `[spi_min, spi_max]` window and fails loudly ("upgrade Pulp" vs "upgrade
+  the importer"). Never silently proceed on a mismatch.
+- **The SPI request goes in on real stdin.** `import_spi::run` writes the
+  one-line request to a temp file and redirects it into the importer through
+  the shell (`/bin/sh -c '<cmd> < tmp'` / `cmd /c`), because
+  `ChildProcess::run` captures stdout but doesn't feed stdin. Reads the first
+  non-empty stdout line as the response envelope.
+- **Importer fields on `ToolDescriptor` are optional.** `frameworks`,
+  `spi_min`/`spi_max`, `sdk_min`/`sdk_max`, `capabilities`, `health_check`
+  are parsed only when present. Don't add a fake vendor entry to
+  `tool-registry.json`; the loader tolerates their absence.
+- **`emit` materialises a real scaffold; the SDK writes + gates the output.**
+  `detect`/`inspect`/`emit` are all real. `emit` runs `analyze` → ProjectIR
+  then the SPI `emit` verb → an **EmissionManifest** (the importer PROPOSES
+  files, never writes them). The SDK then: parses the manifest
+  (`import_emit::parse_manifest`), runs the clean-room **output denylist scan**
+  (`import_emit_scan::scan_manifest`) over every `generated`/`stub` file,
+  computes a write-plan that rejects any path escaping `--output`
+  (`compute_write_plan`), writes each file (inline `content`, or a verbatim
+  `copy_from` copy for `copied-user-file` provenance), and writes
+  `migration_status.json` + `.pulp-import-provenance.json`. Parse / write-plan /
+  scan are **pure functions over structs** so they unit-test without spawning;
+  the spawn/IO is a thin shell in `cmd_import.cpp`.
+- **The output scan is data-driven, not hardcoded.** Keep the clean-room
+  denylist vendor-free: `denylist_from_known_frameworks()` builds it from the
+  known-frameworks index's `content_match` markers (the ONE place real tells
+  live). Do NOT hardcode `juce`/`iplug`/… tokens in `import_emit_scan.cpp` — the
+  vendor guard greps for them. `copied-user-file` provenance is EXEMPT from the
+  scan (it's the user's own DSP); only `generated`/`stub` content is scanned.
+  Watch comment wording too: a literal `.jucer` in a comment trips the `juce`
+  substring guard.
+- **The importer may double-wrap the IR.** When `emit` hands the analyze result
+  back as `project_ir`, an importer that frames analyze as `{"project_ir": IR}`
+  must unwrap its own envelope (the SDK passes the analyze `result` verbatim).
+  If a scaffold comes out with empty formats / pass-through-only DSP, suspect a
+  double-wrapped IR on the importer side, not the SDK.
+- **`inspect`/`emit` are gated by the IMPORTER_TERMS accept-to-run gate**
+  (`import_terms.{hpp,cpp}`, `run_gate`). The terms BODY is vendor DATA carried
+  on the add-on's `ToolDescriptor` (`terms_text`/`terms_version`/`vendor_id`) —
+  the SDK ships no terms body and names no vendor, it only surfaces + hashes the
+  text and records acceptance under `~/.pulp/importer-terms-accepted.json`
+  (honours `$PULP_HOME`), keyed by importer id + an FNV hash of the terms.
+  A changed body → new hash → re-prompt. `--accept-importer-terms` is the
+  non-interactive (CI) path; without a TTY and without the flag the gate returns
+  `NonInteractive` and BLOCKS (exit 1) rather than hanging. Mirrors
+  `pulp add --accept-license` in UX + storage shape. `--importer-cmd` has no
+  registry entry, so `--importer-terms-text`/`--importer-terms-version` supply
+  the body directly (tests + power users). `has_terms()==false` (no body) →
+  the gate passes through transparently. `run_gate` takes injected `GateIo`
+  (in/out/interactive) + a `now_utc` string so it unit-tests deterministically
+  without a real TTY or clock.
+- **Provenance PR-check is `tools/scripts/check_import_provenance.py`** (neutral,
+  vendor-free), the audit that a migrated project landing in a PR was produced
+  clean-room: marker present + well-formed, valid per-file `provenance` values,
+  and no framework-source marker in any file the marker labels `generated`/`stub`
+  (`copied-user-file` is exempt). The content denylist is DATA from the
+  known-frameworks index (`$PULP_KNOWN_FRAMEWORKS` or `tools/import/`); with no
+  index the structural checks still run and the scan reports as skipped. Wired
+  into `gates.sh` as an **opt-in** lane (`PULP_IMPORT_PROVENANCE_DIRS`) so it's a
+  no-op for normal Pulp-repo pushes and only fires on a PR that lands a scaffold.
+
+### `pulp tool install <importer>` — importer add-on packaging
+
+The install-side contract for framework-importer add-ons lives in
+`tools/cli/importer_install.{cpp}` (declarations in `tool_registry.hpp`).
+`pulp tool install <importer>` and the `pulp add <importer>` alias both route
+through it. User-facing contract: `docs/reference/framework-importer-packaging.md`.
+
+Gotchas / invariants when touching this surface:
+
+- **An importer is a tool-registry entry with `category: "importer"`.** The
+  generic binary/python install path is untouched: `cmd_tool`'s `install`/
+  `uninstall` first call `handle_importer_install` / `handle_importer_uninstall`,
+  which return `std::nullopt` for non-importers so the generic path still runs.
+  `try_add_importer_alias` is the `pulp add` entry — it only fires when the id
+  resolves to an importer in `tools/packages/tool-registry.json`.
+- **Three install gates, in order, and they fail/refuse — never warn-and-proceed:**
+  (1) version window — `check_importer_compat` requires the running SDK in
+  `[sdk_min, sdk_max]` AND the importer's `[spi_min, spi_max]` to overlap the
+  SDK's import-SPI window; (2) sha256 — the fetched/`--from` archive must match
+  the registry `sha256`; (3) skill + record. Keep the messages actionable
+  (`upgrade Pulp` vs `upgrade the importer`, `refusing to install`).
+- **SHA-256 is hand-rolled in `importer_install.cpp`, on purpose.** It avoids
+  linking mbedTLS into the lightweight `pulp-test-cli-*` targets (which only link
+  `pulp::platform`). It's validated against FIPS-180-4 known vectors in
+  `test_cli_importer_install.cpp` — if you touch the digest, those vectors are
+  the guard. Do NOT swap it for `pulp::runtime::sha256_hex` without also adding
+  the runtime link to every test target that compiles `importer_install.cpp`.
+- **The SDK version reaches the dispatch via env-var-then-header.** `host_sdk_version()`
+  reads `PULP_SDK_VERSION` (tests set it to drive the window check) and falls
+  back to `PULP_SDK_VERSION_GENERATED` from `<pulp_version_gen.h>`, included via
+  `#if __has_include` so unit-test targets (no generated header) still compile.
+  The pure functions (`install_importer`, `check_importer_compat`) take the SDK
+  version + SPI bounds as PARAMETERS — keep them parameterized so they stay
+  testable without globals.
+- **Skills install to `~/.agents/skills/<skill_name>/` honoring `$PULP_HOME`.**
+  `skills_dir()` maps `$PULP_HOME` → `$PULP_HOME/agents/skills` (tests rely on
+  this); without it, the real `~/.agents/skills`. Records go under
+  `pulp_home()/importers/<id>.json`. Uninstall recovers the skill dir name from
+  the record's `skill_path` so it removes the right directory even if the
+  registry entry changed.
+- **`--from <path|file://>` is importer-only.** Both `pulp tool install` and
+  `pulp add` reject `--from` for non-importers. It's the offline/test source —
+  the checksum + version gates still apply, so a mock local package with a known
+  sha is the unit-test vehicle (build one with `tar -czf`, hash it with
+  `sha256_file_hex`, feed it back into the descriptor).
+- **Producer side is NOT decided in code.** Artifact build/hosting/pinning, the
+  bundled-libclang choice, and signing/notarization are maintainer decisions
+  documented (as open questions) in `docs/reference/framework-importer-packaging.md`.
+  The CLI consumes the contract; don't bake a hosting URL, an LLVM pin, or a
+  signing identity into the SDK.
+- **Two test targets compile `tool_registry.cpp`.** `tool_registry.cpp` now
+  references `importer_install.cpp` + `import_spi.cpp` symbols, so BOTH
+  `pulp-test-cli-tool-registry` and `pulp-test-cli-importer-install` link all
+  three TUs. Adding a symbol used by `cmd_tool` means updating both targets.
+
+### Package suggestion and analyzer metadata commands
+
+Package search/suggestion code (`tools/cli/package_commands_search.cpp`) is a
+user-facing CLI surface even when the change is "just output shaping." Keep the
+plain-text and `--format json` lanes semantically aligned:
+
+- JSON output must escape strings through the shared helper, not by hand-writing
+  raw descriptor fields into JSON.
+- `pulp suggest` filters license-gated packages by default; the
+  `--include-license-gated` flag is the explicit inspection path for packages
+  whose license is rejected or needs review. When changing this lane, keep the
+  omission counts and human hints in sync with JSON fields so automation and
+  terminal output tell the same story.
+- Analyzer descriptor plumbing in `package_analyzer_descriptors.{hpp,cpp}` is
+  metadata-only. It maps package `provides` tokens into
+  `pulp::audio::AnalyzerDescriptor` records for UI/control-thread discovery.
+  It must not install packages, fetch network state, launch tools, or enter
+  realtime paths. If a new analyzer capability token lands in package metadata,
+  update the mapping, CLI build list, package command tests, and any package
+  docs/skills that describe discoverable analyzer providers in the same PR.
 
 ### Binary subcommand delegation
 
@@ -183,6 +387,25 @@ Any new `std::system` call that feeds an exit code MUST decode it the same
 way. Covered by `pulp delegates a non-zero child exit code intact` in
 `test/test_cli_shellout.cpp` (which runs against `pulp-cpp`, the delegate).
 
+**Prefer `pulp::platform::exec` over `std::system` for quoted-path shell-outs
+on Windows (2026-06-14):** `std::system(cmd)` runs `cmd.exe /c <cmd>`. When
+`<cmd>` *starts with* a quoted path **and** contains further quotes (e.g. quoted
+arguments and a quoted redirect target — the common shape `"C:\tool.exe"
+--output "C:\out" > "C:\log" 2>&1`), `cmd /c` mis-parses it and aborts with
+*"The filename, directory name, or volume label syntax is incorrect"* before
+running anything — so the tool never launches and no output/redirect file is
+created. Reproduced against a real Windows host through the CRT `system()`. The
+robust fix is to **not go through the shell at all**: spawn the tool with
+`pulp::platform::exec(program, args_vector, timeout_ms)`, which passes an argv
+array straight to the process (no `cmd`, no quote parsing). `pulp kit verify
+--execute-screenshots` (`maybe_execute_screenshot_profile` in
+`tools/cli/kit_commands.cpp`) hit this — it now uses `exec()` for both the
+direct-`.exe` path and the `.cmd`/`.bat` path (`exec("cmd", {"/C", shell_command})`).
+If you must use `std::system` (e.g. you genuinely need shell features) and the
+command begins with a quoted path, wrap the ENTIRE command in one extra pair of
+double quotes (`command = "\"" + command + "\"";`) so `cmd` strips exactly that
+pair and runs the remainder verbatim.
+
 ### Numeric CLI flags
 
 For count-like flags such as `pulp run --frames`, parsers should accept only
@@ -190,6 +413,30 @@ plain non-negative decimal digits and reject a leading `+`. C++ `from_chars`
 acceptance varies by implementation for signed prefixes, and the Rust-facing
 CLI surface should stay deterministic across platforms. Add regression tests
 for boundary spelling when changing these parsers.
+
+`pulp run` forwards each launcher flag two ways — as argv AND as an env var —
+so the standalone host picks up whichever it reads. When adding a flag here
+(`cmd_run_parse.cpp` parses into `ParseRunResult`; `cmd_run.cpp` exports the
+env var + builds argv via `assemble_launch_args`), wire BOTH and add the flag
+to the `print_help` text plus the `pulp run --help` shellout assertion in
+`test_cli_shellout.cpp` and the parser test in `test_cli_run_options.cpp`.
+The Audio Inspector flags follow this shape: `--audio-inspector` →
+`PULP_AUDIO_INSPECTOR=1` (does NOT imply headless); `--audio-probe-json <path>`
+→ `PULP_AUDIO_PROBE_JSON=<path>` (implies headless, like `--screenshot`). A
+bare `--audio-probe-json` run is headless but must NOT auto-assign a default
+screenshot PNG path — guard the headless-default branch on an empty probe-json
+path. See `docs/guides/audio-inspector.md`.
+
+The live window also reads display-only waveform env vars:
+`PULP_AUDIO_INSPECTOR_TRIGGER=rising-zero`, `PULP_AUDIO_INSPECTOR_GRID=0`, and
+`PULP_AUDIO_INSPECTOR_SCALE=<n>`. These are not CLI parse flags and do not
+change the probe JSON or audio path.
+
+Headless here means "no visible UI", not "no system audio". `pulp run` still
+launches a standalone host and may activate the live audio device, including the
+`--audio-probe-json` path. Keep the pre-launch stderr notice wired in
+`cmd_run.cpp`, keep `PULP_RUN_AUDIO_NOTICE=0` as the explicit quiet-automation
+escape hatch, and prefer Audio Doctor / `HeadlessHost` for no-speaker tests.
 
 ### Import-design artifact flags
 
@@ -249,6 +496,18 @@ overrides belong in the existing config surface as
 Rust `pulp config`, `pulp status`, the import-design helper, docs, slash
 commands, and the MCP status output aligned whenever these keys change. If
 only `default_mode=baked` is configured, `ir-json` is implied.
+
+**Adding a `pulp config` key:** `cmd_config.cpp` allow-lists every key in three
+places — `is_allowed_key`, `validate_value`, and the `list` dump (plus the
+`usage()` help text). Add the key to all of them or `set` rejects it / `list`
+omits it. Example: `[claude] send_user_file` (`on|off`, default `on`) gates the
+plugin's `SessionStart` hook (`hooks/scripts/inject-claude-prefs.sh`) that tells
+the agent to surface image/file artifacts via `SendUserFile`. A config-only key
+needs no `cli-commands.yaml` subcommand entry (it's not a new command), but do
+update the command `summary` there + `docs/reference/cli.md#config` + a
+`test_cli_shellout.cpp` get/set/validate case. Reading config from a hook (bash)
+means a small TOML scan — scope the read to the right `[section]` so a same-named
+key in another table can't flip it.
 
 **Sidecar output anchoring:** when a CLI command takes `--output
 <path>/main.ext` and also emits sidecar artifacts (e.g.
@@ -523,6 +782,23 @@ If the update cache is empty in that mode, print the installed CLI version
 and an explicit disabled/not-queried latest-version line instead of probing
 GitHub Releases. Otherwise PR sandbox lanes can fail spuriously when GitHub
 release fetches are blocked or rate-limited.
+
+## `pulp upgrade` self-heals PATH
+
+After a successful self-update, `cmd_upgrade.cpp` calls
+`upgrade_install::ensure_dir_on_path(install_dir, ...)` to append the CLI's own
+directory to the user's shell profile (`.zshrc` / `.bash_profile` / `.bashrc` /
+fish `config.fish` / `.profile`) when it isn't already on `$PATH`. This closes a
+real gap: the curl `install.sh` adds PATH, but a user who first got `pulp` via a
+source / SDK-prefix install (`cmake --install --prefix ~/pulp-sdk` → the binary
+lands at `~/pulp-sdk/bin/pulp`) could `pulp upgrade` successfully yet still hit
+"command not found" in a fresh shell. The helper is pure on its inputs (env
+passed in, not read from globals) so it is unit-tested in
+`test_cli_upgrade_install.cpp` without mutating the process environment. It
+honors `PULP_NO_MODIFY_PATH=1` (same opt-out as `install.sh`) and is idempotent
+(skips when the profile already references the dir). If you change the
+profile-selection logic, keep it in sync with `tools/install/install.sh`'s PATH
+block so the two install surfaces agree.
 
 ## `pulp run --headless / --screenshot / --frames / --watch` (#914)
 
@@ -1310,6 +1586,10 @@ Gotchas:
   fall-through to `pulp-cpp sdk install` (see `pulp-rs/src/cmd/sdk.rs`);
   the C++ `cmd_sdk` is a different code path with its own per-version
   `~/.pulp/sdk/<version>/` layout. #1814 fix lives only in `cmd_cache`.
+- **Checkout-backed SDK builds force dev probes off.** `ensure_checkout_sdk`
+  configures local SDK builds with `-DPULP_ENABLE_AUDIO_PROBES=OFF` so
+  `pulp sdk install --local` and checkout-backed standalone resolution do not
+  export the dev standalone audio-probe surface in cached SDK artifacts.
 - **If you bump `PULP_SDK_VERSION`, you do NOT need to manually
   invalidate `~/.pulp/cache`.** The new version means the filename
   misses on the old cache and the user gets a fresh download

@@ -57,19 +57,20 @@ jobs:
       - id: resolve
         env:
           REQUESTED_PROVIDER: ${{ inputs.runner_provider || vars.PULP_DEFAULT_RUNNER_PROVIDER || 'github-hosted' }}
-          # Linux/Windows runner selection (highest precedence in the resolver):
+          # Linux runner selection (highest precedence in the resolver):
           #   1. workflow_dispatch input (per-run override), else
-          #   2. PULP_LOCAL_{LINUX,WINDOWS}_RUNS_ON_JSON repo var — OPT-IN routing
-          #      to the self-hosted blackbook pool (e.g. ["self-hosted","Linux",
-          #      "ARM64","pulp-build-linux"]); served by tools/ci/tart-runner-linux.sh
-          #      / qemu-runner-windows.sh, toggled per-platform in the Shipyard GUI.
+          #   2. PULP_LOCAL_LINUX_RUNS_ON_JSON repo var — OPT-IN routing
+          #      to the self-hosted Linux ARM64 pool (e.g. ["self-hosted","Linux",
+          #      "ARM64","pulp-build-linux"]); served by tools/ci/tart-runner-linux.sh,
+          #      toggled per-platform in the Shipyard GUI.
           #   3. unset → '' → resolver falls through to github-hosted (default).
-          # Only set the repo var when blackbook is reliably serving that lane, or
-          # legs route to a label with no online runner and queue. The pilot labels
-          # (pulp-build-{linux,windows}) are non-required, so a stuck pilot can't
-          # block PRs.
+          # Windows is deliberately different: the required PR leg is the
+          # authoritative x64 gate and must stay on windows-latest by default.
+          # Local QEMU Windows is ARM64; it can smoke Windows-on-ARM behavior, but
+          # it is not an Intel Windows replacement. Use a workflow_dispatch input
+          # only for explicit one-off experiments.
           EXPLICIT_LINUX_RUNNER_SELECTOR_JSON: ${{ inputs.linux_runner_selector_json || vars.PULP_LOCAL_LINUX_RUNS_ON_JSON || '' }}
-          EXPLICIT_WINDOWS_RUNNER_SELECTOR_JSON: ${{ inputs.windows_runner_selector_json || vars.PULP_LOCAL_WINDOWS_RUNS_ON_JSON || '' }}
+          EXPLICIT_WINDOWS_RUNNER_SELECTOR_JSON: ${{ inputs.windows_runner_selector_json || '' }}
           # macOS routing has three layers, evaluated in order (highest
           # precedence first). The Python block below composes
           # `EXPLICIT_MACOS_RUNNER_SELECTOR_JSON` from these inputs so the
@@ -412,14 +413,11 @@ jobs:
               "--namespace-env", "NAMESPACE_LINUX_RUNS_ON_JSON",
               "--namespace-setting-name", "PULP_NAMESPACE_BUILD_LINUX_RUNS_ON_JSON",
           ])
-          # Windows routes through the same provider-resolver as Linux.
-          # Historical note: an earlier hardcoded override forced Windows to
-          # github-hosted on PR events because Namespace Windows capacity
-          # was intermittently unavailable. That override was removed on
-          # 2026-04-24 — Namespace is now the default for all three legs.
-          # If Namespace Windows capacity regresses and PRs start blocking,
-          # re-add the override here (track it via a temporary PR rather
-          # than leaving it in-tree) and revert once capacity is restored.
+          # Windows routes through the provider resolver, but it does NOT read
+          # PULP_LOCAL_WINDOWS_RUNS_ON_JSON on PRs. That local lane is currently
+          # Windows ARM64 on QEMU, useful as a smoke target but not an x64 gate.
+          # Keep windows-latest as the default authoritative x64 compatibility
+          # signal until a dedicated local x64 lane is proven.
           windows_runs_on = run([
               "--target-name", "Windows (x64)",
               "--mode", "provider",
@@ -530,6 +528,32 @@ jobs:
       # Keep the ordinary build matrix out of sanitizer-owned build dirs so
       # cached CMake flags such as -fsanitize=address cannot bleed into it.
       PULP_BUILD_DIR: build-${{ matrix.key }}
+      # ── ccache correctness overrides (pulp #3504 follow-up) ──────────────
+      # The self-hosted macOS runners' service env (~/actions-runner-*/.env)
+      # sets CCACHE_DEPEND=true with the default compiler_check=mtime on a
+      # ccache shared across all three runners. Depend mode skips the
+      # preprocessor and trusts the compiler's dependency manifest; combined
+      # with mtime-only compiler keying on a shared cache, a stale/false-hit
+      # object gets served and corrupts unrelated TUs at once — observed as a
+      # pure function (resolve_checkpoint_url) returning "" and other
+      # change-unrelated tests failing on every PR while clean local Debug AND
+      # Release builds pass. #3504's build-dir guard does not touch ccache, so
+      # it cannot fix this. Force the safe path here (job env overrides the
+      # runner-service .env for these steps):
+      #   - compiler_check=content → key the compiler by content, not mtime;
+      #     this also changes the cache-key namespace, so the existing
+      #     contaminated mtime-keyed entries are never hit (self-cleaning).
+      #   - CCACHE_NODEPEND=true → disable depend mode (the actual culprit).
+      #     ccache rejects `CCACHE_DEPEND=false` ("invalid boolean … did you
+      #     mean CCACHE_NODEPEND=true?"); the negated NO-form is the env spelling.
+      #     Direct mode stays ON (fast path) — it hashes the source + include
+      #     manifest and is correct once depend mode is off and the compiler is
+      #     content-keyed.
+      #   - sloppiness=time_macros only (pulp uses no precompiled headers, so
+      #     pch_defines was inert).
+      CCACHE_COMPILERCHECK: content
+      CCACHE_NODEPEND: "true"
+      CCACHE_SLOPPINESS: time_macros
 
     steps:
       # `lfs: false` — pulp's `core.hooksPath = .githooks` (set by
@@ -574,6 +598,7 @@ jobs:
             libfontconfig1-dev \
             libgbm-dev \
             libgl1-mesa-dev \
+            libjack-jackd2-dev \
             libx11-dev \
             libxext-dev \
             libxfixes-dev \
@@ -710,6 +735,21 @@ jobs:
           set -euo pipefail
           python3 tools/scripts/fetch_skia_for_release.py darwin-arm64
 
+      - name: Ccache effective config (proof of override)
+        if: always()
+        shell: bash
+        run: |
+          # Proves the job-level ccache correctness overrides actually reached
+          # this step's environment (vs the runner-service .env). Expect
+          # compiler_check=content, depend_mode=false, direct_mode=false,
+          # sloppiness=time_macros.
+          if command -v ccache >/dev/null 2>&1; then
+            ccache --show-config 2>/dev/null \
+              | grep -iE 'compiler_check|depend_mode|direct_mode|sloppiness|cache_dir' || true
+          else
+            echo "ccache not available; skipping config proof"
+          fi
+
       - name: Configure
         # On pull_request events, skip example plugin builds
         # (PulpDrums / PulpSynth / PulpMpeSynth / PulpPluck /
@@ -733,6 +773,7 @@ jobs:
           # matches (one-time cost on the first Ninja run per runner;
           # the shared ccache stays warm regardless).
           gen=()
+          cmake_extra=()
           if [ "${RUNNER_OS}" = "macOS" ]; then
             command -v ninja >/dev/null 2>&1 || brew install ninja
             gen=(-G Ninja)
@@ -754,10 +795,17 @@ jobs:
               rm -rf "$PULP_BUILD_DIR"
             fi
           fi
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            # MSBuild still evaluates some FetchContent subbuild paths through
+            # legacy MAX_PATH-limited metadata. Keep the dependency subbuild
+            # root short so nested wgpu prebuilt-populate targets configure
+            # reliably on GitHub-hosted Windows runners.
+            cmake_extra=(-DFETCHCONTENT_BASE_DIR="$PWD/fc")
+          fi
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            cmake -S . -B "$PULP_BUILD_DIR" "${gen[@]}" -DCMAKE_BUILD_TYPE=Release -DPULP_BUILD_EXAMPLES=OFF
+            cmake -S . -B "$PULP_BUILD_DIR" "${gen[@]}" ${cmake_extra[@]+"${cmake_extra[@]}"} -DCMAKE_BUILD_TYPE=Release -DPULP_BUILD_EXAMPLES=OFF
           else
-            cmake -S . -B "$PULP_BUILD_DIR" "${gen[@]}" -DCMAKE_BUILD_TYPE=Release -DPULP_ENABLE_GPU=OFF
+            cmake -S . -B "$PULP_BUILD_DIR" "${gen[@]}" ${cmake_extra[@]+"${cmake_extra[@]}"} -DCMAKE_BUILD_TYPE=Release -DPULP_ENABLE_GPU=OFF
           fi
           # Mark the build in-progress; the Build step clears it on success, so a
           # build interrupted/cancelled before completion is detected next run
@@ -967,6 +1015,7 @@ jobs:
           cmake -S . -B build `
             -DCMAKE_BUILD_TYPE=Release `
             -DPULP_BUILD_TESTS=OFF `
+            -DPULP_ENABLE_AUDIO_PROBES=OFF `
             -DPULP_BUILD_WEBVIEW=ON
         shell: pwsh
 
@@ -985,6 +1034,111 @@ jobs:
             throw "sdk-staging/lib/pulp-view-core.lib missing"
           }
           python -c "from pathlib import Path; data = Path(r'sdk-staging/lib/pulp-view-core.lib').read_bytes(); assert b'WebViewPanel' in data; assert b'make_webview_embedded_resource_fetcher' in data"
+
+  # ── Windows MIDI Services SDK compile-gate (advisory) ────────────────────
+  #
+  # Compile-verifies Pulp's opt-in WinRT MIDI 2.0 backend
+  # (core/midi/platform/win/winrt_midi_device.cpp, gated by
+  # PULP_HAS_WINRT_MIDI). That backend consumes the
+  # Microsoft.Windows.Devices.Midi2 C++/WinRT projection, which ships
+  # out-of-band with the Windows MIDI Services SDK (GitHub-only NuGet, NOT in
+  # the base Windows SDK), so no other lane can compile it. We provision the
+  # projection through Microsoft's official vcpkg port
+  # `microsoft-windows-devices-midi2` (it downloads the SDK NuGet, runs
+  # cppwinrt to generate the projection headers, and exports the
+  # Microsoft::Windows::Devices::Midi2 CMake target). See tools/ci/midi2/.
+  #
+  # ADVISORY + OPT-IN: this is a standalone job, not part of the required
+  # build matrix or any required alias, so it can never block merge — the
+  # default Windows build (which does NOT set PULP_HAS_WINRT_MIDI) is
+  # untouched. windows-latest ships vcpkg with VCPKG_ROOT preset, so no
+  # vcpkg bootstrap is needed. Build-only (no test step): the Windows MIDI
+  # Services runtime is absent in CI, so the backend can compile + link but
+  # cannot exercise a live endpoint — compile-verification is the goal.
+  windows-midi2-gate:
+    needs: classify
+    if: needs.classify.outputs.native_build_required == 'true'
+    runs-on: windows-latest
+    name: Windows MIDI Services SDK compile-gate (advisory)
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          lfs: true
+
+      - name: Bootstrap repository dependencies
+        run: ./setup.sh --ci --deps-only
+        shell: bash
+
+      # Provision the Midi2 projection via the official vcpkg port, then
+      # configure Pulp with the vcpkg toolchain so
+      # find_package(microsoft-windows-devices-midi2 CONFIG) resolves the
+      # Microsoft::Windows::Devices::Midi2 IMPORTED target. VCPKG_ROOT is
+      # preset on windows-latest. VCPKG_MANIFEST_DIR points at tools/ci/midi2,
+      # which pins the port + baseline (see that dir's README).
+      - name: Configure (PULP_HAS_WINRT_MIDI=ON via vcpkg midi2 projection)
+        shell: pwsh
+        run: |
+          if (-not $env:VCPKG_ROOT) { $env:VCPKG_ROOT = "C:/vcpkg" }
+          Write-Host "VCPKG_ROOT = $env:VCPKG_ROOT"
+          cmake -S . -B build-midi2 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DPULP_BUILD_TESTS=OFF `
+            -DPULP_BUILD_EXAMPLES=OFF `
+            -DPULP_HAS_WINRT_MIDI=ON `
+            "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            "-DVCPKG_MANIFEST_DIR=$($PWD.Path)/tools/ci/midi2" `
+            -DVCPKG_MANIFEST_MODE=ON
+
+      # Build only the pulp-midi target — the WinRT MIDI 2.0 TU lives there and
+      # is the whole point of this gate. Avoids paying for the full tree.
+      - name: Build pulp-midi (compile-verify the WinRT MIDI 2.0 backend)
+        shell: pwsh
+        run: cmake --build build-midi2 --config Release --target pulp-midi
+
+  # ── Windows BLE MIDI compile-gate (advisory) ─────────────────────────────
+  #
+  # Compile-verifies Pulp's WinRT Bluetooth-LE scan backend
+  # (core/midi/platform/win/ble_midi_win.cpp). Unlike the MIDI 2.0 gate
+  # above, the BLE GATT / advertisement APIs (Windows.Devices.Bluetooth*)
+  # ship in the BASE Windows SDK cppwinrt projection, so this gate needs NO
+  # vcpkg / out-of-band NuGet provisioning — the default Windows build
+  # already compiles the backend. This standalone job exists purely to give
+  # the blind (macOS-authored) Windows TU a fast, isolated compile signal on
+  # the pulp-midi target without waiting on the full build matrix.
+  #
+  # ADVISORY: standalone job, not part of the required build matrix or any
+  # required alias, so it can never block merge.
+  windows-ble-gate:
+    needs: classify
+    if: needs.classify.outputs.native_build_required == 'true'
+    runs-on: windows-latest
+    name: Windows BLE compile-gate (advisory)
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          lfs: true
+
+      - name: Bootstrap repository dependencies
+        run: ./setup.sh --ci --deps-only
+        shell: bash
+
+      # Default Windows configure — no PULP_HAS_WINRT_MIDI, no vcpkg. The BLE
+      # backend compiles on the base SDK projection out of the box.
+      - name: Configure (base Windows SDK — WinRT BLE backend)
+        shell: pwsh
+        run: |
+          cmake -S . -B build-ble `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DPULP_BUILD_TESTS=OFF `
+            -DPULP_BUILD_EXAMPLES=OFF
+
+      # Build only pulp-midi — the WinRT BLE TU lives there and is the whole
+      # point of this gate. Avoids paying for the full tree.
+      - name: Build pulp-midi (compile-verify the WinRT BLE backend)
+        shell: pwsh
+        run: cmake --build build-ble --config Release --target pulp-midi
 
   # ── Stable-name status aliases for advisory platforms ─────────────────────
   # Branch protection requires a context literally named `macos`. Keep it
@@ -1021,7 +1175,8 @@ jobs:
             exit 0
           fi
           conclusion=""
-          for attempt in $(seq 1 180); do
+          max_attempts=360
+          for attempt in $(seq 1 "$max_attempts"); do
             jobs_json="$(mktemp)"
             jobs_err="$(mktemp)"
             if gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/jobs?per_page=100" >"$jobs_json" 2>"$jobs_err"; then
@@ -1049,7 +1204,7 @@ jobs:
             if [ -n "$conclusion" ] && [ "$conclusion" != "null" ]; then
               break
             fi
-            echo "Waiting for macOS matrix leg to report (attempt $attempt/180)..."
+            echo "Waiting for macOS matrix leg to report (attempt $attempt/$max_attempts)..."
             sleep 10
           done
           echo "macOS leg conclusion: ${conclusion:-unknown}"

@@ -10,9 +10,9 @@ is unavailable, so the local CI test suite stays runnable on stripped
 environments (CI bot images without PIL).
 
 `LockBusyError` lives here rather than in `state_paths` because its
-only real use site is `file_lock`. Two other call sites in local_ci.py
-catch it (worktree job queue + drain enforcement) — they continue to
-catch it via the re-export from `local_ci.py`.
+primary use site is `file_lock`. Facade callers still catch it via the
+`local_ci.py` re-export while queue and drain orchestration receive the class
+through their binding modules.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from __future__ import annotations
 import fcntl
 import hashlib
 import os
+import time
 import uuid
 from collections import deque
 from contextlib import contextmanager
@@ -87,6 +88,21 @@ def image_change_summary(before_path: Path, after_path: Path, *, diff_output_pat
         pass
 
     return summary
+
+
+def wait_for_path(
+    path: Path,
+    timeout_secs: float,
+    *,
+    time_fn=time.time,
+    sleep_fn=time.sleep,
+) -> Path:
+    deadline = time_fn() + timeout_secs
+    while time_fn() < deadline:
+        if path.exists():
+            return path
+        sleep_fn(0.1)
+    raise RuntimeError(f"timed out waiting for artifact `{path}`")
 
 
 @contextmanager

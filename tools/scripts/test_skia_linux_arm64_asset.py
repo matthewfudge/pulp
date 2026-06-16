@@ -1,25 +1,33 @@
 #!/usr/bin/env python3
-"""Pulp #47: assert the manifest publishes a linux-arm64 Skia asset.
+"""Pulp #47 / Skia chrome/m150: guard the linux-arm64 Skia asset lane.
 
-Before this PR, ``tools/deps/manifest.json`` had no ``linux-arm64`` entry
-under ``Skia → determinism → release_assets``. That left
-``tools/scripts/fetch_skia_for_release.py`` printing "no Skia release
-asset for matrix=linux-arm64" and the GPU-gated CLI on Ubuntu aarch64
-fell back to the no-Skia path silently — same failure mode as
-pulp #1817 on darwin-arm64, but for the linux ARM lane.
+History: Pulp #47 added a ``linux-arm64`` entry to
+``tools/deps/manifest.json`` under ``Skia → determinism →
+release_assets`` after the GPU-gated CLI on Ubuntu aarch64 fell back to
+the no-Skia path silently — same failure mode as pulp #1817 on
+darwin-arm64, but for the linux ARM lane.
 
-This test guards three invariants so removing the linux-arm64 asset
-again can never regress quietly:
+The chrome/m150 release of the danielraffel/skia-builder fork initially
+shipped no ``skia-build-linux-arm64-gpu-release.zip`` slice: the fork's
+linux-arm64 build lane (skia-builder 634672f) was added ~20h after m150
+was cut, and that commit wired the build matrix but not the
+create-release upload list. Both are fixed now — the fork uploads
+linux-arm64 on every release, and the m150 release was backfilled with
+the slice — so the manifest carries a ``linux-arm64`` entry again.
 
-1. ``Skia → determinism → release_assets → linux-arm64`` exists, with
-   a URL that matches the documented danielraffel/skia-builder fork +
-   chrome/m149 release tag and a 64-character hex sha256.
-2. ``fetch_skia_for_release.py`` maps ``linux-arm64 → linux-arm64``
-   and points at the canonical ``linux-gpu/lib/Release/libskia.a``
-   location FindSkia.cmake probes for.
-3. ``tools/harness/visual/pins.py`` exposes the same sha256 so the
-   visual-harness determinism smoke (``test_skia_determinism.py``)
-   fails loud when the manifest and pins drift apart.
+This test guards the invariants that keep the lane honest:
+
+1. ``fetch_skia_for_release.py`` maps ``linux-arm64 → linux-arm64`` and
+   resolves to the canonical ``linux-gpu/lib/Release/libskia.a`` location
+   FindSkia.cmake probes (shared with linux-x64 after the post-unpack
+   flatten).
+2. If a ``linux-arm64`` release asset entry is present in the manifest
+   (the m150 steady state), it must be well-formed (canonical fork URL +
+   64-hex sha256) and mirrored in ``tools/harness/visual/pins.py``. The
+   test still tolerates a temporary absence so a future Skia bump that
+   lands before the slice is rebaked doesn't hard-fail; the harder
+   "GPU-ON requires an asset" invariant lives in
+   ``test_release_cli_gpu_asset_coverage.py``.
 
 Run with:
 
@@ -50,40 +58,32 @@ def _skia_entry() -> dict:
     raise AssertionError("Skia entry missing from tools/deps/manifest.json")
 
 
+def _release_assets() -> dict:
+    return _skia_entry().get("determinism", {}).get("release_assets", {})
+
+
 class LinuxArm64ManifestEntry(unittest.TestCase):
-    def test_release_asset_present_and_well_formed(self) -> None:
-        skia = _skia_entry()
-        assets = skia.get("determinism", {}).get("release_assets", {})
-        self.assertIn(
-            "linux-arm64",
-            assets,
-            "tools/deps/manifest.json must publish a linux-arm64 Skia "
-            "asset so fetch_skia_for_release.py can populate "
-            "external/skia-build/build/linux-gpu/lib/Release/libskia.a "
-            "on Ubuntu aarch64 hosts.",
-        )
+    def test_release_asset_absent_or_well_formed(self) -> None:
+        assets = _release_assets()
+        if "linux-arm64" not in assets:
+            # chrome/m150 reality: the fork does not publish the slice.
+            # Nothing to validate beyond the deliberate absence.
+            return
 
         entry = assets["linux-arm64"]
         url = entry.get("url", "")
         self.assertTrue(
             url.startswith(
                 "https://github.com/danielraffel/skia-builder/releases/"
-                "download/chrome/m149/"
-            ),
+                "download/chrome/"
+            )
+            and url.endswith("skia-build-linux-arm64-gpu-release.zip"),
             f"linux-arm64 URL must point at the danielraffel/skia-builder "
-            f"chrome/m149 release; got {url!r}",
-        )
-        self.assertTrue(
-            url.endswith("skia-build-linux-arm64-gpu-release.zip"),
-            f"linux-arm64 URL must end in the canonical asset filename; "
+            f"chrome release and end in the canonical asset filename; "
             f"got {url!r}",
         )
 
         sha = entry.get("sha256", "")
-        # Accept either the published 64-hex digest or the
-        # PLACEHOLDER_LINUX_ARM64_SHA256 sentinel that lands first
-        # (PR #47) and is replaced by `gh release upload` + a follow-on
-        # commit that swaps the digest in.
         self.assertTrue(
             sha == "PLACEHOLDER_LINUX_ARM64_SHA256"
             or re.fullmatch(r"[0-9a-f]{64}", sha),
@@ -101,6 +101,8 @@ class FetchScriptWiring(unittest.TestCase):
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
 
+        # Mapping stays wired even while m150 ships no slice — so a future
+        # republish only needs the manifest URL+sha re-added.
         self.assertEqual(mod.MATRIX_TO_MANIFEST.get("linux-arm64"), "linux-arm64")
         expected = mod.expected_library_path("linux-arm64")
         self.assertEqual(
@@ -112,7 +114,7 @@ class FetchScriptWiring(unittest.TestCase):
 
 
 class VisualHarnessPinsInSync(unittest.TestCase):
-    def test_pins_module_publishes_linux_arm64(self) -> None:
+    def test_pins_module_mirrors_manifest_for_linux_arm64(self) -> None:
         spec = importlib.util.spec_from_file_location(
             "pulp_pins",
             REPO_ROOT / "tools" / "harness" / "visual" / "pins.py",
@@ -120,28 +122,22 @@ class VisualHarnessPinsInSync(unittest.TestCase):
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
 
-        self.assertIn(
-            "linux-arm64",
-            mod.RELEASE_ASSET_SHA256,
-            "tools/harness/visual/pins.py must mirror the manifest's "
-            "linux-arm64 sha256 — otherwise the visual-harness "
-            "determinism smoke (test_skia_determinism.py) can't notice "
-            "when the two drift.",
-        )
+        manifest_sha = _release_assets().get("linux-arm64", {}).get("sha256")
+        if manifest_sha is None:
+            # Absent on both sides is the m150 steady state.
+            self.assertNotIn(
+                "linux-arm64",
+                mod.RELEASE_ASSET_SHA256,
+                "pins.py must not carry a stale linux-arm64 sha256 once the "
+                "manifest drops the slice — the two must stay in lockstep.",
+            )
+            return
 
-        skia = _skia_entry()
-        manifest_sha = (
-            skia.get("determinism", {})
-            .get("release_assets", {})
-            .get("linux-arm64", {})
-            .get("sha256")
-        )
         self.assertEqual(
-            mod.RELEASE_ASSET_SHA256["linux-arm64"],
+            mod.RELEASE_ASSET_SHA256.get("linux-arm64"),
             manifest_sha,
             "pins.py linux-arm64 sha256 must equal the manifest entry; "
-            "this is the gate that fails CI when only one side is "
-            "updated.",
+            "this is the gate that fails CI when only one side is updated.",
         )
 
 

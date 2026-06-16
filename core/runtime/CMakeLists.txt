@@ -4,9 +4,9 @@ add_library(pulp::runtime ALIAS pulp-runtime)
 # ── pulp/runtime/build_info.hpp (Tier A Slice 7) ───────────────────────────
 # Generated at configure time so the running binary can stamp itself with
 # the CMake build type, an ISO 8601 configure timestamp, and the short git
-# SHA (plus a dirty-tree flag). Per sudara "Big List of JUCE Tips" #9 —
-# the cheapest "which build is this?" tool is a label in your editor or
-# log header. Header lands under <build>/generated/pulp/runtime/build_info.hpp
+# SHA (plus a dirty-tree flag). A ready-to-display build label is the cheapest
+# way for editor, log, inspector, and About surfaces to show which binary is
+# running. Header lands under <build>/generated/pulp/runtime/build_info.hpp
 # and is exposed on the PUBLIC include path of pulp-runtime so any
 # consumer can `#include <pulp/runtime/build_info.hpp>`.
 set(_pulp_build_info_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -90,6 +90,7 @@ target_sources(pulp-runtime PRIVATE
     src/memory_mapped_file.cpp
     src/temporary_file.cpp
     src/dynamic_library.cpp
+    src/udev_monitor.cpp
     src/child_process.cpp
     src/inter_process_lock.cpp
     src/base64.cpp
@@ -103,6 +104,7 @@ target_sources(pulp-runtime PRIVATE
     src/named_pipe.cpp
     src/stream.cpp
     src/async_stream.cpp
+    src/background_job.cpp
     src/network_stream.cpp
     src/memory_message_channel.cpp
     src/websocket_channel.cpp
@@ -173,6 +175,13 @@ target_link_libraries(pulp-runtime PRIVATE hwy)
 # crypto.cpp, independent of HTTP).
 if(TARGET mbedcrypto)
     target_link_libraries(pulp-runtime PRIVATE mbedcrypto mbedx509 mbedtls)
+    if(APPLE)
+        # Static SDK consumers need these link items in pulp-runtime's exported
+        # link interface because model_download.cpp compiles httplib's macOS
+        # trust-anchor helper into libpulp-runtime.a.
+        target_link_libraries(pulp-runtime PRIVATE
+            "-framework Security" "-framework CoreFoundation")
+    endif()
     target_include_directories(pulp-runtime PRIVATE
         ${mbedtls_SOURCE_DIR}/include
     )

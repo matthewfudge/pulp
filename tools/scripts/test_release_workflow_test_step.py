@@ -51,11 +51,26 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SIGN_AND_RELEASE = REPO_ROOT / ".github" / "workflows" / "sign-and-release.yml"
 RELEASE_CLI = REPO_ROOT / ".github" / "workflows" / "release-cli.yml"
+RELEASE_PATH_PR_GATE = REPO_ROOT / ".github" / "workflows" / "release-path-pr-gate.yml"
 BUILD_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "build.yml"
 
 
-class SignAndReleaseTestStep(unittest.TestCase):
-    """sign-and-release.yml must skip validation-labeled tests."""
+class SignAndReleaseNoTestGate(unittest.TestCase):
+    """sign-and-release.yml must NOT re-run the unit-test suite.
+
+    Supersedes the original #720 design (run ctest minus the `validation`
+    label). The release-artifact build is NOT a test gate: a tagged commit has
+    already passed the FULL suite on the PR/merge gate (self-hosted lane with
+    real GPU/display/iOS-SDK). Re-running ctest on a HEADLESS GitHub-hosted
+    runner is redundant AND fails on environment-only tests that pass on real
+    hardware — #720 already carved out the auval `validation` label for exactly
+    this reason, then more hardware-dependent tests (Skia-raster screenshot,
+    cmake-require-gpu, cmake-ios-hostapp-links) kept silently breaking Releases
+    (v0.372–v0.391). Excluding labels one-by-one is unbounded whack-a-mole; the
+    correct invariant is "don't run the suite here at all." The Build step is the
+    release-config compile smoke, validate.yml gates the format validators on PR,
+    and a headless-safe built-artifact smoke is the recommended replacement gate.
+    """
 
     def setUp(self) -> None:
         self.assertTrue(
@@ -64,53 +79,25 @@ class SignAndReleaseTestStep(unittest.TestCase):
         )
         self.text = SIGN_AND_RELEASE.read_text()
 
-    def _find_test_step_run(self) -> str:
-        """Return the shell text under the `name: Test` step."""
-        # Match the Test step block: `name: Test` followed by an optional
-        # comment block, then `run:`. The run can be a single line
-        # (`run: ctest ...`) or a literal block (`run: |`).
+    def test_no_ctest_unit_run_step(self) -> None:
+        """Guard against re-introducing a `name: Test` step that runs ctest —
+        the headless whack-a-mole that blocked GitHub Releases v0.372–v0.391."""
         pattern = re.compile(
-            r"-\s*name:\s*Test\s*\n"            # step header
-            r"(?:\s*#[^\n]*\n)*"               # optional comment lines
+            r"-\s*name:\s*Test\s*\n"
+            r"(?:\s*#[^\n]*\n)*"
             r"\s*run:\s*(.+?)(?=\n\s*-\s*name:|\Z)",
             re.DOTALL,
         )
         match = pattern.search(self.text)
-        self.assertIsNotNone(
-            match,
-            "could not locate the `name: Test` step in sign-and-release.yml",
-        )
-        return match.group(1)
-
-    def test_test_step_invokes_ctest(self) -> None:
-        run_block = self._find_test_step_run()
-        self.assertIn(
-            "ctest",
-            run_block,
-            "sign-and-release Test step should still invoke ctest",
-        )
-
-    def test_test_step_excludes_validation_label(self) -> None:
-        """Regression for #720.
-
-        The Test step must pass `-LE validation` to ctest (or otherwise
-        explicitly skip the validation label) so auval / pluginval /
-        clap-validator failures on hosted GH runners do not silently
-        break the sign-and-release pipeline.
-        """
-        run_block = self._find_test_step_run()
-        # Accept either the short `-LE validation` form or the long
-        # `--label-exclude validation` form so future edits have
-        # flexibility.
-        has_short = re.search(r"-LE\s+validation", run_block)
-        has_long = re.search(r"--label-exclude\s+validation", run_block)
-        self.assertTrue(
-            has_short or has_long,
-            "sign-and-release Test step must exclude the `validation` ctest "
-            "label (issue #720). Without `-LE validation`, auval failures on "
-            "hosted GitHub macOS runners break the entire release pipeline. "
-            f"Found run block:\n{run_block}",
-        )
+        if match and "ctest" in match.group(1):
+            self.fail(
+                "sign-and-release.yml re-introduced a `name: Test` step that "
+                "runs ctest. The release build is not a test gate — tests gate "
+                "at PR on real hardware; re-running the suite on the headless "
+                "release runner manufactures environment-only failures that "
+                "silently block Releases. Smoke the built ARTIFACT instead.\n"
+                f"Found run block:\n{match.group(1)}"
+            )
 
 
 class ReleaseCliLinuxNoWebView(unittest.TestCase):
@@ -198,9 +185,17 @@ class ReleaseCliLinuxNoWebView(unittest.TestCase):
             self.text,
         )
 
+    def test_cli_and_sdk_build_disable_audio_probes(self) -> None:
+        self.assertGreaterEqual(
+            self.text.count("-DPULP_ENABLE_AUDIO_PROBES=OFF"),
+            2,
+            "release-cli.yml must keep audio probes disabled for both the "
+            "CLI and SDK release configure steps.",
+        )
+
 
 class BuildWorkflowReleaseGate(unittest.TestCase):
-    """build.yml release-path PR gate must match the split SDK archives."""
+    """build.yml release-path PR gate must match release-cli.yml invariants."""
 
     def setUp(self) -> None:
         self.assertTrue(
@@ -208,6 +203,17 @@ class BuildWorkflowReleaseGate(unittest.TestCase):
             f"missing workflow file: {BUILD_WORKFLOW}",
         )
         self.text = BUILD_WORKFLOW.read_text()
+
+    def _find_step_run(self, step_name: str) -> str:
+        pattern = re.compile(
+            rf"-\s*name:\s*{re.escape(step_name)}\s*\n"
+            r"(?:(?!\n\s*-\s*name:).)*?"
+            r"\s*run:\s*(.+?)(?=\n\s*-\s*name:|\Z)",
+            re.DOTALL,
+        )
+        match = pattern.search(self.text)
+        self.assertIsNotNone(match, f"could not locate `{step_name}` step")
+        return match.group(1)
 
     def test_windows_release_gate_checks_view_core_archive(self) -> None:
         self.assertIn("sdk-staging/lib/pulp-view.lib", self.text)
@@ -217,6 +223,34 @@ class BuildWorkflowReleaseGate(unittest.TestCase):
             "assert b'WebViewPanel'",
             self.text,
         )
+
+    def test_windows_release_gate_disables_audio_probes(self) -> None:
+        run_block = self._find_step_run("Configure (matches release-cli.yml)")
+        self.assertIn("-DPULP_ENABLE_AUDIO_PROBES=OFF", run_block)
+
+
+class ReleasePathPrGateMacosRouting(unittest.TestCase):
+    """release-path-pr-gate.yml must route darwin via the release macOS var."""
+
+    def setUp(self) -> None:
+        self.assertTrue(
+            RELEASE_PATH_PR_GATE.exists(),
+            f"missing workflow file: {RELEASE_PATH_PR_GATE}",
+        )
+        self.text = RELEASE_PATH_PR_GATE.read_text()
+
+    def test_darwin_leg_uses_release_macos_runner_resolver(self) -> None:
+        self.assertIn("resolve-macos-runner:", self.text)
+        self.assertIn("PULP_RELEASE_MACOS_RUNS_ON_JSON", self.text)
+        self.assertIn("needs: resolve-macos-runner", self.text)
+        self.assertIn(
+            "matrix.os == 'macos-15' && fromJSON(needs.resolve-macos-runner.outputs.runs_on_json) || matrix.os",
+            self.text,
+        )
+
+    def test_checkout_does_not_require_git_lfs(self) -> None:
+        self.assertIn("lfs: false", self.text)
+        self.assertNotIn("lfs: true", self.text)
 
 
 class ReleaseCliDualBinaryPackaging(unittest.TestCase):
@@ -258,6 +292,20 @@ class ReleaseCliDualBinaryPackaging(unittest.TestCase):
         self.assertRegex(run_block, r"--mcp-binary\s+build/tools/mcp/Release/pulp-mcp\.exe")
         self.assertRegex(run_block, r"--out\s+pulp-\$\{\{\s*matrix\.platform\s*\}\}\.zip")
 
+    def test_unix_preswap_backfills_alias_cpp_cli_to_primary_binary(self) -> None:
+        run_block = self._find_step_run("Normalize CLI binary layout (Unix)")
+        self.assertIn("[ ! -e build/pulp ]", run_block)
+        self.assertIn("[ -x build/tools/cli/pulp-cpp ]", run_block)
+        self.assertIn("cp -p build/tools/cli/pulp-cpp build/pulp", run_block)
+        self.assertIn("test -x build/pulp", run_block)
+
+    def test_windows_preswap_backfills_alias_cpp_cli_to_primary_binary(self) -> None:
+        run_block = self._find_step_run("Normalize CLI binary layout (Windows)")
+        self.assertIn("$primary = 'build/pulp.exe'", run_block)
+        self.assertIn("$cpp = 'build/tools/cli/Release/pulp-cpp.exe'", run_block)
+        self.assertIn("Copy-Item -Path $cpp -Destination $primary", run_block)
+        self.assertIn("Primary CLI binary missing after normalization", run_block)
+
     def test_unix_smoke_step_exercises_all_cli_binaries(self) -> None:
         run_block = self._find_step_run(
             "Smoke `pulp help` + `pulp-cpp help` + `pulp-mcp --version` (Unix)"
@@ -278,6 +326,124 @@ class ReleaseCliDualBinaryPackaging(unittest.TestCase):
         self.assertIn("-ArgumentList $cmd", run_block)
         self.assertIn("DLL was not found", run_block)
         self.assertIn("missing.*\\.dll", run_block)
+
+
+class ReleaseCliBackfillOverlay(unittest.TestCase):
+    """Backfill overlays must not import current source lists into old tags."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.text = RELEASE_CLI.read_text(encoding="utf-8")
+
+    def _find_step_block(self, step_name: str) -> str:
+        pattern = re.compile(
+            rf"-\s*name:\s*{re.escape(step_name)}\s*\n"
+            r"(.+?)(?=\n\s*-\s*name:|\Z)",
+            re.DOTALL,
+        )
+        match = pattern.search(self.text)
+        self.assertIsNotNone(match, f"could not locate `{step_name}` step")
+        return match.group(0)
+
+    def _find_step_run(self, step_name: str) -> str:
+        pattern = re.compile(
+            rf"-\s*name:\s*{re.escape(step_name)}\s*\n"
+            r"(?:(?!\n\s*-\s*name:).)*?"
+            r"\s*run:\s*(.+?)(?=\n\s*-\s*name:|\Z)",
+            re.DOTALL,
+        )
+        match = pattern.search(self.text)
+        self.assertIsNotNone(match, f"could not locate `{step_name}` step")
+        return match.group(1)
+
+    def test_backfill_overlay_runs_for_version_tag_checkout(self) -> None:
+        step_block = self._find_step_block(
+            "Overlay latest release-pipeline files (workflow_dispatch backfill)"
+        )
+        condition = step_block.split("run:", 1)[0]
+        self.assertIn("github.event_name == 'workflow_dispatch'", condition)
+        self.assertIn("inputs.source_ref == ''", condition)
+        self.assertNotIn(
+            "inputs.source_ref != ''",
+            condition,
+            "Normal manual backfills leave source_ref blank and check out "
+            "inputs.version. The overlay must run in that path because the "
+            "checked-out tag can predate the release-pipeline fixes.",
+        )
+
+    def test_backfill_overlay_keeps_cli_cmake_source_list_from_tag(self) -> None:
+        run_block = self._find_step_run(
+            "Overlay latest release-pipeline files (workflow_dispatch backfill)"
+        )
+        loop_match = re.search(
+            r"for path in\s+\\\n(?P<body>.*?)\n\s+; do",
+            run_block,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(loop_match, "could not locate overlay file loop")
+        overlay_paths = loop_match.group("body")
+        self.assertIn("tools/scripts/fetch_skia_for_release.py", overlay_paths)
+        self.assertIn("tools/scripts/package_cli.py", overlay_paths)
+        self.assertIn("core/canvas/CMakeLists.txt", overlay_paths)
+        self.assertIn("tools/deps/manifest.json", overlay_paths)
+        self.assertNotIn(
+            "tools/cli/CMakeLists.txt",
+            overlay_paths,
+            "Backfills must not wholesale-overlay tools/cli/CMakeLists.txt: "
+            "main's add_executable() source list can reference .cpp files that "
+            "do not exist in older tags.",
+        )
+
+    def test_backfill_patches_only_cli_fontconfig_tail_link(self) -> None:
+        run_block = self._find_step_run(
+            "Overlay latest release-pipeline files (workflow_dispatch backfill)"
+        )
+        self.assertIn('Path("tools/cli/CMakeLists.txt")', run_block)
+        self.assertIn("target_link_libraries\\(pulp-cli PRIVATE", run_block)
+        self.assertIn("_PULP_CLI_FONTCONFIG", run_block)
+        self.assertIn("path.write_text(text", run_block)
+        self.assertNotIn("package_analyzer_descriptors.cpp", run_block)
+
+
+class ReleaseCliLatestPointer(unittest.TestCase):
+    """Manual release-cli backfills must not move GitHub's latest pointer."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.text = RELEASE_CLI.read_text(encoding="utf-8")
+
+    def _find_step_block(self, step_name: str) -> str:
+        pattern = re.compile(
+            rf"-\s*name:\s*{re.escape(step_name)}\s*\n"
+            r"(.+?)(?=\n\s*-\s*name:|\Z)",
+            re.DOTALL,
+        )
+        match = pattern.search(self.text)
+        self.assertIsNotNone(match, f"could not locate `{step_name}` step")
+        return match.group(0)
+
+    def test_manual_dispatch_make_latest_input_defaults_false(self) -> None:
+        input_match = re.search(
+            r"make_latest:\s*\n(?P<body>(?:\s{8,}[^\n]*\n)+)",
+            self.text,
+        )
+        self.assertIsNotNone(input_match, "release-cli.yml must define a make_latest input")
+        input_block = input_match.group("body")
+        self.assertIn("type: boolean", input_block)
+        self.assertIn("default: false", input_block)
+
+    def test_create_release_promotes_latest_only_for_tag_push_or_opt_in(self) -> None:
+        step_block = self._find_step_block("Create release")
+        self.assertIn(
+            "make_latest: ${{ github.event_name != 'workflow_dispatch' || inputs.make_latest }}",
+            step_block,
+        )
+        self.assertNotIn(
+            "make_latest: true",
+            step_block,
+            "Unconditional make_latest lets an old-tag workflow_dispatch backfill "
+            "move GitHub's /releases/latest pointer backward.",
+        )
 
 
 class SignAndReleaseContentsWriteTest(unittest.TestCase):

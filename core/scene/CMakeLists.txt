@@ -3,6 +3,7 @@ add_library(pulp-scene STATIC
     src/gltf_loader.cpp
     src/material_key.cpp
     src/render_packet.cpp
+    src/renderer3d_characterization.cpp
     src/scene_graph.cpp
     src/scene_stats.cpp
     src/sidecar.cpp

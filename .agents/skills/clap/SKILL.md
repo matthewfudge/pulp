@@ -73,7 +73,8 @@ struct. It owns:
 - `mpe_tracker` + `mpe_buffer` + `mpe_enabled` — MPE sidecar populated
   only if `PluginDescriptor::effective_capabilities().supports_mpe`
   is true. The effective value ORs the legacy descriptor flag with the
-  node ABI capability field.
+  node ABI capability field. `clap_activate()` reserves and capacity-limits
+  the sidecar too; one MIDI event can fan out to many MPE callbacks.
 - `ump_buffer` + `ump_enabled` — UMP sidecar. Cleared at the top of
   every block, then filled from BOTH sources every block: native
   `CLAP_EVENT_MIDI2` packets append directly during the event loop,
@@ -83,7 +84,7 @@ struct. It owns:
   `CLAP_EVENT_NOTE_*` and CCs via `CLAP_EVENT_MIDI2` is common, and
   skipping the synthesis when MIDI2 is present silently drops the
   note half from the UMP buffer (Codex P1 review on PR #627). See
-  Gotchas.
+  Gotchas. `clap_activate()` reserves and capacity-limits this sidecar.
 - `ara_controller` — lazily created on the first host query for the
   ARA companion-factory extension.
 - `bridge` + `editor_host` + `editor_visible` — gated on
@@ -168,7 +169,8 @@ CLAP_EVENT_NOTE_ON / _NOTE_OFF → MidiEvent::note_on / note_off
 CLAP_EVENT_MIDI                → MidiEvent::from_bytes(data[0..2])
                                  — CC, pitch bend, channel AT,
                                    poly AT, program change
-CLAP_EVENT_MIDI_SYSEX          → midi_in.add_sysex(bytes, time, 0.0)
+CLAP_EVENT_MIDI_SYSEX          → midi_in.add_sysex_copy(bytes, time, 0.0)
+                                 backed by a preallocated payload pool
 CLAP_EVENT_NOTE_EXPRESSION     → synthesised MIDI 1.0 (see table)
 CLAP_EVENT_NOTE_CHOKE          → note_off(channel, key, velocity=0)
 CLAP_EVENT_MIDI2               → self->ump_buffer.add(packet)
@@ -200,6 +202,33 @@ short messages emit as `CLAP_EVENT_MIDI`, sysex entries as
 `clap_event_midi_sysex_t.buffer` field is non-owning — the backing
 vector is alive for the duration of `clap_process()`, which is all
 CLAP's push contract requires (the host copies before returning).
+
+`midi_in`, `midi_out`, `mpe_buffer`, and `ump_buffer` are per-instance
+buffers on `PulpClapPlugin`, not fresh locals inside `clap_process()`.
+`clap_activate()` reserves their storage and enables realtime capacity
+limits, then `clap_process()` clears and reuses them every block. Past
+the reserved capacity, appends must drop and increment the relevant drop
+counters; they must not grow vectors under the process no-allocation
+guard.
+
+Inbound CLAP SysEx is the exception to the move-based adapter pattern:
+the host gives the adapter a non-owning payload pointer, so accepting it
+requires copying bytes into owned storage. `clap_activate()` reserves a
+bounded payload pool on `midi_in`; `MidiBuffer::add_sysex_copy()` copies
+into that pool on the realtime-limited process path and drops only when
+the sidecar count or per-payload capacity is exceeded. Keep the happy
+path and overflow case covered in `test_clap_midi_events.cpp`.
+
+If you add a new inbound/outbound MIDI path, cover the overflow case in
+`test_clap_midi_events.cpp`. If you add a test processor that
+captures/forwards sysex while behind the CLAP no-alloc guard, preallocate
+destination SysEx payload storage in `prepare()` and call
+`MidiBuffer::add_sysex_copy()` for explicit captures. Whole-event
+forwarding with `midi_out.add_sysex(std::move(sx))` is supported because
+pool-backed input events copy into the destination's prepared payload
+pool; moving only `sx.data` out of `midi_in` is intentionally not
+supported. Copying a vector payload inside `process()` will trip the RT
+allocation trap under ASan/TSan/debug test builds.
 
 ### State save / restore
 

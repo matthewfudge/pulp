@@ -12,6 +12,7 @@
 #   - version-bump (catches feat:/fix: PRs without a chore: bump versions commit)
 #   - compat-sync (when compat.json is touched, requires matching test coverage)
 #   - node-ABI (Processor/PluginSlot virtual methods are append-only)
+#   - hotspot-size (known refactor hotspots must not exceed frozen LOC baselines)
 #   - deps-audit (catches DEPENDENCIES.md / NOTICE.md drift)
 #
 # Does NOT run:
@@ -56,8 +57,11 @@ VBC="$ROOT/tools/scripts/version_bump_check.py"
 SSC="$ROOT/tools/scripts/skill_sync_check.py"
 CSC="$ROOT/tools/scripts/compat_sync_check.py"
 NAG="$ROOT/tools/scripts/node_abi_gate.py"
+HSG="$ROOT/tools/scripts/hotspot_size_guard.py"
+HSG_CFG="$ROOT/tools/scripts/hotspot_size_guard.json"
 CFG="$ROOT/tools/scripts/versioning.json"
 DEPS_AUDIT="$ROOT/tools/deps/audit.py"
+IMPORT_PROV="$ROOT/tools/scripts/check_import_provenance.py"
 
 if [ ! -f "$VBC" ] || [ ! -f "$SSC" ] || [ ! -f "$CFG" ]; then
     echo "gates.sh: gate scripts not found (expected at tools/scripts/)" >&2
@@ -121,7 +125,16 @@ if [ -f "$NAG" ]; then
     fi
 fi
 
-# ── 5. deps-audit ──────────────────────────────────────────────────────────
+# ── 5. hotspot-size guard ──────────────────────────────────────────────────
+if [ -f "$HSG" ] && [ -f "$HSG_CFG" ]; then
+    echo "" >&2
+    echo "▸ hotspot-size guard" >&2
+    if ! "$PYTHON" "$HSG" --base "$BASE" --config "$HSG_CFG" --mode=report; then
+        fail=1
+    fi
+fi
+
+# ── 6. deps-audit ──────────────────────────────────────────────────────────
 if [ -f "$DEPS_AUDIT" ]; then
     echo "" >&2
     echo "▸ deps-audit (attribution drift)" >&2
@@ -130,6 +143,20 @@ if [ -f "$DEPS_AUDIT" ]; then
         fail=1
     else
         echo "  deps-audit: ok" >&2
+    fi
+fi
+
+# ── 7. import-provenance (opt-in) ──────────────────────────────────────────
+# Audits that any emitted/migrated project carries a well-formed clean-room
+# provenance marker. No-op for normal Pulp-repo pushes; set
+# PULP_IMPORT_PROVENANCE_DIRS (space-separated project dirs) on a PR that lands
+# a migrated project to enforce it here.
+if [ -f "$IMPORT_PROV" ] && [ -n "${PULP_IMPORT_PROVENANCE_DIRS:-}" ]; then
+    echo "" >&2
+    echo "▸ import-provenance check" >&2
+    # shellcheck disable=SC2086
+    if ! "$PYTHON" "$IMPORT_PROV" $PULP_IMPORT_PROVENANCE_DIRS; then
+        fail=1
     fi
 fi
 

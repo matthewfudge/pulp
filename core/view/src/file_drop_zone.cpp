@@ -1,10 +1,14 @@
 #include <pulp/view/file_drop_zone.hpp>
+
+#include <pulp/platform/file_dialog.hpp>
+
 #include <algorithm>
 
 namespace pulp::view {
 
 FileDropZone::FileDropZone() {
     set_access_role(AccessRole::group);
+    set_focusable(true);
 }
 
 void FileDropZone::set_accepted_extensions(std::vector<std::string> exts) {
@@ -52,6 +56,45 @@ void FileDropZone::drop(const std::vector<std::string>& paths) {
         if (is_valid_extension(p)) valid.push_back(p);
     }
     if (!valid.empty() && on_drop) on_drop(valid);
+}
+
+void FileDropZone::on_mouse_event(const MouseEvent& event) {
+    if (!browse_on_click_) return;
+    const bool press = event.hasExplicitPhase() ? event.isPress() : event.is_down;
+    if (!press || event.button != MouseButton::left) return;
+    // No dialog backend (iOS / Android / a host that hasn't registered one) →
+    // graceful no-op; drag-and-drop remains the path.
+    if (!platform::FileDialog::has_backend()) return;
+
+    // One filter built from the accepted extensions (strip leading dots).
+    std::vector<platform::FileFilter> filters;
+    if (!extensions_.empty()) {
+        std::string exts;
+        for (const auto& e : extensions_) {
+            std::string s = (!e.empty() && e.front() == '.') ? e.substr(1) : e;
+            if (!exts.empty()) exts += ';';
+            exts += s;
+        }
+        filters.push_back({"Files", exts});
+    }
+    auto picked = platform::FileDialog::open_file(dialog_title_, filters, "");
+    if (picked && !picked->empty()) drop({*picked});  // same path as a drag drop
+}
+
+// ── DropReceiver (drop-dispatch core routes through these) ────────────────────
+
+bool FileDropZone::accept_drag(const DropData& data, Point /*local*/) {
+    if (data.type != DropData::Type::files) return false;  // let text/custom bubble
+    drag_enter(data.file_paths);
+    return true;  // claim the hover (drives highlight)
+}
+
+void FileDropZone::leave_drag() { drag_leave(); }
+
+bool FileDropZone::accept_drop(const DropData& data, Point /*local*/) {
+    if (data.type != DropData::Type::files) return false;  // let text/custom bubble
+    drop(data.file_paths);
+    return true;  // the zone owns file drops in its region (consumes the drop)
 }
 
 void FileDropZone::paint(canvas::Canvas& canvas) {

@@ -1004,6 +1004,8 @@ std::vector<DesignFrameElement> to_frame_elements(
                 el.kind = DesignFrameElement::Kind::text_field; break;
             case InteractiveElementKind::tab_group:
                 el.kind = DesignFrameElement::Kind::tab_group; break;
+            case InteractiveElementKind::stepper:
+                el.kind = DesignFrameElement::Kind::stepper; break;
             case InteractiveElementKind::knob:
                 el.kind = DesignFrameElement::Kind::knob; break;
         }
@@ -1018,6 +1020,7 @@ std::vector<DesignFrameElement> to_frame_elements(
         el.placeholder = e.placeholder;
         el.options = e.options;
         el.selected_index = e.selected_index;
+        el.bg_color = e.bg_color;
         out.push_back(std::move(el));
     }
     return out;
@@ -1526,14 +1529,14 @@ std::unique_ptr<View> make_widget(const IRNode& node,
         }
         case NativeWidgetKind::combo_box: {
             // A captured "Dropdown" frame → an interactive ComboBox. Its text
-            // child is the selected value; stub options demonstrate the popup
-            // (the figma source carries no option list).
+            // child is the selected value, and that is the ONLY real option: a
+            // static design defines no alternatives, so emit just the shown value
+            // rather than fabricating "Option 2/3" placeholders. A design that
+            // carries component variants would source the full list from them.
             auto combo = std::make_unique<ComboBox>();
             std::string selected = first_text_descendant(node).value_or(text);
             std::vector<std::string> items;
             if (!selected.empty()) items.push_back(selected);
-            items.push_back("Option 2");
-            items.push_back("Option 3");
             combo->set_items(std::move(items));
             combo->set_selected_silent(0);
             return combo;

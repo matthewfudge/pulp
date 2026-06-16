@@ -19,6 +19,7 @@ class WindowHost;  // Forward declaration for View→Host back-reference
 class PluginViewHost;
 
 class FrameClock;
+struct FileDragRequest;  // pulp/view/drag_drop.hpp
 
 // Base class for all UI elements
 // Views form a tree: each view has zero or more children and one optional parent
@@ -349,6 +350,12 @@ public:
     /// `requestAnimationFrame` callbacks reach the host's invalidator.
     /// See `WidgetBridge::set_repaint_callback` for the override path.
     void request_repaint();
+
+    /// Drag existing on-disk files out of this view to another app (e.g. drop a
+    /// rendered .wav onto a DAW timeline). Routes through the attached host's
+    /// native view to the platform backend; call from a pointer handler. False
+    /// if no host, no files, or unsupported. See `pulp/view/drag_drop.hpp`.
+    bool start_file_drag(const FileDragRequest& request);
     bool has_focus() const { return has_focus_; }
     void set_focus(bool f) { has_focus_ = f; }
 
@@ -1254,6 +1261,11 @@ public:
     void set_animation_play_state(std::string kw)  { animation_play_state_ = std::move(kw); }
     const std::string& animation_play_state() const { return animation_play_state_; }
 
+    /// Opt a custom view into per-vsync repaints — required for live content
+    /// (meters/spectrum, automation-tracking values) or it looks frozen.
+    void set_continuous_repaint(bool on) { wants_continuous_repaint_ = on; }
+    bool wants_continuous_repaint() const { return wants_continuous_repaint_; }
+
     /// pulp #1548 — RN textShadow per-attribute storage. Storage-only;
     /// SkPaint shadow integration is the deferred paint-time slice.
     /// Each slot is round-trippable so a commitUpdate that touches only
@@ -1610,6 +1622,7 @@ private:
     std::string isolation_;                // wontfix (no z-buffer)
     std::string resize_;                   // noop (no resize handles)
     std::string animation_play_state_;     // partial (storage only)
+    bool wants_continuous_repaint_ = false; // opt-in per-vsync repaint
     // pulp #1548 — RN textShadow* per-attribute storage slots. SkPaint
     // shadow integration deferred; storage path is round-trippable.
     std::string text_shadow_color_;

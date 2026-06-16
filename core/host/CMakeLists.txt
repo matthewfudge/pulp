@@ -4,6 +4,7 @@ add_library(pulp::host ALIAS pulp-host)
 target_include_directories(pulp-host
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/core/format/include>
         $<INSTALL_INTERFACE:include>
 )
 
@@ -19,7 +20,7 @@ target_sources(pulp-host PRIVATE
     src/node_pack.cpp
 )
 
-target_link_libraries(pulp-host PUBLIC pulp::audio pulp::midi pulp::runtime pulp::state)
+target_link_libraries(pulp-host PUBLIC pulp::audio pulp::graph pulp::midi pulp::runtime pulp::state)
 target_link_libraries(pulp-host PUBLIC pulp::native-components)
 target_link_libraries(pulp-host PRIVATE pulp::platform)
 # node_pack.cpp dlopen()s signed node packs (desktop + Android). iOS never builds

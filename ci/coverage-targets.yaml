@@ -50,6 +50,7 @@ tiers:
       - core/audio/**
       - core/dsl/**
       - core/format/**
+      - core/graph/**
       - core/host/**
       - core/midi/**
       - core/native-components/**
@@ -61,6 +62,7 @@ tiers:
     paths:
       - core/view/**
       - core/render/**
+      - core/scene/**
       - inspect/**
       - tools/cli/**
       # pulp #1886 Phase 1 — JS/TS sources in @pulp/react are user-visible

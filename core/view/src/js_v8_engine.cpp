@@ -15,6 +15,17 @@
 
 #ifdef PULP_HAS_V8
 
+// CHOC's V8 + Console headers use std::ostringstream / std::endl / std::cerr /
+// std::cout but rely on a transitive include of <sstream>/<iostream>. The MSVC
+// STL pulls those in implicitly; libc++ (the Chromium-style libc++ the Windows
+// sealed v8.dll requires its consumer to use — see tools/cmake/PulpV8Windows.
+// cmake) does NOT, so the iostream headers must be included explicitly BEFORE
+// the choc headers or the TU fails to compile under clang-cl + libc++.
+#include <ios>
+#include <ostream>
+#include <sstream>
+#include <iostream>
+
 // Include CHOC's V8 wrapper — must appear in exactly one translation unit
 #include <choc/javascript/choc_javascript_V8.h>
 #include <choc/javascript/choc_javascript_Console.h>
@@ -43,6 +54,40 @@ public:
     }
 
     JsEngineType type() const override { return JsEngineType::v8; }
+
+    std::string runtime_version() const override {
+        // The version V8 itself reports at runtime — the ground truth that the
+        // sealed provider claim (PULP_V8_EXPECTED_RUNTIME_VERSION) is checked
+        // against. v8::V8::GetVersion() is declared in v8-initialization.h,
+        // transitively included via choc_javascript_V8.h.
+        const char* version = v8::V8::GetVersion();
+        return version ? std::string(version) : std::string{};
+    }
+
+    std::string provider_kind() const override {
+#ifdef PULP_V8_PROVIDER_KIND
+        return PULP_V8_PROVIDER_KIND;
+#else
+        return {};
+#endif
+    }
+
+    std::string provider_path() const override {
+#ifdef PULP_V8_PROVIDER_PATH
+        return PULP_V8_PROVIDER_PATH;
+#else
+        return {};
+#endif
+    }
+
+    std::string expected_runtime_version() const override {
+#ifdef PULP_V8_EXPECTED_RUNTIME_VERSION
+        return PULP_V8_EXPECTED_RUNTIME_VERSION;
+#else
+        return {};
+#endif
+    }
+
     bool is_valid() const override { return static_cast<bool>(context_); }
 
     choc::value::Value evaluate(const std::string& code) override {

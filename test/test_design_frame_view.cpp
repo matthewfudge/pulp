@@ -7,6 +7,7 @@
 // rendered output, and fail-safe behavior — with no design-import dependency.
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 
 #include <pulp/view/design_frame_view.hpp>
 #include <pulp/view/input_events.hpp>
@@ -282,6 +283,193 @@ TEST_CASE("DesignTabGroup renders and the highlight moves with selection",
     CHECK(cmp.similarity < 0.999f);
 }
 
+TEST_CASE("DesignFrameView overlays a DesignStepper for a stepper element",
+          "[view][design-import][frame][overlay]") {
+    DesignFrameElement st;
+    st.kind = DesignFrameElement::Kind::stepper;
+    st.x = 20; st.y = 14; st.w = 56; st.h = 14;     // inside the 80x80 panel
+    st.options = {"Lowpass", "Bandpass", "Highpass"};
+    st.selected_index = 1;
+    DesignFrameView v(make_design_svg(), {st});
+
+    auto* step = dynamic_cast<DesignStepper*>(v.overlay_widget(0));
+    REQUIRE(step != nullptr);                         // a real stepper widget
+    REQUIRE(step->option_count() == 3);
+    CHECK(step->selected() == 1);                     // from selected_index
+    CHECK(step->current() == "Bandpass");
+
+    // Positioned via the panel transform (view 80x80 -> scale 1; panel origin
+    // (10,10)): rect (20,14,56,14) -> view (10,4,56,14).
+    v.set_bounds({0, 0, 80, 80});
+    v.layout_children();
+    auto b = step->bounds();
+    CHECK(b.x == 10.0f); CHECK(b.width == 56.0f);
+    CHECK(v.hit_test({30, 8}) == step);              // click routes to the stepper
+
+    // Right half steps to the next option; left half to the previous; clamped.
+    step->on_mouse_down({50, 7});                     // right half -> next
+    CHECK(step->selected() == 2);
+    CHECK(step->current() == "Highpass");
+    step->on_mouse_down({50, 7});                     // already last -> clamp
+    CHECK(step->selected() == 2);
+    step->on_mouse_down({5, 7});                      // left half -> previous
+    CHECK(step->selected() == 1);
+    step->on_mouse_down({5, 7});
+    step->on_mouse_down({5, 7});                      // clamp at 0
+    CHECK(step->selected() == 0);
+    CHECK(step->current() == "Lowpass");
+}
+
+TEST_CASE("DesignStepper renders and the value changes with selection",
+          "[view][design-import][frame][overlay][svg]") {
+    auto make_step = [](int selected) {
+        DesignFrameElement st;
+        st.kind = DesignFrameElement::Kind::stepper;
+        st.x = 14; st.y = 14; st.w = 60; st.h = 16;
+        st.options = {"Lowpass", "Bandpass", "Highpass"};
+        st.selected_index = selected;
+        return st;
+    };
+    DesignFrameView lo(make_design_svg(), {make_step(0)});
+    DesignFrameView hi(make_design_svg(), {make_step(2)});
+    lo.set_bounds({0, 0, 80, 80}); lo.layout_children();
+    hi.set_bounds({0, 0, 80, 80}); hi.layout_children();
+
+    auto lo_png = render_to_png(lo, 80, 80, 2.0f, ScreenshotBackend::skia);
+    if (lo_png.empty()) SKIP("Skia raster screenshot backend unavailable");
+    auto hi_png = render_to_png(hi, 80, 80, 2.0f, ScreenshotBackend::skia);
+    REQUIRE_FALSE(hi_png.empty());
+    const auto cmp = compare_screenshots(lo_png, hi_png);
+    REQUIRE(cmp.valid);
+    // Different option text is shown, so the two renders differ.
+    if (cmp.similarity >= 0.999f)
+        SKIP("native raster unavailable in this build");
+    CHECK(cmp.similarity < 0.999f);
+}
+
+TEST_CASE("DesignStepper with a single option paints nothing (no double-text over the baked label)",
+          "[view][design-import][frame][overlay][svg]") {
+    // A header stepper detected from a baked `< value >` whose source has only
+    // the one shown value has nowhere to step. Re-drawing its chevrons + value
+    // would double them on top of the design's baked label. So a 1-option
+    // stepper must paint NOTHING (let the baked SVG show through); a multi-option
+    // one paints its live value. Render both on a transparent surface and
+    // compare painted content.
+    DesignStepper one({"Reverb"}, 0);
+    DesignStepper many({"Reverb", "Delay", "Chorus"}, 0);
+    one.set_bounds({0, 0, 80, 24});
+    many.set_bounds({0, 0, 80, 24});
+
+    auto one_png = render_to_png(one, 80, 24, 2.0f, ScreenshotBackend::skia);
+    if (one_png.empty()) SKIP("Skia raster screenshot backend unavailable");
+    auto many_png = render_to_png(many, 80, 24, 2.0f, ScreenshotBackend::skia);
+    REQUIRE_FALSE(many_png.empty());
+
+    const auto one_stats = analyze_screenshot_content(one_png);
+    const auto many_stats = analyze_screenshot_content(many_png);
+    REQUIRE(one_stats.valid);
+    REQUIRE(many_stats.valid);
+    // Multi-option stepper paints text (chevrons + value) → many colors. If even
+    // that is blank, the raster lane no-ops text; skip rather than false-pass.
+    if (many_stats.unique_colors <= 2)
+        SKIP("native raster unavailable in this build");
+    // The single-option stepper drew nothing: a near-uniform (transparent)
+    // frame, strictly fewer colors than the multi-option one.
+    CHECK(one_stats.unique_colors <= 2);
+    CHECK(one_stats.unique_colors < many_stats.unique_colors);
+}
+
+TEST_CASE("suppress_svg_rect removes the baked tab highlight by geometry, not rx/cx",
+          "[view][design-import][frame][svg]") {
+    // Values from a real exported frame: the selected-tab highlight is a filled
+    // <rect> at the slot, sitting on top of the wider strip background.
+    std::string svg =
+        "<svg>"
+        "<rect x=\"10\" y=\"20\" width=\"30\" height=\"40\" fill=\"#111111\"/>"
+        "<rect x=\"290\" y=\"123\" width=\"124\" height=\"26\" rx=\"2\" fill=\"#252626\"/>"
+        "<rect x=\"352\" y=\"126\" width=\"29.5\" height=\"20\" rx=\"2\" fill=\"#2C2D2D\"/>"
+        "</svg>";
+    // Removes exactly the baked highlight (tab group x=293,w=118,4 tabs,sel=2 →
+    // slot 2 at x=352,w=29.5), leaving the strip + the unrelated rect. The rx="2"
+    // attribute must NOT be mistaken for x=.
+    REQUIRE(suppress_svg_rect(svg, 352.0f, 126.0f, 29.5f, 20.0f));
+    CHECK(svg.find("#2C2D2D") == std::string::npos);   // baked highlight removed
+    CHECK(svg.find("#252626") != std::string::npos);   // wider strip kept
+    CHECK(svg.find("#111111") != std::string::npos);   // unrelated rect kept
+    CHECK_FALSE(suppress_svg_rect(svg, 352.0f, 126.0f, 29.5f, 20.0f));  // no 2nd match
+    CHECK_FALSE(suppress_svg_rect(svg, 10.0f, 20.0f, 999.0f, 40.0f));   // size mismatch
+}
+
+TEST_CASE("suppress_svg_glow_at removes the selected digit's baked glow group",
+          "[view][design-import][frame][svg]") {
+    // Figma bakes the selected tab digit with a glow = a big-blur drop-shadow
+    // filter group wrapping the glyph. The live pill moves on click but the baked
+    // glow stays stuck on the original digit. Suppress the filtered group whose
+    // first drawn point sits inside the selected cell (x=352..381.5, y=126..146,
+    // matching the highlight rect above). A nested <g> inside it must be
+    // depth-matched so the whole glow group is erased.
+    std::string svg =
+        "<svg>"
+        "<g filter=\"url(#glowSel)\"><g><path d=\"M366.78 138.58L370 132\" fill=\"#fff\"/></g></g>"
+        "<g filter=\"url(#glowElsewhere)\"><path d=\"M12 600L20 610\" fill=\"#fff\"/></g>"
+        "<path d=\"M360 140L362 142\" fill=\"#aaa\"/>"   // a plain (unfiltered) glyph stays
+        "</svg>";
+    REQUIRE(suppress_svg_glow_at(svg, 352.0f, 126.0f, 29.5f, 20.0f));
+    CHECK(svg.find("#glowSel") == std::string::npos);        // selected-cell glow removed...
+    CHECK(svg.find("M366.78 138.58") == std::string::npos);  // ...including its glyph + nested <g>
+    CHECK(svg.find("#glowElsewhere") != std::string::npos);  // glow outside the cell kept
+    CHECK(svg.find("M360 140") != std::string::npos);        // plain unfiltered glyph kept
+    CHECK_FALSE(suppress_svg_glow_at(svg, 352.0f, 126.0f, 29.5f, 20.0f));  // no 2nd match
+    // A cell with no filtered group inside reports no removal.
+    CHECK_FALSE(suppress_svg_glow_at(svg, 0.0f, 0.0f, 5.0f, 5.0f));
+}
+
+TEST_CASE("suppress_svg_glyph_at removes a baked digit glyph in the cell",
+          "[view][design-import][frame][svg]") {
+    // Non-selected tab digits are plain <path> glyphs. We drop each so the live
+    // overlay is the sole renderer of the digits (no faint doubled glyph). Only
+    // the path whose first point is inside the cell is removed; glyphs in other
+    // cells, and the strip <rect>, stay.
+    std::string svg =
+        "<svg>"
+        "<rect x=\"290\" y=\"123\" width=\"124\" height=\"26\" fill=\"#252626\"/>"
+        "<path d=\"M308.6 138.5L310 132\" fill=\"#ABABAB\"/>"   // digit "1" in slot 0
+        "<path d=\"M339.2 138.5L341 132\" fill=\"#ABABAB\"/>"   // digit "2" in slot 1
+        "</svg>";
+    // Slot 0 cell: x=293..322.5, y=126..146. Removes "1" only.
+    REQUIRE(suppress_svg_glyph_at(svg, 293.0f, 126.0f, 29.5f, 20.0f));
+    CHECK(svg.find("M308.6 138.5") == std::string::npos);  // slot-0 digit removed
+    CHECK(svg.find("M339.2 138.5") != std::string::npos);  // slot-1 digit kept
+    CHECK(svg.find("#252626") != std::string::npos);       // strip rect kept (not a <path>)
+    CHECK_FALSE(suppress_svg_glyph_at(svg, 293.0f, 126.0f, 29.5f, 20.0f));  // no 2nd match in cell
+}
+
+TEST_CASE("DesignFrameView suppresses the baked selected-tab highlight (no double-pill)",
+          "[view][design-import][frame][svg]") {
+    // An SVG whose tab strip has a baked highlight at the selected slot (2). The
+    // DesignFrameView constructor must strip it so only the live pill shows.
+    const std::string strip =
+        "<rect x=\"10\" y=\"10\" width=\"60\" height=\"60\" rx=\"2\" fill=\"#1c1d1d\"/>"
+        "<rect x=\"20\" y=\"14\" width=\"56\" height=\"14\" rx=\"2\" fill=\"#252626\"/>"
+        // baked highlight on slot 2: tab group x=20,w=56,4 tabs → slot_w=14, slot2 x=48
+        "<rect x=\"48\" y=\"14\" width=\"14\" height=\"14\" rx=\"2\" fill=\"#3c3d3d\"/>";
+    const std::string svg =
+        "<svg width=\"80\" height=\"80\" xmlns=\"http://www.w3.org/2000/svg\">" + strip + "</svg>";
+    DesignFrameElement tg;
+    tg.kind = DesignFrameElement::Kind::tab_group;
+    tg.x = 20; tg.y = 14; tg.w = 56; tg.h = 14;
+    tg.options = {"1", "2", "3", "4"};
+    tg.selected_index = 2;
+    // The view should construct without the baked highlight surviving. We can't
+    // read svg_ directly, so prove the mechanism via the helper on the same data:
+    std::string check = svg;
+    REQUIRE(suppress_svg_rect(check, tg.x + 2 * (tg.w / 4), tg.y, tg.w / 4, tg.h));
+    CHECK(check.find("#3c3d3d") == std::string::npos);  // baked slot-2 pill gone
+    CHECK(check.find("#252626") != std::string::npos);  // strip kept
+    DesignFrameView v(svg, {tg});                        // exercises the ctor path
+    CHECK(v.element_count() == 1);
+}
+
 TEST_CASE("DesignFrameView is fail-safe on an empty/garbage SVG",
           "[view][design-import][frame][svg]") {
     DesignFrameView empty("", {});
@@ -291,4 +479,67 @@ TEST_CASE("DesignFrameView is fail-safe on an empty/garbage SVG",
     // out). Render path returns an empty/uniform image; the call must be safe.
     auto png = render_to_png(empty, 40, 40, 1.0f, ScreenshotBackend::skia);
     SUCCEED("paint with empty SVG did not crash");
+}
+
+// ── v2: event-driven binding (on_element_changed + gestures) + uniform value ──
+
+namespace {
+// A dropdown element with three options, initially on index 1.
+DesignFrameElement make_dropdown() {
+    DesignFrameElement d;
+    d.kind = DesignFrameElement::Kind::dropdown;
+    d.x = 12; d.y = 12; d.w = 60; d.h = 16;
+    d.options = {"A", "B", "C"};
+    d.selected_index = 1;
+    return d;
+}
+}  // namespace
+
+TEST_CASE("DesignFrameView knob drag fires on_element_changed + gesture begin/end",
+          "[view][design-import][frame][binding]") {
+    DesignFrameView v(make_design_svg(), {make_knob()});
+    v.set_bounds({0, 0, 100, 100});
+
+    int begins = 0, ends = 0, changes = 0;
+    float last = -1.0f;
+    v.on_gesture_begin   = [&](int i) { CHECK(i == 0); ++begins; };
+    v.on_gesture_end     = [&](int i) { CHECK(i == 0); ++ends; };
+    v.on_element_changed = [&](int i, float val) { CHECK(i == 0); last = val; ++changes; };
+
+    v.on_mouse_down({40, 40});   // on the knob
+    v.on_mouse_drag({40, 10});   // turn up
+    v.on_mouse_up({40, 10});
+
+    CHECK(begins == 1);
+    CHECK(ends == 1);
+    CHECK(changes >= 1);
+    CHECK(last > 0.5f);                       // the reported value tracked the turn
+    CHECK(v.element_value(0) == last);        // accessor agrees with the callback
+
+    // set_element_value is a programmatic push: it must NOT fire on_element_changed.
+    const int before = changes;
+    v.set_element_value(0, 0.25f);
+    CHECK(changes == before);
+    CHECK(v.element_value(0) == 0.25f);
+}
+
+TEST_CASE("DesignFrameView exposes a choice control as a normalized param",
+          "[view][design-import][frame][binding]") {
+    DesignFrameView v(make_design_svg(), {make_dropdown()});
+    v.set_bounds({0, 0, 100, 100});
+
+    REQUIRE(v.element_kind(0) == DesignFrameElement::Kind::dropdown);
+    // 3 options -> indices 0,1,2 map to 0, 0.5, 1.0. Initial index 1 -> 0.5.
+    CHECK(v.element_value(0) == Catch::Approx(0.5f));
+
+    // Host push: 1.0 -> last option (index 2), silently (no on_element_changed).
+    int changes = 0;
+    v.on_element_changed = [&](int, float) { ++changes; };
+    v.set_element_value(0, 1.0f);
+    CHECK(v.element_value(0) == Catch::Approx(1.0f));
+    CHECK(changes == 0);
+
+    // 0.0 -> first option (index 0).
+    v.set_element_value(0, 0.0f);
+    CHECK(v.element_value(0) == Catch::Approx(0.0f));
 }

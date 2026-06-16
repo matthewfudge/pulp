@@ -14,14 +14,24 @@
 #include <pulp/tools/audio/excerpt_service.hpp>
 #include <pulp/tools/audio/service.hpp>
 
+#include <choc/text/choc_JSON.h>
+
 #include <algorithm>
+#include <cerrno>
 #include <cctype>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <random>
 #include <sstream>
 #include <string>
 #include <utility>
+#include <vector>
+
+#if !defined(_WIN32)
+#include <sys/stat.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -57,6 +67,105 @@ bool valid_import_design_mode(const std::string& value) {
 
 bool valid_import_design_emit(const std::string& value) {
     return value == "js" || value == "ir-json" || value == "cpp";
+}
+
+fs::path source_build_cli_path(const fs::path& root) {
+    const auto build_dir = root / "build";
+    const auto cli_dir = build_dir / "tools" / "cli";
+    std::vector<fs::path> candidates = {
+        cli_dir / "pulp-cpp",
+        cli_dir / "pulp-cpp.exe",
+    };
+
+    for (const char* config : {"Release", "RelWithDebInfo", "Debug", "MinSizeRel"}) {
+        candidates.push_back(cli_dir / config / "pulp-cpp");
+        candidates.push_back(cli_dir / config / "pulp-cpp.exe");
+    }
+
+    candidates.push_back(build_dir / "pulp");
+    candidates.push_back(build_dir / "pulp.exe");
+
+    candidates.push_back(cli_dir / "pulp");
+    candidates.push_back(cli_dir / "pulp.exe");
+    for (const char* config : {"Release", "RelWithDebInfo", "Debug", "MinSizeRel"}) {
+        candidates.push_back(cli_dir / config / "pulp");
+        candidates.push_back(cli_dir / config / "pulp.exe");
+    }
+
+    for (const auto& candidate : candidates) {
+        if (fs::exists(candidate)) return candidate;
+    }
+    return build_dir / "pulp";
+}
+
+struct ProbeJsonTemp {
+    fs::path directory;
+    fs::path json_path;
+};
+
+std::string random_temp_suffix() {
+    static constexpr char hex[] = "0123456789abcdef";
+    std::random_device rd;
+    std::string out;
+    out.reserve(32);
+    for (int word = 0; word < 4; ++word) {
+        std::uint32_t value = rd();
+        for (int shift = 28; shift >= 0; shift -= 4)
+            out.push_back(hex[(value >> shift) & 0x0f]);
+    }
+    return out;
+}
+
+ProbeJsonTemp make_private_probe_json_temp(std::string& error) {
+    const auto base = fs::temp_directory_path();
+    for (int attempt = 0; attempt < 32; ++attempt) {
+        auto dir = base / ("pulp-mcp-audio-probe-" + random_temp_suffix());
+#if defined(_WIN32)
+        std::error_code ec;
+        if (fs::create_directory(dir, ec)) {
+            fs::permissions(dir, fs::perms::owner_all,
+                            fs::perm_options::replace, ec);
+            return {dir, dir / "probe.json"};
+        }
+#else
+        if (::mkdir(dir.c_str(), S_IRWXU) == 0)
+            return {dir, dir / "probe.json"};
+        if (errno != EEXIST) {
+            error = "failed to create private temp directory for audio probe JSON";
+            return {};
+        }
+#endif
+    }
+    error = "failed to create private temp directory for audio probe JSON";
+    return {};
+}
+
+std::string read_text_file(const fs::path& path) {
+    std::ifstream file(path);
+    if (!file.is_open()) return {};
+    std::stringstream buffer;
+    buffer << file.rdbuf();
+    return buffer.str();
+}
+
+bool normalize_structured_json(const std::string& text,
+                               std::string& normalized,
+                               std::string& error) {
+    try {
+        auto parsed = choc::json::parse(text);
+        if (!parsed.isObject() && !parsed.isArray()) {
+            error = "audio probe JSON root must be an object or array";
+            return false;
+        }
+        normalized = choc::json::toString(parsed, false);
+        return true;
+    } catch (const std::exception& e) {
+        error = std::string("failed to parse audio probe JSON: ") + e.what();
+        return false;
+    } catch (...) {
+        error = "failed to parse audio probe JSON";
+        return false;
+    }
 }
 
 fs::path pulp_home_path() {
@@ -158,6 +267,24 @@ std::string import_design_defaults_line() {
 
 } // namespace
 
+std::string handle_kit_validate(const std::string& params_json);
+std::string handle_kit_search(const std::string& params_json);
+std::string handle_kit_inspect(const std::string& params_json);
+std::string handle_kit_plan(const std::string& params_json);
+std::string handle_kit_apply(const std::string& params_json);
+std::string handle_kit_remove(const std::string& params_json);
+std::string handle_kit_pack(const std::string& params_json);
+std::string handle_kit_publish_check(const std::string& params_json);
+std::string handle_kit_init(const std::string& params_json);
+std::string handle_content_validate(const std::string& params_json);
+std::string handle_content_preview(const std::string& params_json);
+std::string handle_content_install(const std::string& params_json);
+std::string handle_content_update(const std::string& params_json);
+std::string handle_content_list(const std::string& params_json);
+std::string handle_content_rescan(const std::string& params_json);
+std::string handle_content_remove(const std::string& params_json);
+std::string handle_content_reveal(const std::string& params_json);
+
 std::string handle_build(const std::string& /*params_json*/) {
     auto root = find_project_root();
     if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
@@ -225,13 +352,406 @@ std::string handle_validate(const std::string& params_json) {
     auto root = find_project_root();
     if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
 
-    std::string cmd = shell_quote((root / "build" / "tools" / "cli" / "pulp").string()) +
-        " validate --json";
+    std::string cmd = shell_quote(resolve_cli_binary(root).string()) + " validate --json";
     if (extract_bool(params_json, "all", false)) {
         cmd += " --all";
     }
     cmd += " 2>&1";
 
+    auto output = exec(cmd);
+    return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
+}
+
+std::string handle_kit_validate(const std::string& params_json) {
+    auto root = find_project_root();
+    if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+
+    auto path = extract_string(params_json, "path");
+    if (path.empty()) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: path is required\"}]}";
+    }
+
+    std::string cmd = shell_quote(resolve_cli_binary(root).string()) +
+        " kit validate " + shell_quote(path) + " --json";
+    if (extract_bool(params_json, "strict", false)) {
+        cmd += " --strict";
+    }
+    cmd += " 2>&1";
+
+    auto output = exec(cmd);
+    return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
+}
+
+std::string handle_kit(const std::string& params_json) {
+    auto root = find_project_root();
+    if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+
+    auto subcommand = extract_string(params_json, "subcommand");
+    if (subcommand.empty()) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: subcommand is required\"}]}";
+    }
+    if (subcommand == "search") return handle_kit_search(params_json);
+    if (subcommand == "validate") return handle_kit_validate(params_json);
+    if (subcommand == "inspect" || subcommand == "show") return handle_kit_inspect(params_json);
+    if (subcommand == "plan") return handle_kit_plan(params_json);
+    if (subcommand == "preview") {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: use kit plan; preview is reserved for content compatibility checks\"}]}";
+    }
+    if (subcommand == "verify") return handle_kit_verify(params_json);
+    if (subcommand == "apply") return handle_kit_apply(params_json);
+    if (subcommand == "remove" || subcommand == "uninstall") return handle_kit_remove(params_json);
+    if (subcommand == "pack") return handle_kit_pack(params_json);
+    if (subcommand == "publish" || subcommand == "publish-check") return handle_kit_publish_check(params_json);
+    if (subcommand == "init") return handle_kit_init(params_json);
+    return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: unsupported kit subcommand\"}]}";
+}
+
+std::string handle_kit_search(const std::string& params_json) {
+    auto root = find_project_root();
+    if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+
+    std::string cmd = shell_quote(resolve_cli_binary(root).string()) + " kit search";
+    auto query = extract_string(params_json, "query");
+    if (!query.empty()) cmd += " " + shell_quote(query);
+    auto search_root = extract_string(params_json, "root");
+    if (!search_root.empty()) cmd += " --root " + shell_quote(search_root);
+    auto kind = extract_string(params_json, "kind");
+    if (!kind.empty()) cmd += " --kind " + shell_quote(kind);
+    auto lane = extract_string(params_json, "lane");
+    if (!lane.empty()) cmd += " --lane " + shell_quote(lane);
+    cmd += " --json 2>&1";
+
+    auto output = exec(cmd);
+    return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
+}
+
+std::string handle_kit_inspect(const std::string& params_json) {
+    auto root = find_project_root();
+    if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+
+    auto path = extract_string(params_json, "path");
+    if (path.empty()) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: path is required\"}]}";
+    }
+
+    std::string cmd = shell_quote(resolve_cli_binary(root).string()) +
+        " kit inspect " + shell_quote(path) + " --json 2>&1";
+
+    auto output = exec(cmd);
+    return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
+}
+
+std::string handle_kit_plan(const std::string& params_json) {
+    auto root = find_project_root();
+    if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+
+    auto path = extract_string(params_json, "path");
+    if (path.empty()) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: path is required\"}]}";
+    }
+
+    std::string cmd = shell_quote(resolve_cli_binary(root).string()) +
+        " kit plan " + shell_quote(path) + " --project " + shell_quote(root.string()) + " --json 2>&1";
+
+    auto output = exec(cmd);
+    return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
+}
+
+std::string handle_kit_verify(const std::string& params_json) {
+    auto root = find_project_root();
+    if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+
+    auto path = extract_string(params_json, "path");
+    if (path.empty()) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: path is required\"}]}";
+    }
+
+    std::string cmd = shell_quote(resolve_cli_binary(root).string()) +
+        " kit verify " + shell_quote(path) + " --project " + shell_quote(root.string()) + " --json 2>&1";
+    if (extract_bool(params_json, "execute_screenshots", false)) {
+        cmd = shell_quote(resolve_cli_binary(root).string()) +
+            " kit verify " + shell_quote(path) + " --project " + shell_quote(root.string())
+            + " --json --execute-screenshots";
+        auto backend = extract_string(params_json, "screenshot_backend");
+        if (!backend.empty()) cmd += " --screenshot-backend " + shell_quote(backend);
+        auto output_dir = extract_string(params_json, "screenshot_output_dir");
+        if (!output_dir.empty()) cmd += " --screenshot-output-dir " + shell_quote(output_dir);
+        cmd += " 2>&1";
+    }
+
+    auto output = exec(cmd);
+    return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
+}
+
+std::string handle_kit_apply(const std::string& params_json) {
+    auto root = find_project_root();
+    if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+
+    auto path = extract_string(params_json, "path");
+    if (path.empty()) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: path is required\"}]}";
+    }
+    if (!extract_bool(params_json, "yes", false)) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: yes=true is required after reviewing the kit plan\"}]}";
+    }
+
+    std::string cmd = shell_quote(resolve_cli_binary(root).string()) +
+        " kit apply " + shell_quote(path) + " --project " + shell_quote(root.string()) + " --yes 2>&1";
+
+    auto output = exec(cmd);
+    return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
+}
+
+std::string handle_kit_remove(const std::string& params_json) {
+    auto root = find_project_root();
+    if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+
+    auto id = extract_string(params_json, "id");
+    if (id.empty()) {
+        id = extract_string(params_json, "kit_id");
+    }
+    if (id.empty()) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: id is required\"}]}";
+    }
+    if (!extract_bool(params_json, "yes", false)) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: yes=true is required after reviewing installed kit ownership\"}]}";
+    }
+
+    std::string cmd = shell_quote(resolve_cli_binary(root).string()) +
+        " kit remove " + shell_quote(id) + " --project " + shell_quote(root.string()) + " --yes 2>&1";
+
+    auto output = exec(cmd);
+    return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
+}
+
+std::string handle_kit_pack(const std::string& params_json) {
+    auto root = find_project_root();
+    if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+
+    auto path = extract_string(params_json, "path");
+    if (path.empty()) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: path is required\"}]}";
+    }
+
+    std::string cmd = shell_quote(resolve_cli_binary(root).string()) +
+        " kit pack " + shell_quote(path) + " --json";
+    auto output = extract_string(params_json, "output");
+    if (!output.empty()) cmd += " --output " + shell_quote(output);
+    cmd += " 2>&1";
+
+    auto result = exec(cmd);
+    return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(result) + "}]}";
+}
+
+std::string handle_kit_publish_check(const std::string& params_json) {
+    auto root = find_project_root();
+    if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+
+    auto path = extract_string(params_json, "path");
+    if (path.empty()) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: path is required\"}]}";
+    }
+
+    std::string cmd = shell_quote(resolve_cli_binary(root).string()) +
+        " kit publish " + shell_quote(path) + " --dry-run --json";
+    auto registry_manifest = extract_string(params_json, "registry_manifest");
+    if (registry_manifest.empty()) registry_manifest = extract_string(params_json, "registryManifest");
+    if (!registry_manifest.empty())
+        cmd += " --registry-manifest " + shell_quote(registry_manifest);
+    cmd += " 2>&1";
+
+    auto output = exec(cmd);
+    return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
+}
+
+std::string handle_kit_init(const std::string& params_json) {
+    auto root = find_project_root();
+    if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+
+    auto kind = extract_string(params_json, "kind");
+    auto id = extract_string(params_json, "id");
+    if (kind.empty() || id.empty()) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: kind and id are required\"}]}";
+    }
+
+    std::string cmd = shell_quote(resolve_cli_binary(root).string()) +
+        " kit init --kind " + shell_quote(kind) + " --id " + shell_quote(id);
+    auto name = extract_string(params_json, "name");
+    if (!name.empty()) cmd += " --name " + shell_quote(name);
+    auto dir = extract_string(params_json, "dir");
+    if (!dir.empty()) cmd += " --dir " + shell_quote(dir);
+    if (extract_bool(params_json, "force", false)) cmd += " --force";
+    cmd += " 2>&1";
+
+    auto output = exec(cmd);
+    return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
+}
+
+std::string handle_content(const std::string& params_json) {
+    auto subcommand = extract_string(params_json, "subcommand");
+    if (subcommand.empty()) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: subcommand is required\"}]}";
+    }
+    if (subcommand == "validate") return handle_content_validate(params_json);
+    if (subcommand == "preview") return handle_content_preview(params_json);
+    if (subcommand == "install") return handle_content_install(params_json);
+    if (subcommand == "update") return handle_content_update(params_json);
+    if (subcommand == "list") return handle_content_list(params_json);
+    if (subcommand == "rescan") return handle_content_rescan(params_json);
+    if (subcommand == "remove" || subcommand == "uninstall") return handle_content_remove(params_json);
+    if (subcommand == "reveal") return handle_content_reveal(params_json);
+    return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: unsupported content subcommand\"}]}";
+}
+
+std::string handle_content_validate(const std::string& params_json) {
+    auto root = find_project_root();
+    if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+
+    auto path = extract_string(params_json, "path");
+    if (path.empty()) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: path is required\"}]}";
+    }
+
+    std::string cmd = shell_quote(resolve_cli_binary(root).string()) +
+        " content validate " + shell_quote(path) + " --json 2>&1";
+    auto output = exec(cmd);
+    return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
+}
+
+std::string handle_content_preview(const std::string& params_json) {
+    auto root = find_project_root();
+    if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+
+    auto path = extract_string(params_json, "path");
+    auto plugin_runtime = extract_string(params_json, "plugin_runtime");
+    if (plugin_runtime.empty()) plugin_runtime = extract_string(params_json, "pluginRuntime");
+    if (path.empty()) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: path is required\"}]}";
+    }
+    if (plugin_runtime.empty()) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: plugin_runtime is required\"}]}";
+    }
+
+    std::string cmd = shell_quote(resolve_cli_binary(root).string()) +
+        " content preview " + shell_quote(path) +
+        " --plugin-runtime " + shell_quote(plugin_runtime) +
+        " --json";
+    auto plugin = extract_string(params_json, "plugin");
+    if (!plugin.empty()) cmd += " --plugin " + shell_quote(plugin);
+    cmd += " 2>&1";
+    auto output = exec(cmd);
+    return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
+}
+
+std::string handle_content_install(const std::string& params_json) {
+    auto root = find_project_root();
+    if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+
+    auto path = extract_string(params_json, "path");
+    auto plugin = extract_string(params_json, "plugin");
+    if (path.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: path is required\"}]}";
+    if (plugin.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: plugin is required\"}]}";
+    if (!extract_bool(params_json, "yes", false)) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: yes=true is required after reviewing the content install target\"}]}";
+    }
+
+    std::string cmd = shell_quote(resolve_cli_binary(root).string()) +
+        " content install " + shell_quote(path) + " --plugin " + shell_quote(plugin) + " --yes";
+    auto data_root = extract_string(params_json, "root");
+    if (!data_root.empty()) cmd += " --root " + shell_quote(data_root);
+    cmd += " 2>&1";
+    auto output = exec(cmd);
+    return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
+}
+
+std::string handle_content_update(const std::string& params_json) {
+    auto root = find_project_root();
+    if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+
+    auto path = extract_string(params_json, "path");
+    auto plugin = extract_string(params_json, "plugin");
+    if (path.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: path is required\"}]}";
+    if (plugin.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: plugin is required\"}]}";
+    if (!extract_bool(params_json, "yes", false)) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: yes=true is required after reviewing the content update target\"}]}";
+    }
+
+    std::string cmd = shell_quote(resolve_cli_binary(root).string()) +
+        " content update " + shell_quote(path) + " --plugin " + shell_quote(plugin) + " --yes";
+    auto data_root = extract_string(params_json, "root");
+    if (!data_root.empty()) cmd += " --root " + shell_quote(data_root);
+    cmd += " 2>&1";
+    auto output = exec(cmd);
+    return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
+}
+
+std::string handle_content_list(const std::string& params_json) {
+    auto root = find_project_root();
+    if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+
+    std::string cmd = shell_quote(resolve_cli_binary(root).string()) + " content list --json";
+    auto plugin = extract_string(params_json, "plugin");
+    if (!plugin.empty()) cmd += " --plugin " + shell_quote(plugin);
+    auto data_root = extract_string(params_json, "root");
+    if (!data_root.empty()) cmd += " --root " + shell_quote(data_root);
+    cmd += " 2>&1";
+    auto output = exec(cmd);
+    return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
+}
+
+std::string handle_content_rescan(const std::string& params_json) {
+    auto root = find_project_root();
+    if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+
+    std::string cmd = shell_quote(resolve_cli_binary(root).string()) + " content rescan --json";
+    auto data_root = extract_string(params_json, "root");
+    if (!data_root.empty()) cmd += " --root " + shell_quote(data_root);
+    cmd += " 2>&1";
+    auto output = exec(cmd);
+    return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
+}
+
+std::string handle_content_remove(const std::string& params_json) {
+    auto root = find_project_root();
+    if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+
+    auto id = extract_string(params_json, "id");
+    if (id.empty()) id = extract_string(params_json, "package_id");
+    auto plugin = extract_string(params_json, "plugin");
+    if (id.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: id is required\"}]}";
+    if (plugin.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: plugin is required\"}]}";
+    if (!extract_bool(params_json, "yes", false)) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: yes=true is required after reviewing installed content\"}]}";
+    }
+
+    std::string cmd = shell_quote(resolve_cli_binary(root).string()) +
+        " content remove " + shell_quote(id) + " --plugin " + shell_quote(plugin) + " --yes";
+    auto version = extract_string(params_json, "version");
+    if (!version.empty()) cmd += " --version " + shell_quote(version);
+    auto data_root = extract_string(params_json, "root");
+    if (!data_root.empty()) cmd += " --root " + shell_quote(data_root);
+    cmd += " 2>&1";
+    auto output = exec(cmd);
+    return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
+}
+
+std::string handle_content_reveal(const std::string& params_json) {
+    auto root = find_project_root();
+    if (root.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+
+    auto id = extract_string(params_json, "id");
+    if (id.empty()) id = extract_string(params_json, "package_id");
+    auto plugin = extract_string(params_json, "plugin");
+    if (id.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: id is required\"}]}";
+    if (plugin.empty()) return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: plugin is required\"}]}";
+
+    std::string cmd = shell_quote(resolve_cli_binary(root).string()) +
+        " content reveal " + shell_quote(id) + " --plugin " + shell_quote(plugin);
+    auto version = extract_string(params_json, "version");
+    if (!version.empty()) cmd += " --version " + shell_quote(version);
+    auto data_root = extract_string(params_json, "root");
+    if (!data_root.empty()) cmd += " --root " + shell_quote(data_root);
+    cmd += " 2>&1";
     auto output = exec(cmd);
     return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(output) + "}]}";
 }
@@ -289,6 +809,155 @@ std::string handle_audio_excerpt_find(const std::string& params_json) {
 
     auto result = pulp::tools::audio::run_excerpt_find(request);
     return json_tool_payload(pulp::tools::audio::to_json(result));
+}
+
+std::string handle_audio_probe_json(const std::string& params_json) {
+    auto root = find_project_root();
+    if (root.empty()) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+    }
+
+    int frames = 90;
+    auto frames_raw = extract_raw(params_json, "frames");
+    if (!frames_raw.empty() && frames_raw != "null") {
+        frames = extract_int(params_json, "frames", -1);
+        if (frames <= 0) {
+            return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: frames must be a positive integer\"}]}";
+        }
+    }
+
+    auto target = extract_string(params_json, "target");
+    if (!target.empty() && target.front() == '-') {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: target must be a standalone target name, not an option\"}]}";
+    }
+    std::string temp_error;
+    auto temp = make_private_probe_json_temp(temp_error);
+    if (temp.json_path.empty()) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string("Error: " + temp_error) + "}]}";
+    }
+    auto output_path = temp.json_path;
+
+    std::string cmd = shell_quote(source_build_cli_path(root).string()) + " run";
+    if (!target.empty()) cmd += " " + shell_quote(target);
+    cmd += " --audio-probe-json " + shell_quote(output_path.string());
+    cmd += " --frames " + std::to_string(frames);
+    cmd += " 2>&1";
+
+    auto output = exec(cmd);
+    auto probe_json = read_text_file(output_path);
+    std::error_code remove_ec;
+    fs::remove_all(temp.directory, remove_ec);
+
+    if (probe_json.empty()) {
+        std::string message = "Error: pulp run did not write audio probe JSON";
+        if (!output.empty()) message += "\n" + output;
+        return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(message) + "}]}";
+    }
+    std::string normalized_json;
+    std::string parse_error;
+    if (!normalize_structured_json(probe_json, normalized_json, parse_error)) {
+        std::string message = "Error: " + parse_error + "\n" + probe_json;
+        if (!output.empty()) message += "\n" + output;
+        return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(message) + "}]}";
+    }
+
+    return json_tool_payload(normalized_json);
+}
+
+std::string handle_audio_scope(const std::string& params_json) {
+    auto root = find_project_root();
+    if (root.empty()) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: not in a Pulp project\"}]}";
+    }
+
+    int frames = 90;
+    auto frames_raw = extract_raw(params_json, "frames");
+    if (!frames_raw.empty() && frames_raw != "null") {
+        frames = extract_int(params_json, "frames", -1);
+        if (frames <= 0) {
+            return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: frames must be a positive integer\"}]}";
+        }
+    }
+
+    int window = 2048;
+    auto window_raw = extract_raw(params_json, "window");
+    if (!window_raw.empty() && window_raw != "null") {
+        window = extract_int(params_json, "window", -1);
+        if (window <= 0) {
+            return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: window must be a positive integer\"}]}";
+        }
+    }
+
+    int channel = 0;
+    auto channel_raw = extract_raw(params_json, "channel");
+    if (!channel_raw.empty() && channel_raw != "null") {
+        channel = extract_int(params_json, "channel", -1);
+        if (channel < 0) {
+            return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: channel must be a non-negative integer\"}]}";
+        }
+    }
+
+    auto trigger = extract_string(params_json, "trigger");
+    if (trigger.empty()) trigger = "rising-zero";
+    auto normalized_trigger = trigger;
+    std::replace(normalized_trigger.begin(), normalized_trigger.end(), '_', '-');
+    if (normalized_trigger != "none" && normalized_trigger != "off"
+        && normalized_trigger != "raw" && normalized_trigger != "rising-zero") {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: trigger must be one of none, raw, off, rising-zero\"}]}";
+    }
+
+    auto target = extract_string(params_json, "target");
+    if (!target.empty() && target.front() == '-') {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: target must be a standalone target name, not an option\"}]}";
+    }
+
+    auto input_wav = extract_string(params_json, "input_wav");
+    auto png_path = extract_string(params_json, "png_path");
+    if (!input_wav.empty() && !target.empty()) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: target and input_wav are mutually exclusive\"}]}";
+    }
+    if (!png_path.empty() && input_wav.empty()) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":\"Error: png_path is only supported with input_wav\"}]}";
+    }
+
+    std::string temp_error;
+    auto temp = make_private_probe_json_temp(temp_error);
+    if (temp.json_path.empty()) {
+        return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string("Error: " + temp_error) + "}]}";
+    }
+    auto output_path = temp.directory / "scope.json";
+
+    std::string cmd = shell_quote(source_build_cli_path(root).string()) + " audio scope";
+    if (!target.empty()) cmd += " " + shell_quote(target);
+    if (!input_wav.empty()) cmd += " --input-wav " + shell_quote(input_wav);
+    cmd += " --json " + shell_quote(output_path.string());
+    cmd += " --frames " + std::to_string(frames);
+    cmd += " --window " + std::to_string(window);
+    cmd += " --trigger " + shell_quote(trigger);
+    cmd += " --channel " + std::to_string(channel);
+    if (!png_path.empty()) cmd += " --png " + shell_quote(png_path);
+    cmd += " 2>&1";
+
+    auto output = exec(cmd);
+    auto scope_json = read_text_file(output_path);
+    std::error_code remove_ec;
+    fs::remove_all(temp.directory, remove_ec);
+
+    if (scope_json.empty()) {
+        std::string message = "Error: pulp audio scope did not write scope JSON";
+        if (!output.empty()) message += "\n" + output;
+        return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(message) + "}]}";
+    }
+
+    std::string normalized_json;
+    std::string parse_error;
+    if (!normalize_structured_json(scope_json, normalized_json, parse_error)) {
+        std::string message = "Error: " + parse_error + "\n" + scope_json;
+        if (!output.empty()) message += "\n" + output;
+        return "{\"content\":[{\"type\":\"text\",\"text\":" + json_string(message) + "}]}";
+    }
+
+    return json_tool_payload(normalized_json);
 }
 
 }  // namespace pulp_mcp

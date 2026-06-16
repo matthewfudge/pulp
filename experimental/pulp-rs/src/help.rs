@@ -139,6 +139,18 @@ pub const COMMANDS: &[Entry] = &[
         summary: "Load a plug-in and run a synthetic audio block through it",
     },
     Entry {
+        name: "import",
+        summary: "Detect a framework project and emit a Pulp migration scaffold",
+    },
+    Entry {
+        name: "kit",
+        summary: "Inspect and apply local Pulp package manifests",
+    },
+    Entry {
+        name: "content",
+        summary: "Validate and install data-only content packs",
+    },
+    Entry {
         name: "pr",
         summary: "One-shot push-a-PR: gates + bump + ship",
     },

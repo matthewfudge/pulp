@@ -17,7 +17,7 @@
 # Macs (the same hosts that run the bare-metal runners today) or enable the
 # Appendix-D quota override on the dedicated Studio.
 # CAPACITY+QUEUE-AWARE --loop (#3299): the loop boots a VM only when there is
-# queued "Build and Test" work AND running_macos_vms < cap (PULP_VM_CAP,
+# queued workflow work AND running_macos_vms < cap (PULP_VM_CAP,
 # default 2). It cooperates with tools/scripts/macos_reroute_watcher.py (task
 # #22), whose capacity check is likewise VM-slot-aware ("free VM slot", not
 # single-runner busy/idle). Together they close the loop the operator described:
@@ -33,6 +33,7 @@
 #   tart-runner.sh                     # one ephemeral job then exit (pilot default)
 #   tart-runner.sh --loop              # keep spinning a fresh VM after each job
 #   tart-runner.sh --labels self-hosted,macos,arm64,pulp-build   # promote
+#   tart-runner.sh --workflow-name Coverage --labels self-hosted,macos,arm64,pulp-coverage-vm-macos
 #   tart-runner.sh --golden pulp-build-runner:latest --repo danielraffel/pulp
 set -euo pipefail
 
@@ -43,26 +44,78 @@ CACHE_ROOT="${PULP_CI_CACHE:-$HOME/.cache/pulp-ci}"
 GOLDEN="${PULP_RUNNER_GOLDEN:-pulp-build-runner:latest}"
 REPO="${PULP_RUNNER_REPO:-danielraffel/pulp}"
 LABELS="${PULP_RUNNER_LABELS:-self-hosted,macos,arm64,pulp-build-vm}"
+WORKFLOW_NAME="${PULP_RUNNER_WORKFLOW_NAME:-Build and Test}"
+MATCH_LABELS="${PULP_RUNNER_QUEUE_MATCH_LABELS:-0}"
 RUNNER_GROUP_ID="${PULP_RUNNER_GROUP_ID:-1}"
 LOOP=0
 CAP="${PULP_VM_CAP:-2}"          # macOS 2-VM kernel cap per host (plan Appendix D)
 POLL="${PULP_VM_POLL:-20}"       # seconds to wait when there's no work or no free slot
+# Static, machine-recognizable runner name (see derive_runner_name below).
+# These were the `ephr-$$-$i` churn before #3299-follow-up: the PID changed on
+# every launchd restart and the index grew per job, so the same physical Mac
+# showed up under a new throwaway name each time. A static name per (host, slot)
+# is the operator's preference and mirrors the bare-metal lane
+# (bootstrap-macos-host.sh registers pulp-studio-01 with config.sh --replace).
+RUNNER_NAME="${PULP_RUNNER_NAME:-}"            # full override; wins if set
+RUNNER_NAME_PREFIX="${PULP_RUNNER_NAME_PREFIX:-}"  # else "<prefix>-<slot>"
+SLOT="${PULP_RUNNER_SLOT:-1}"                  # distinguishes 2 supervisors on one host (2-VM cap)
+PRINT_NAME=0                                   # --print-name: derive + echo the name, then exit (testable, no gh/tart)
 SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=10 -o BatchMode=yes)
 
 note(){ printf '\033[36m• %s\033[0m\n' "$*" >&2; }
 die(){ printf '\033[31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
-command -v tart >/dev/null 2>&1 || die "tart not installed"
-command -v gh   >/dev/null 2>&1 || die "gh not installed / authed (need admin to mint JIT config)"
 
 while [ $# -gt 0 ]; do case "$1" in
   --loop) LOOP=1; shift;;
   --once) LOOP=0; shift;;
   --golden) GOLDEN="$2"; shift 2;;
   --labels) LABELS="$2"; shift 2;;
+  --workflow-name) WORKFLOW_NAME="$2"; shift 2;;
+  --queue-match-labels) MATCH_LABELS=1; shift;;
   --repo) REPO="$2"; shift 2;;
   --cap) CAP="$2"; shift 2;;
+  --name) RUNNER_NAME="$2"; shift 2;;
+  --name-prefix) RUNNER_NAME_PREFIX="$2"; shift 2;;
+  --slot) SLOT="$2"; shift 2;;
+  --print-name) PRINT_NAME=1; shift;;
   *) die "unknown arg: $1";;
 esac; done
+
+# Resolve the runner/VM name once, deterministically (no Date.now/rand — the same
+# constraint the old PID+counter scheme satisfied, now satisfied by a stable
+# identity instead). Precedence:
+#   1. --name / PULP_RUNNER_NAME            — full explicit override.
+#   2. "<prefix>-<NN>" where:
+#        prefix = --name-prefix / PULP_RUNNER_NAME_PREFIX, else derived from the
+#                 host-class label `pulp-build-<class>` → "pulp-<class>", else
+#                 "pulp-<short-hostname>".
+#        NN     = --slot / PULP_RUNNER_SLOT, zero-padded to 2 digits, so two
+#                 supervisors on one host (the 2-VM cap) get -01 / -02.
+derive_runner_name(){
+  if [ -n "$RUNNER_NAME" ]; then printf '%s' "$RUNNER_NAME"; return; fi
+  local prefix="$RUNNER_NAME_PREFIX" l class=""
+  if [ -z "$prefix" ]; then
+    local _ls; IFS=',' read -ra _ls <<< "$LABELS"
+    for l in "${_ls[@]}"; do
+      case "$l" in
+        pulp-build-vm) ;; # generic pilot label; fall back to host-specific name
+        pulp-build-?*) class="${l#pulp-build-}";;
+      esac
+    done
+    if [ -n "$class" ]; then
+      prefix="pulp-$class"
+    else
+      prefix="pulp-$(hostname -s 2>/dev/null | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-*//;s/-*$//')"
+    fi
+  fi
+  printf '%s-%02d' "$prefix" "$((10#$SLOT))"
+}
+RUNNER_NAME="$(derive_runner_name)"
+
+if [ "$PRINT_NAME" = 1 ]; then printf '%s\n' "$RUNNER_NAME"; exit 0; fi
+
+command -v tart >/dev/null 2>&1 || die "tart not installed"
+command -v gh   >/dev/null 2>&1 || die "gh not installed / authed (need admin to mint JIT config)"
 
 # Count running macOS Tart VMs on THIS host. Linux/Windows guests are uncapped
 # (they don't count against the 2-macOS kernel cap), so they're excluded — same
@@ -109,18 +162,75 @@ discard_current_vm(){
 trap 'discard_current_vm; trap - EXIT; exit 143' INT TERM
 trap discard_current_vm EXIT
 
-# Coarse "is there macOS work waiting?" gate: count queued Build-and-Test runs.
-# Precise cloud-leg targeting is the watcher's job; here we only avoid booting a
-# VM when the queue is plainly empty. 0 on any gh failure (treat as "no work").
-queued_bat_work(){
-  gh api "repos/$REPO/actions/runs?status=queued&per_page=30" \
-    --jq '[.workflow_runs[] | select(.name == "Build and Test")] | length' \
-    2>/dev/null || echo 0
+# Coarse "is there macOS work waiting?" gate: count queued runs for the
+# configured workflow. Precise cloud-leg targeting is the watcher's job; here
+# we only avoid booting a VM when the queue is plainly empty. 0 on any gh
+# failure (treat as "no work").
+queued_work(){
+  if [ "$MATCH_LABELS" != "1" ]; then
+    gh api "repos/$REPO/actions/runs?status=queued&per_page=30" \
+      --jq "[.workflow_runs[] | select(.name == \"${WORKFLOW_NAME}\")] | length" \
+      2>/dev/null || echo 0
+    return
+  fi
+
+  local label_json count=0 run_id matches
+  label_json="$(LABELS="$LABELS" python3 -c 'import json, os; print(json.dumps([x.strip() for x in os.environ["LABELS"].split(",") if x.strip()]))')"
+  while IFS= read -r run_id; do
+    [ -n "$run_id" ] || continue
+    matches="$(
+      gh api "repos/$REPO/actions/runs/$run_id/jobs?filter=latest&per_page=100" \
+        --jq '.jobs[] | select(.status == "queued") | .labels | @json' 2>/dev/null |
+      LABEL_JSON="$label_json" python3 -c '
+import json, os, sys
+want = {s.lower() for s in json.loads(os.environ["LABEL_JSON"])}
+n = 0
+for line in sys.stdin:
+    try:
+        labels = {s.lower() for s in json.loads(line)}
+    except Exception:
+        continue
+    if want.issubset(labels):
+        n += 1
+print(n)
+'
+    )" || matches=0
+    count=$((count + ${matches:-0}))
+  done < <(
+    # Scan BOTH queued and in_progress runs: a workflow with an early
+    # GitHub-hosted resolver/classify job (Coverage, Release CLI) flips to
+    # `in_progress` before its self-hosted leg is even queued, so a
+    # queued-only run scan would never see the self-hosted job and the VM
+    # would never boot. Matches the tartci macOS provider's loop.
+    for st in queued in_progress; do
+      gh api "repos/$REPO/actions/runs?status=$st&per_page=30" \
+        --jq ".workflow_runs[] | select(.name == \"${WORKFLOW_NAME}\") | .id" 2>/dev/null || true
+    done
+  )
+  echo "$count"
 }
 
-run_one(){ # $1=iteration index (keeps VM name unique without Date.now/rand)
-  local i="$1" vm="ephr-$$-$1" jit
-  note "[$i] minting JIT runner config (labels=$LABELS, ephemeral)"
+# Reclaim a static runner name before reusing it: a JIT runner that finished
+# normally self-removes, but a SIGKILL'd supervisor, an errored job, or a crashed
+# clone can leave (a) a stale GitHub registration (shows "Offline") and/or (b) a
+# stopped Tart clone of the same name. Either would block reuse — `generate-jitconfig`
+# rejects a duplicate name and `tart clone` rejects an existing VM. This is the
+# JIT-lane equivalent of bare-metal `config.sh --replace`. Best-effort; never fatal.
+reclaim_runner_name(){ # $1=name
+  local name="$1" id
+  id="$(gh api "repos/$REPO/actions/runners" --paginate \
+        --jq ".runners[] | select(.name==\"$name\") | .id" 2>/dev/null | head -n1 || true)"
+  if [ -n "$id" ]; then
+    note "reclaiming static name '$name': deleting stale runner registration (id=$id)"
+    gh api -X DELETE "repos/$REPO/actions/runners/$id" >/dev/null 2>&1 || true
+  fi
+  tart delete "$name" >/dev/null 2>&1 || true   # clear a crashed leftover clone of the same name
+}
+
+run_one(){ # $1=iteration index — log label only; the VM/runner name is now static per (host, slot)
+  local i="$1" vm="$RUNNER_NAME" jit
+  reclaim_runner_name "$vm"
+  note "[$i] minting JIT runner config (name=$vm, labels=$LABELS, ephemeral)"
   local label_args=(); local l; IFS=',' read -ra _ls <<< "$LABELS"
   for l in "${_ls[@]}"; do label_args+=(-f "labels[]=$l"); done
   jit="$(gh api -X POST "repos/$REPO/actions/runners/generate-jitconfig" \
@@ -174,9 +284,9 @@ run_one(){ # $1=iteration index (keeps VM name unique without Date.now/rand)
 
 i=0
 if [ "$LOOP" = 1 ]; then
-  note "ephemeral runner LOOP (Ctrl-C to stop); golden=$GOLDEN labels=$LABELS cap=$CAP"
+  note "ephemeral runner LOOP (Ctrl-C to stop); workflow=$WORKFLOW_NAME labels_match=$MATCH_LABELS golden=$GOLDEN labels=$LABELS cap=$CAP"
   while true; do
-    q="$(queued_bat_work)"; r="$(running_macos_vms)"
+    q="$(queued_work)"; r="$(running_macos_vms)"
     if [ "${q:-0}" -gt 0 ] && [ "${r:-0}" -lt "$CAP" ]; then
       i=$((i+1)); note "[$i] queued=$q running_vms=$r/$CAP → booting ephemeral VM"
       run_one "$i" || true
@@ -186,6 +296,6 @@ if [ "$LOOP" = 1 ]; then
     fi
   done
 else
-  note "ephemeral runner ONCE; golden=$GOLDEN labels=$LABELS"
+  note "ephemeral runner ONCE; workflow=$WORKFLOW_NAME golden=$GOLDEN labels=$LABELS"
   run_one 1
 fi

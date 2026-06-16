@@ -10,10 +10,21 @@
 #include <pulp/canvas/canvas.hpp>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <memory>
 
 namespace pulp::view {
+
+// Fit a label into `avail` px. Prefer SHRINKING the font from `base` toward
+// `min` to show the full text; only ellipsize (in-place, with "...") if it still
+// overflows at `min`. `width_at(s, f)` returns the rendered width of `s` at font
+// size `f` (e.g. a canvas set_font + measure_text). Returns the chosen font
+// size and rewrites `text` to the string to draw. Pure logic — unit-tested
+// independently of any canvas (a ComboBox box is often sized tight to a design's
+// own label, so truncating reads worse than a slightly smaller full label).
+float fit_combo_label(std::string& text, float avail, float base, float min,
+                      const std::function<float(const std::string&, float)>& width_at);
 
 // ── ComboBox ─────────────────────────────────────────────────────────────
 
@@ -210,6 +221,9 @@ public:
     void set_active_tab(int index);
     int active_tab() const { return active_; }
     int tab_count() const { return static_cast<int>(tabs_.size()); }
+    std::string_view tab_title(int index) const;
+    int find_tab(std::string_view title) const;
+    bool set_active_tab(std::string_view title);
 
     /// Hide the tab bar and use the panel purely as a navigable card stack (the active
     /// tab is shown; switch with set_active_tab()). Useful when an outer container should

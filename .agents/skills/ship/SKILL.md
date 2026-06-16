@@ -116,6 +116,19 @@ example plugins, appcast, downloads) runs through CI
 `stapler staple` and never calls these CLI subcommands. Changing the CLI
 ship subcommands cannot affect a regular release.
 
+### Combined installer is component-SELECTABLE by default
+
+`create_combined_pkg` (`ship/platform/mac/codesign_mac.mm`) builds one
+component `.pkg` per format and combines them with `productbuild
+--distribution`, emitting a distribution document with one user-toggleable
+`<choice>` per `InstallComponent` (all `start_selected`, `customize="allow"`).
+So a multi-format installer always offers a **Customize** pane to install only
+AU / VST3 / CLAP as desired — do NOT drop back to a flat
+`productbuild --package ...` archive (that installs everything with no choice).
+Set `InstallComponent::title` for the choice label, or leave it empty to derive
+from the install location ("Components" → "Audio Unit (AU)", etc.). Verified by
+`test_codesign.cpp` ("component-selectable with a choice per format").
+
 ### macOS one-command pipeline: `pulp ship release`
 
 ```bash
@@ -200,6 +213,182 @@ place the API parity break appears. Keep this covered in
 `test/test_linux_packaging.cpp` alongside the macOS parser tests in
 `test/test_codesign.cpp`.
 
+### macOS manual sign + notarize from a worktree (no `pulp` CLI built)
+
+Feature worktrees usually build only the example targets (`build-gpu/...`), not
+the `pulp` CLI — so `pulp ship sign/notarize` isn't available. Sign and notarize
+with the raw Apple tools. This is the exact flow `pulp ship` automates; reach for
+it only when the CLI binary is absent.
+
+**One-time keychain authorization (THE blocker).** A fresh login keychain does
+not let `codesign` use the Developer ID private key non-interactively, even when
+the key is present and the keychain is unlocked. `codesign` fails with
+`errSecInternalComponent` (and a half-written `*.cstemp` is left behind). The fix
+is to authorize the partition list once — it needs the login password, so the
+user runs it (suggest the `!` prefix, or their own Terminal):
+
+```bash
+security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+  -k "<login-password>" ~/Library/Keychains/login.keychain-db
+```
+
+Symptoms map cleanly: `errSecInternalComponent` → partition list not set;
+`User interaction is not allowed` → keychain locked (`security unlock-keychain`);
+`no identity found` → wrong/absent cert (`security find-identity -v -p codesigning`).
+
+**Signing over SSH (e.g. an agent on a remote Mac like `macstudio`).** An SSH
+session is NOT the GUI Aqua session, so the login keychain is **locked** there
+even when it's unlocked on the console — `security show-keychain-info
+login.keychain-db` prints `User interaction is not allowed`, and codesign fails
+with `errSecInternalComponent` regardless of the partition list. The GitHub
+self-hosted runners sign fine only because they run inside the logged-in GUI
+session. For SSH signing you must unlock the keychain in-session first:
+
+```bash
+security unlock-keychain -p "<login-password>" ~/Library/Keychains/login.keychain-db
+# then partition-list (once) + codesign as above
+```
+
+Notarization over SSH is unaffected — `notarytool` authenticates with the App
+Store Connect API key in `~/.config/pulp/secrets/notary.env`, never the keychain.
+For unattended/turnkey remote signing, prefer a **dedicated build keychain**
+(import a `.p12` of the Developer ID cert+key, give it its own password stored in
+`~/.config/pulp/secrets/`, `set-key-partition-list` on it, and
+`unlock-keychain` it per session) so signing never depends on the interactive
+login password — the same pattern `apple-actions/import-codesign-certs` uses in
+CI.
+
+**Dedicated-keychain recipe that actually works when the login keychain ALSO has
+the cert** (the macstudio case — the GUI host has the same Developer ID identity):
+
+1. Export the identity to a `.p12` once on a Mac where it works — the private-key
+   export needs a GUI "Allow" click, so the *user* runs it (`security export -k
+   login.keychain-db -t identities -f pkcs12 -P <p12pw> -o key.p12`); it can't be
+   done headlessly.
+2. On the remote Mac: `security create-keychain -p <kcpw> pulp-signing.keychain-db`;
+   `unlock-keychain`; `security import key.p12 -k <kc> -P <p12pw> -T /usr/bin/codesign
+   -T /usr/bin/productbuild -T /usr/bin/pkgbuild`; `set-key-partition-list -S
+   apple-tool:,apple:,codesign: -s -k <kcpw> <kc>`. Store `<kcpw>` + the cert SHA-1
+   hashes in `~/.config/pulp/secrets/keychain.env`.
+3. **Sign by SHA-1 hash, not by name.** The identity now exists in BOTH the
+   dedicated keychain and login keychain, so signing by name → `ambiguous (matches
+   ... in two keychains)`. Signing by the 40-char hash disambiguates.
+4. **The dedicated keychain MUST be in the search list** for codesign to find the
+   identity — `--keychain <kc>` alone does NOT restrict lookup (codesign still uses
+   the search list and hits the *locked* login cert → `errSecInternalComponent`).
+   Put it FRONT of the search list for the signing call, then restore:
+   `security list-keychains -d user -s <kc> <login>` → sign → `... -s <login>`.
+   Safe on a CI-runner host because the Mac Studio runner only builds+tests; the
+   signing/release lanes run on GitHub-hosted (it never signs, so a transient
+   search-list change can't break the required `macos` gate).
+
+`~/.config/pulp/pulp-sign.sh` wraps steps 3–4 (inner-out, by hash, restore) and
+falls back to login-keychain-by-name when no `keychain.env` exists. Deployed on
+both Daniel's Macs; notary + signing creds live only in `~/.config/pulp/secrets/`
+(chmod 600, never in the repo).
+
+**Sign inner-out.** Pulp GPU bundles embed `libwgpu_native.dylib` in
+`Contents/MacOS/`. Sign every embedded dylib BEFORE the bundle, else you get
+`invalid or unsupported format for signature` / `code has no resources but
+signature indicates they must be present`. Remove any stale `_CodeSignature`
+first so the re-seal is clean. `--deep` is deprecated and misses nested Mach-Os —
+do the explicit inner-out walk:
+
+```bash
+ID="Developer ID Application: NAME (TEAMID)"
+sign() { codesign --force --timestamp --options runtime --sign "$ID" "$@"; }
+for b in build-gpu/AU/X.component build-gpu/VST3/X.vst3 build-gpu/CLAP/X.clap \
+         build-gpu/examples/X/X.app; do
+  rm -rf "$b/Contents/_CodeSignature"
+  find "$b/Contents/MacOS" -name '*.dylib' -exec false {} + ; \
+    while IFS= read -r d; do sign "$d"; done < <(find "$b/Contents/MacOS" -name '*.dylib')
+  sign "$b"
+  codesign --verify --deep --strict --verbose=2 "$b"   # expect "satisfies its Designated Requirement"
+done
+```
+
+**Build the signed installer:**
+
+```bash
+pkgbuild --root <stage-dir> --identifier com.pulp.<name> --version X.Y.Z \
+  --install-location / --sign "Developer ID Installer: NAME (TEAMID)" out.pkg
+pkgutil --check-signature out.pkg   # "signed by a developer certificate ... for distribution"
+```
+
+**Signed ≠ notarized.** `spctl --assess --type execute MyApp.app` on a signed but
+un-notarized bundle prints `rejected / source=Unnotarized Developer ID`. That is
+expected and fine for the build machine; recipients on other Macs need
+notarization. Submit the installer (or app/dmg) with notarytool — it authenticates
+to Apple's cloud, so it needs App Store Connect API-key creds (the same
+`~/.config/pulp/secrets/notary.env` trio that `pulp ship notarize` reads):
+
+```bash
+set -a; . ~/.config/pulp/secrets/notary.env; set +a   # PULP_NOTARY_KEY_PATH/_KEY_ID/_ISSUER_ID
+xcrun notarytool submit out.pkg --key "$PULP_NOTARY_KEY_PATH" \
+  --key-id "$PULP_NOTARY_KEY_ID" --issuer "$PULP_NOTARY_ISSUER_ID" --wait
+xcrun stapler staple out.pkg                  # embed the ticket so it works offline
+spctl --assess --type install -vv out.pkg     # now: accepted / source=Notarized Developer ID
+```
+
+If notarization is `Invalid`, fetch the per-file reasons:
+`xcrun notarytool log <submission-id> --key ... --key-id ... --issuer ...`.
+
+### Linux: Build → Package (.deb / .tar.gz, no signing)
+
+```bash
+pulp build                                              # Must build first
+pulp ship package --version 1.0.0                       # Creates a .deb (or .tar.gz)
+# Standalone app → single-file AppImage (point --binary at the built executable):
+pulp ship package --version 1.0.0 --format appimage \
+    --binary build/examples/myapp/MyApp_Standalone [--icon myapp.png]
+```
+
+`pulp ship package` on Linux builds a Debian package from the plugin
+bundles in `build/{VST3,CLAP,LV2}` via `pulp::ship::create_deb`
+(`ship/platform/linux/package_linux.cpp`), installing them under
+`/usr/lib/{vst3,clap,lv2}`. When `dpkg-deb` is not on `PATH` it falls back
+to a `.tar.gz`. Linux has no signing requirement.
+
+**AppImage (standalone apps):** `--format appimage` routes to
+`pulp::ship::create_appimage`, which wraps a single standalone executable
+(plugins ship as `.deb`/`.tar.gz`, not AppImage). It synthesizes an AppDir
+(`AppRun` launcher, `<app>.desktop`, an icon — caller `--icon` or a built-in
+1×1 PNG placeholder, `.DirIcon`) and invokes `appimagetool` with
+`ARCH=<appimage_arch()>` (note: `aarch64`/`x86_64`/…, distinct from the
+Debian arch names). It honest-fails (returns false, no stray AppDir) when
+`appimagetool` is absent or the executable is missing — `appimagetool` is
+**not vendored**. The standalone binary must be passed explicitly via
+`--binary`; the plugin-centric `build/` layout has no standardized
+standalone location to auto-discover. To run the produced AppImage at the
+end-user's side, FUSE (libfuse2) or `APPIMAGE_EXTRACT_AND_RUN=1` is needed,
+same as any AppImage.
+
+**Routing invariant:** the `pulp ship package` branch in
+`tools/cli/cmd_ship.cpp` keeps three mutually exclusive platform arms —
+`#if defined(__linux__)` (→ `.deb` via `create_deb`, `.tar.gz` fallback),
+`#if defined(__APPLE__)` (→ `.pkg`/`.dmg`), and an honest-fail `#else` for
+other Unixes. `pkgbuild`/`hdiutil` exist only on macOS, so the Linux arm
+must never fall through into them. Inside the Linux arm, `--format appimage`
+is an early sub-branch (standalone executable) that returns before the
+plugin-bundle `.deb`/`.tar.gz` path. If you touch that block, preserve the
+mutual exclusion and re-run `test_cli_ship_shellout.cpp` (the Linux routing
+regression guard) plus `test_linux_packaging.cpp` (the
+`create_deb`/`create_tar_gz`/`create_appimage` helper coverage; the AppImage
+real-build case runs only where `appimagetool` is installed — e.g. the
+tartci VM with libfuse2 — and verifies honest-fail otherwise).
+
+The plugin-bundle Linux path must also fail when no actual `.vst3`, `.clap`,
+or `.lv2` bundles exist under the build directory. Do not reuse the macOS
+"Created 0 .pkg and 0 .dmg" empty-artifact summary on Linux; report missing
+plugins and return a non-zero exit instead. The regression guard is
+`test_cli_ship_shellout.cpp`'s "pulp ship package on Linux with no plugin
+bundles reports missing plugins" case.
+
+**Architecture field:** `create_deb` stamps the `.deb` `Architecture:` from
+the compile-time `debian_architecture()` helper in `installer.hpp`, so a
+native build labels the package for its own arch (arm64/amd64/…) rather
+than a fixed value. Keep that helper and the package field in sync.
+
 ### Android: Build → Package (includes Gradle build + optional signing) → Verify
 
 ```bash
@@ -224,6 +413,30 @@ still define every public notarization symbol from
 `notarize_submit_asc(...)` as a fail-closed `std::nullopt` stub so
 `pulp-test-codesign` links on Windows and the cross-platform API surface
 stays in lockstep with macOS/Linux.
+
+**signtool failure contract (W7, #295 lesson).** `codesign()` on Windows
+must never report success for an unusable signature: it rejects an empty
+identity/path up front (no `signtool sign /n ""`), and after signing it runs
+`signtool verify /pa` and returns false if verification fails — so a sign that
+exits 0 but leaves the artifact unverifiable still fails. The empty-input
+reject is covered by the `[windows]`-guarded case in `test_codesign.cpp`
+(runs without signtool present); the verify-after-sign path is compile-verified
+on the Windows lane (a real round-trip needs a cert).
+
+**NSIS installer (W7).** `generate_nsis_script()` is a pure function — assert
+its output in `test_nsis_installer.cpp` (cross-platform, real verification, no
+NSIS/Windows needed). It places VST3/CLAP under `$COMMONFILES\{VST3,CLAP}`
+(or `$LOCALAPPDATA\Programs\Common\...` for `--per-user`), and **standalone
+apps get a Start-menu shortcut** under `$SMPROGRAMS\<publisher>` (removed on
+uninstall); plugins get none. When you touch the generator, add/extend the
+pure-output assertions.
+
+**Auto-update decision (W7): DEFERRED.** No WinSparkle/auto-update is wired on
+Windows. Rationale: Pulp targets developers shipping their own apps/plugins,
+who pick their own update channel (DAW-scanned plugins don't self-update at
+all); pulling WinSparkle in would add a dependency for a story the SDK doesn't
+own. macOS Sparkle appcast generation stays available for those who want it.
+Revisit if a first-party standalone-app updater becomes a requirement.
 
 ## Android-Specific
 
@@ -260,6 +473,19 @@ Run `security find-identity -v -p codesigning` (macOS) to find your identity, th
 ```bash
 pulp config set signing.apple.identity "Developer ID Application: ..."
 ```
+
+### `codesign` fails with `errSecInternalComponent`
+
+The identity is present and the keychain is unlocked, but `codesign` cannot use
+the private key non-interactively until the partition list is authorized once.
+The user runs (it needs the login password):
+```bash
+security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+  -k "<login-password>" ~/Library/Keychains/login.keychain-db
+```
+Full local sign+notarize recipe (inner-out dylib signing, the `*.cstemp`
+leftover, `pkgbuild`, notarytool, stapler) in *macOS manual sign + notarize from
+a worktree* above.
 
 ### "Android SDK not found"
 
@@ -449,6 +675,12 @@ This applies to both `.github/workflows/release-cli.yml` and the local
 helper `tools/scripts/release-cli-local.sh`. If one changes without the
 other, GitHub releases and local release drills diverge.
 
+Release/SDK builds also pass `-DPULP_ENABLE_AUDIO_PROBES=OFF` so SDK and
+standalone artifacts do not ship the dev audio-probe surface. Keep
+`.github/workflows/release-cli.yml`, `.github/workflows/sign-and-release.yml`,
+and `tools/scripts/release-cli-local.sh` in sync when changing release
+configure flags.
+
 ### Shipyard pin drift between local tooling and release workflows
 
 Pulp's release automation depends on the pinned Shipyard CLI in two places:
@@ -587,23 +819,54 @@ now include it. When bumping Skia, run `nm -D` on the new `libskia.a`
 and grep for `Fc[A-Z]\|Hb[a-z]\|FT_` — any new symbol class means
 a matching system package needs to be added to the apt step.
 
+**A new fork build lane must be wired into BOTH the matrix AND the
+release upload — and Pulp must require GPU only where an asset exists.**
+The chrome/m150 incident (v0.395.0 stuck as a draft for days): the
+skia-builder fork's linux-arm64 build lane was added (634672f) ~20h
+after m150 was already cut, and that commit wired the build *matrix*
+but not the `create-release` `files:` list — so the slice was built
+every run, uploaded as a workflow artifact, and silently dropped from
+the published release. Meanwhile `release-cli.yml` set
+`PULP_REQUIRE_GPU_FOR_SDK=ON` for linux-arm64 while
+`tools/deps/manifest.json` had no linux-arm64 asset, so the release leg
+FATALed with "Skia not found" and never promoted the draft. Two guards
+now catch this class:
+- skia-builder `tools/check_release_coverage.py` (+ `lint.yml`): every
+  active build-matrix lane must appear in the `create-release` upload
+  list. Catches "built but not released."
+- Pulp `tools/scripts/test_release_cli_gpu_asset_coverage.py` (wired
+  into `workflow-lint.yml`): every release-cli platform marked
+  `PULP_REQUIRE_GPU_FOR_SDK=ON` must have a `release_assets` entry in
+  manifest.json (via `fetch_skia_for_release.py`'s MATRIX_TO_MANIFEST).
+  Catches "required but not provided" — the contradiction that
+  `test_skia_linux_arm64_asset.py` deliberately tolerated.
+When a fork release drops or adds a slice, update the manifest
+`release_assets` + `tools/harness/visual/pins.py` in lockstep, and only
+keep a platform in the `REQUIRE_GPU=ON` case blocks while its asset is
+actually published.
+
 ### Backfilling a stuck release tag
 
 `auto-release.yml` creates the tag immediately on merge, but
 `release-cli.yml` only publishes after the matrix is green. If matrix
-fails (as in #1962), the tag exists with no Release — and
+fails, the tag exists with no Release — and
 `workflow_dispatch` against that tag re-runs the BROKEN workflow file
 from the tag's source. Two safe options:
 
-1. **Source-ref dispatch (#1962):** Run the *fixed* workflow from main
-   while building the *tag's* source:
+1. **Main workflow + blank source_ref:** Run the *fixed*
+   workflow from main, pass the tag as `version`, and leave `source_ref`
+   blank. That checks out the tag's source while enabling the backfill
+   overlay step:
 
        gh workflow run release-cli.yml --ref main \
-           -f version=v0.97.0 -f source_ref=v0.97.0
+           -f version=v0.97.0
 
-   The build-cli job overlays `tools/scripts/fetch_skia_for_release.py`
-   from main automatically, so a backfill picks up post-tag fetch-script
-   fixes even though the tag's tree predates them.
+   The build-cli job overlays safe release-pipeline helper files from
+   main automatically, so a backfill picks up post-tag fetch-script,
+   packaging, manifest, and targeted CMake fixes even though the tag's
+   tree predates them. Leave `make_latest` false for old-tag backfills;
+   set it true only when backfilling the current newest tag after the
+   automatic tag-triggered run failed.
 
 2. **Cherry-pick fix + retag:** Only if the build itself needs to change.
    Pulp doesn't retag immutable releases — use option 1 unless the

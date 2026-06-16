@@ -62,6 +62,14 @@ async.on_data([](auto* data, auto n) { /* on worker thread */ });
 async.start();
 ```
 
+### Budget Policy — Graceful degradation
+
+`pulp::runtime::evaluate_runtime_budget()` gives background analysis, cache
+refresh, validation helpers, and game-audio-style optional work a shared
+run/defer/shed/bypass decision. Critical audio work always runs; interactive
+work can defer to preserve reserve; background and opportunistic work can shed
+or bypass when overload is active or budget is exhausted.
+
 ### HTTP — Network requests
 
 GET, POST, and file download via cpp-httplib (MIT). Use for license checks, cloud presets, update notifications.
@@ -286,17 +294,38 @@ device->start([](const auto& input, auto& output, const auto& ctx) {
 
 *\*Write via optional `pulp add` packages. Permissive (libflac, ALAC) install freely. Copyleft (LAME, fdk-aac) require `--accept-license`.*
 
+### Sampler, looper, and analysis primitives
+
+Reusable low-level pieces for building samplers, generated-audio freeze/loop workflows, waveform displays, and offline/background sample analysis. These are primitives, not a full sampler UI. Callback-safe operations are documented in `rt_safety_contract.hpp`; import/export, analysis, waveform thumbnail build, publication writes, and materialization stay off the audio callback.
+
+| Feature | Headers | Description |
+|---------|---------|-------------|
+| Stream handoff and rolling capture | `audio_stream_handoff.hpp`, `planar_audio_ring_buffer.hpp`, `rolling_audio_capture_buffer.hpp`, `realtime_sample_recorder.hpp` | Bridge generated/live/model audio into host-paced processing, keep bounded rolling history, freeze stable windows, and materialize captures off the audio thread |
+| Sample publication and storage | `published_sample_store.hpp`, `sample_slot_bank.hpp`, `sample_slot_materializer.hpp`, `sample_pool.hpp`, `sample_stream_window.hpp` | Publish captured/imported/rendered samples through generation-safe views, fixed slot banks, stable sample IDs, and resident streaming pages |
+| Looping and playback | `loop_types.hpp`, `loop_reader.hpp`, `loop_renderer.hpp`, `loop_point_analyzer.hpp`, `sample_voice_renderer.hpp`, `voice_sum_mixer.hpp` | Render one-shots, forward/reverse loops, fades/crossfades, loop-point assistance, scalar sample voices, and summed voice scratch buffers |
+| Mapping and instrument policy | `sample_zone_map.hpp`, `sample_key_map.hpp`, `instrument_runtime.hpp`, `instrument_voice_allocator.hpp`, `instrument_envelope.hpp`, `voice_modulation_buffer.hpp` | Represent key/velocity zones, chromatic/fixed-pitch/slice mappings, pool-backed trigger resolution, voice allocation, AHDSR envelopes, and per-voice modulation lanes |
+| Editing, import/export, and bounce metadata | `sample_edit_document.hpp`, `sample_asset_io.hpp`, `wav_metadata.hpp` | Track non-destructive edit intent, import/export policy, drop classification, and WAV metadata/interchange outside realtime paths |
+| Onset, slice, key/tempo, and transient analysis | `onset_detector.hpp`, `slice_point_analyzer.hpp`, `slice_map.hpp`, `analyzer_provider.hpp`, `built_in_key_tempo_analyzer.hpp`, `built_in_transient_classifier.hpp` | Provide package-free fallback analysis plus neutral provider/provenance metadata for future package-backed MIR adapters |
+| Time/pitch extension point | `analyzer_provider.hpp`, `signalsmith_time_pitch_processor.hpp` | Optional package-backed time-stretch/pitch-shift processor contract; availability and licensing stay explicit |
+| Waveform summaries and render backends | `audio_thumbnail.hpp`, `waveform_gpu_primitives.hpp`, `waveform_gpu_render_controller.hpp`, `waveform_headless_render_backend.hpp` | Build/cache serialized CPU waveform summaries, plan generation-keyed static layer uploads, exercise backend resource lifecycle in CPU/headless paths, and keep future GPU-assisted analysis/rendering off live audio-thread waits |
+| Realtime contract labels | `rt_safety_contract.hpp` | Machine-checkable sampler/looper RT-safety labels for representative hot paths and off-thread helpers |
+
 ### Other audio features
 
 | Feature | Header | Description |
 |---------|--------|-------------|
 | Buffering Reader | `buffering_reader.hpp` | Ring buffer with background read thread for streaming |
 | Channel Sets | `channel_set.hpp` | `ChannelSet::surround_5_1()`, mono through 7.1.4 Atmos |
-| Load Measurer | `load_measurer.hpp` | Track CPU usage of your audio callback |
+| Load Measurer | `load_measurer.hpp` | Track CPU usage of your audio callback; `evaluate_audio_runtime_overload()` classifies process-load/xrun telemetry into nominal, watch, overloaded, or critical validation states with explicit shed/bypass guidance |
 | Memory-Mapped Reader | `mmap_reader.hpp` | Zero-copy access for large sample libraries |
-| Offline Processor | `offline_processor.hpp` | `offline_process(input, callback, 512)` — batch render |
+| Offline Processor | `offline_processor.hpp` | `offline_process(input, callback, 512)` for simple batch render; `offline_render(input, callback, options)` for deterministic block schedules, absolute sample positions, transport timeline, state generation, render-speed hints, render seeds, and explicit tail policy; `offline_render_stems()` extracts named channel groups; `compare_offline_render_audio()` reports golden/null residuals; `create_offline_render_manifest()` records artifact hashes, render-plan hashes, chunk boundaries, staged resource hashes, and cache-reuse metadata for reproducible offline/distributed renders; `evaluate_offline_render_compute_policy()` keeps GPU-assisted analysis out of live audio-thread scopes and makes CPU fallback explicit |
 | Subsection Reader | `subsection_reader.hpp` | Read frame range without copying — `reader.sample(ch, frame)` |
 | System Volume | `system_volume.hpp` | `get_system_volume()` / `set_system_volume(0.8f)` |
+
+Offline render manifests intentionally separate artifact identity from render
+plan identity. Equivalent renders with different chunk schedules can have the
+same `audio_sha256` and a zero residual while still carrying different
+`render_plan_sha256` values and chunk metadata for distributed reproduction.
 
 ---
 
@@ -349,7 +378,7 @@ send_sysex(inquiry);  // Send over MIDI port
 
 ## signal
 
-30+ real-time-safe DSP processors. All operate on single samples or buffers. All are safe for the audio thread.
+30+ real-time-safe DSP processors. Process methods operate on single samples or buffers and are safe for the audio thread after the helper's documented construction/configuration/`prepare()` step. Setup methods that allocate storage must run off the audio thread.
 
 **Link:** `pulp::signal` · **Include prefix:** `<pulp/signal/...>`
 
@@ -439,7 +468,7 @@ conv.process(input, output, block_size);
 | Ballistics Filter | `ballistics_filter.hpp` | Envelope follower with configurable attack/release for meter and dynamics |
 | Compressor | `compressor.hpp` | Soft-knee downward compressor with threshold, ratio, attack, release |
 | DryWetMixer | `dry_wet_mixer.hpp` | Parallel mix with latency compensation — equal-power or linear crossfade |
-| Gain | `gain.hpp` | Smoothed gain stage that ramps between values to avoid clicks |
+| Gain | `gain.hpp` | Scalar gain stage; pair with `smoothed_value.hpp`, `log_ramped_value.hpp`, or audio `apply_gain_ramp()` when transitions need de-clicking |
 | Noise Gate | `noise_gate.hpp` | Silence signals below threshold with hysteresis to avoid chatter |
 
 #### Generators and analysis
@@ -451,7 +480,20 @@ conv.process(input, output, block_size);
 | Multi-Channel Meter | `multi_channel_meter.hpp` | Peak and RMS level measurement across multiple channels |
 | Oscillator | `oscillator.hpp` | Wavetable oscillator with sine, saw, square, triangle waveforms |
 | Spectrogram | `spectrogram.hpp` | Rolling time-frequency analysis for visual display of spectral content |
-| STFT | `stft.hpp` | Short-time Fourier Transform for overlap-add spectral processing |
+| STFT | `stft.hpp` | Short-time Fourier Transform for visualization (analysis-only; for processing use `spectral_frame_engine.hpp`) |
+
+#### Spectral processing
+
+| Processor | Header | Description |
+|-----------|--------|-------------|
+| Spectral Frame Engine | `spectral_frame_engine.hpp` | Streaming STFT analysis + overlap-add synthesis with coherent multichannel frame groups and variable synthesis hop |
+| Realtime Pitch/Time | `realtime_pitch_time_processor.hpp` | Phase-vocoder pitch shifting (fixed duration, exact reported latency) and independent time stretching, with transient preservation, formant follow/preserve, and freeze |
+| Phase Coordinator | `multichannel_phase_coordinator.hpp` | Laroche-Dolson phase propagation with identity peak locking, applied as one rotation per bin across a channel group — preserves inter-channel phase exactly |
+| Envelope Shifter | `spectral_envelope_shifter.hpp` | Cepstral spectral-envelope estimation (true-envelope refinement) and formant warping with exact unity bypass |
+| Transient Policy | `transient_phase_policy.hpp` | Spectral-flux transient detection (median + energy-relative gates) driving phase reset at onsets |
+| Freeze Hold | `freeze_hold.hpp` | Spectral freeze / infinite hold with de-looped phase evolution, click-free engage/release, and a no-mute latch policy |
+| Pitched Feedback Delay | `pitched_feedback_delay.hpp` | Delay with a latency-bearing processor inside the feedback loop, tempo sync, freeze-aware feedback gating, and a computed minimum delay |
+| Control Smoother | `latency_aware_control_smoother.hpp` | Closed-form one-pole smoothing with attack/release asymmetry, semitone/ratio domains, block-size-independent trajectories |
 | Windowing | `windowing.hpp` | Hann, Hamming, Blackman, Kaiser window functions for FFT analysis |
 
 #### Math and utilities
@@ -468,7 +510,7 @@ conv.process(input, output, block_size);
 | Polynomial Math | `poly_math.hpp` | Polynomial evaluation and Horner's method for waveshaper transfer functions |
 | Processor Chain | `processor_chain.hpp` | Connect multiple processors in series — automatic prepare/process forwarding |
 | SIMD Buffer | `simd_buffer.hpp` | Aligned memory buffer for SIMD-safe block processing |
-| Smoothed Value | `smoothed_value.hpp` | Linear or exponential parameter smoothing to prevent zipper noise |
+| Smoothed Value | `smoothed_value.hpp` | Linear parameter ramps for zipper-noise reduction; use `log_ramped_value.hpp` for multiplicative/log smoothing |
 | Special Functions | `special_functions.hpp` | sinc, Bessel, dB↔linear, MIDI note↔frequency conversions |
 
 ---
@@ -753,8 +795,46 @@ root->add_child(std::move(meter));
 | Fader | Vertical or horizontal slider for continuous parameter control |
 | Knob | Rotary control for parameters like gain, frequency, resonance |
 | TextButton | Clickable button with a text label — supports toggle mode |
-| TextEditor | Single or multi-line text input with selection, copy/paste, undo |
+| TextEditor | Single or multi-line text input with native keyboard movement, selection, copy/paste, undo, IME, and grapheme-safe UTF-8 editing |
 | Toggle | Two-state switch control for enabling/disabling features |
+
+##### TextEditor Behavior
+
+`TextEditor` is the SDK-level text-entry control used by native views, imported
+HTML `<input>`, and imported `<textarea>` controls. It implements platform-style
+caret movement and selection by default: character, word, line, document, page,
+and Shift-selection variants; word/line delete shortcuts; double-click word
+selection with word-granular drag extension; triple-click line selection in
+multi-line mode; standard Cut/Copy/Paste/Select All context menus; and
+mouse/trackpad scrolling for multi-line fields.
+
+Text positions are stored as UTF-8 byte offsets for host/IME compatibility, but
+editing commands snap those offsets to grapheme-cluster boundaries. This keeps
+emoji, combining marks, flags, and ZWJ sequences from being split by arrow keys,
+Backspace/Delete, hit testing, or selection expansion.
+
+Applications can tune text-field policy without forking key handling:
+`read_only` allows focus, navigation, selection, and copy while blocking
+mutation; `View::set_enabled(false)` disables interaction entirely;
+`tab_behavior` chooses focus traversal, literal tab insertion, commit callback,
+or consume/ignore behavior;
+`multi_line_return_behavior` chooses Return/Shift-Return behavior; `max_length`
+counts grapheme clusters; `paste_sanitizer` handles paste-only cleanup;
+`input_filter` sanitizes typed and pasted insertion text; and `validator`
+accepts or rejects a whole-buffer candidate before an edit lands.
+`line_ending_policy` normalizes, strips, or preserves inserted line endings
+where the control shape allows it. `clipboard_policy` can disable clipboard
+traffic entirely or explicitly allow password contents to leave the field.
+Password fields mask display text and disable selected-text export, copy, and
+cut by default unless `allow_password_clipboard` or
+`ClipboardPolicy::allow_password_contents` is enabled.
+
+Programmatic `set_text()` is a host/state-sync operation, so it clears the
+editor undo stack instead of recording a user-edit undo entry. Use
+`set_caret_pos()`, `set_selection()`, `selection_anchor()`,
+`selection_active()`, and `selection_range()` when a host, importer, IME, or
+test needs explicit caret/selection control; all public offsets are clamped to
+grapheme boundaries.
 
 #### Containers
 

@@ -1,4 +1,7 @@
+#include "harness/rt_allocation_probe.hpp"
+
 #include <catch2/catch_test_macros.hpp>
+#include "harness/rt_allocation_probe.hpp"
 #include <pulp/midi/message_collector.hpp>
 
 #include <atomic>
@@ -81,6 +84,38 @@ TEST_CASE("MidiMessageCollector defers future events to subsequent block",
                                           /*sample_rate=*/48000.0);
     REQUIRE(drained2 == 1);
     REQUIRE(block2.size() == 1);
+}
+
+TEST_CASE("MidiMessageCollector drain is allocation-free with prepared output",
+          "[midi][collector][rt-safety]") {
+    MidiMessageCollector<32> collector;
+    REQUIRE(collector.push_now(note_on(0, 60, 100), /*ts=*/1.001));
+    REQUIRE(collector.push_now(note_on(0, 64, 90),  /*ts=*/1.004));
+
+    MidiBuffer out;
+    out.reserve(/*event_capacity=*/4);
+    out.set_realtime_capacity_limit(true);
+
+    std::size_t drained = 0;
+    std::size_t allocation_count = 0;
+    std::size_t allocated_bytes = 0;
+    {
+        pulp::test::RtAllocationProbe probe;
+        drained = collector.drain_into(out,
+                                       /*block_start=*/1.000,
+                                       /*block_samples=*/512,
+                                       /*sample_rate=*/48000.0);
+        allocation_count = probe.allocation_count();
+        allocated_bytes = probe.allocated_bytes();
+    }
+
+    REQUIRE(drained == 2);
+    REQUIRE(out.size() == 2);
+    REQUIRE(out[0].sample_offset == 48);
+    REQUIRE(out[1].sample_offset == 192);
+    REQUIRE(allocation_count == 0);
+    REQUIRE(allocated_bytes == 0);
+    REQUIRE(out.dropped_event_count() == 0);
 }
 
 TEST_CASE("MidiMessageCollector survives concurrent producer / consumer",
@@ -335,4 +370,106 @@ TEST_CASE("MidiMessageCollector returns false when queue is full",
     }
     REQUIRE(accepted >= 3); // at least N-1 slots usable
     REQUIRE(accepted <= 16);
+}
+
+TEST_CASE("MidiMessageCollector exposes queue and pending telemetry",
+          "[midi][collector][telemetry][phase2]") {
+    MidiMessageCollector<4> collector;
+
+    const auto initial = collector.telemetry();
+    REQUIRE(initial.queue_size_approx == 0);
+    REQUIRE(initial.queue_capacity == collector.capacity());
+    REQUIRE(initial.queue_overflow_count == 0);
+    REQUIRE(initial.pending_size_approx == 0);
+    REQUIRE(initial.pending_capacity == collector.pending_capacity());
+    REQUIRE(initial.dropped_future == 0);
+
+    REQUIRE(collector.push_now(note_on(0, 60, 100), /*ts=*/10.000));
+    REQUIRE(collector.push_now(note_on(0, 61, 100), /*ts=*/10.001));
+    const auto queued = collector.telemetry();
+    REQUIRE(queued.queue_size_approx == 2);
+    REQUIRE(queued.pending_size_approx == 0);
+
+    MidiBuffer b1;
+    REQUIRE(collector.drain_into(b1, /*start=*/0.0,
+                                      /*samples=*/256, /*sr=*/48000.0) == 0);
+    const auto pending = collector.telemetry();
+    REQUIRE(pending.queue_size_approx == 0);
+    REQUIRE(pending.pending_size_approx == 2);
+    REQUIRE(pending.queue_overflow_count == 0);
+    REQUIRE(pending.dropped_future == 0);
+
+    MidiBuffer b2;
+    REQUIRE(collector.drain_into(b2, /*start=*/10.0,
+                                      /*samples=*/256, /*sr=*/48000.0) == 2);
+    const auto drained = collector.telemetry();
+    REQUIRE(drained.queue_size_approx == 0);
+    REQUIRE(drained.pending_size_approx == 0);
+    REQUIRE(drained.dropped_future == 0);
+}
+
+TEST_CASE("MidiMessageCollector telemetry reports queue overflow and preserves future-drop count",
+          "[midi][collector][telemetry][phase2]") {
+    MidiMessageCollector<4> queue_collector;
+
+    int accepted = 0;
+    for (int i = 0; i < 16; ++i) {
+        if (queue_collector.push_now(note_on(0, static_cast<uint8_t>(60 + i), 100),
+                                     /*ts=*/double(i) * 0.001)) {
+            ++accepted;
+        }
+    }
+    REQUIRE(accepted >= 3);
+    REQUIRE(queue_collector.queue_overflow_count() > 0);
+
+    const auto full = queue_collector.telemetry();
+    REQUIRE(full.queue_size_approx == static_cast<std::size_t>(accepted));
+    REQUIRE(full.queue_capacity == queue_collector.capacity());
+    REQUIRE(full.queue_overflow_count == queue_collector.queue_overflow_count());
+    REQUIRE(full.pending_size_approx == 0);
+    REQUIRE(full.dropped_future == 0);
+
+    queue_collector.reset_queue_overflow_count();
+    const auto reset = queue_collector.telemetry();
+    REQUIRE(reset.queue_overflow_count == 0);
+    REQUIRE(queue_collector.queue_overflow_count() == 0);
+
+    MidiMessageCollector<256> future_collector;
+    for (int i = 0; i < 65; ++i) {
+        REQUIRE(future_collector.push_now(note_on(0, static_cast<uint8_t>(i & 0x7F), 100),
+                                          /*ts=*/10.0 + double(i) * 0.001));
+    }
+
+    MidiBuffer b;
+    REQUIRE(future_collector.drain_into(b, /*start=*/0.0,
+                                           /*samples=*/256, /*sr=*/48000.0) == 0);
+    const auto saturated = future_collector.telemetry();
+    REQUIRE(saturated.pending_size_approx == future_collector.pending_capacity());
+    REQUIRE(saturated.dropped_future == 1);
+    REQUIRE(saturated.queue_overflow_count == 0);
+
+    future_collector.reset_queue_overflow_count();
+    const auto after_reset = future_collector.telemetry();
+    REQUIRE(after_reset.queue_overflow_count == 0);
+    REQUIRE(after_reset.dropped_future == 1);
+}
+
+TEST_CASE("MidiMessageCollector telemetry path allocates zero times",
+          "[midi][collector][telemetry][rt-safety][phase2]") {
+    MidiMessageCollector<4> collector;
+
+    REQUIRE(collector.push_now(note_on(0, 60, 100), /*ts=*/10.000));
+    MidiBuffer b;
+    REQUIRE(collector.drain_into(b, /*start=*/0.0,
+                                    /*samples=*/256, /*sr=*/48000.0) == 0);
+
+    pulp::test::RtAllocationProbe probe;
+
+    (void)collector.telemetry();
+    (void)collector.queue_overflow_count();
+    collector.reset_queue_overflow_count();
+    (void)collector.dropped_future();
+    (void)collector.size_approx();
+
+    REQUIRE_FALSE(probe.saw_allocation());
 }

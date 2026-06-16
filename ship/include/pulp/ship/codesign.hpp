@@ -48,13 +48,23 @@ std::optional<std::string> notarize_submit_asc(const std::string& path,
                                                 const std::string& key_id,
                                                 const std::string& issuer_id);
 
-// Check notarization status
+// Check notarization status. Prefer the credentialed overload matching the
+// submit lane; Apple's notarytool requires credentials for `info` just as it
+// does for `submit` unless the host has a default notary profile configured.
 struct NotarizationStatus {
     bool complete = false;
     bool success = false;
     std::string message;
 };
 NotarizationStatus notarize_check(const std::string& request_uuid);
+NotarizationStatus notarize_check(const std::string& request_uuid,
+                                  const std::string& apple_id,
+                                  const std::string& team_id,
+                                  const std::string& password);
+NotarizationStatus notarize_check_asc(const std::string& request_uuid,
+                                      const std::string& key_path,
+                                      const std::string& key_id,
+                                      const std::string& issuer_id);
 
 // Staple the notarization ticket
 bool notarize_staple(const std::string& path);
@@ -76,11 +86,15 @@ bool create_dmg(const std::string& source_path,
                 const std::string& output_path,
                 const std::string& volume_name);
 
-// Create a combined multi-format installer (.pkg) via productbuild
-// components: list of {path, install_location} pairs
+// Create a combined multi-format installer (.pkg) via productbuild.
+// The installer is COMPONENT-SELECTABLE by default: it ships a distribution
+// with one user-toggleable choice per component (all selected by default, a
+// "Customize" pane lets the user install only some formats).
 struct InstallComponent {
     std::string path;           // Path to .component, .vst3, .clap, or .app
     std::string install_location; // e.g. "/Library/Audio/Plug-Ins/VST3"
+    std::string title;          // Choice label in the installer (e.g. "VST3").
+                                // Empty → derived from the install_location.
 };
 
 bool create_combined_pkg(const std::vector<InstallComponent>& components,

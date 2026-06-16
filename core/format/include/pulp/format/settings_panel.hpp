@@ -12,6 +12,7 @@
 #include <atomic>
 #include <functional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace pulp::format {
@@ -41,6 +42,7 @@ public:
 
     /// Provide an AudioBridge for input level metering.
     void set_input_meter_bridge(view::AudioBridge* bridge) { input_bridge_ = bridge; }
+    void set_output_meter_bridge(view::AudioBridge* bridge) { output_bridge_ = bridge; }
 
     /// Append a plugin-contributed settings tab after the host-owned Audio/MIDI tabs.
     /// Lets a plugin surface its own settings (e.g. a model picker) in one unified panel.
@@ -48,6 +50,18 @@ public:
 
     /// Number of tabs currently in the panel (Audio + MIDI + any added sections).
     [[nodiscard]] int tab_count() const;
+    [[nodiscard]] int active_tab() const {
+        return tab_panel_ ? tab_panel_->active_tab() : -1;
+    }
+
+    /// Select a host or plugin-contributed tab. Title lookup is exact and returns false
+    /// when the tab is absent, so plugin UIs can deep-link to optional sections safely.
+    void set_active_tab(int index) {
+        if (tab_panel_) tab_panel_->set_active_tab(index);
+    }
+    bool set_active_tab(std::string_view title) {
+        return tab_panel_ ? tab_panel_->set_active_tab(title) : false;
+    }
 
     /// Call periodically (~30 Hz) from idle/timer to refresh meters and hotplug.
     void poll();
@@ -60,11 +74,15 @@ private:
     void rebuild_rate_and_buffer_lists();
     void apply_config();
     void update_latency_label();
+    [[nodiscard]] int current_output_device_index() const;
+    [[nodiscard]] int current_sample_rate_index() const;
+    [[nodiscard]] int current_buffer_size_index() const;
 
     SettingsPanelCallbacks callbacks_;
     audio::AudioSystem* audio_sys_ = nullptr;
     midi::MidiSystem* midi_sys_ = nullptr;
     view::AudioBridge* input_bridge_ = nullptr;
+    view::AudioBridge* output_bridge_ = nullptr;
 
     StandaloneConfig current_config_;
 
@@ -73,11 +91,13 @@ private:
 
     // Audio tab widgets
     view::ComboBox* output_device_combo_ = nullptr;
+    view::Label* input_device_label_ = nullptr;
     view::ComboBox* input_device_combo_ = nullptr;
     view::ComboBox* sample_rate_combo_ = nullptr;
     view::ComboBox* buffer_size_combo_ = nullptr;
     view::Label* latency_label_ = nullptr;
     view::MultiMeter* input_meter_ = nullptr;
+    view::MultiMeter* output_meter_ = nullptr;
     view::Toggle* test_tone_toggle_ = nullptr;
     view::ComboBox* tone_freq_combo_ = nullptr;
 

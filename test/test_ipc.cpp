@@ -1063,6 +1063,110 @@ TEST_CASE("IPC socket server accepts client and exchanges framed messages",
     REQUIRE_FALSE(server.is_running());
 }
 
+TEST_CASE("IPC socket server preserves first frame while accepted callback installs handlers",
+          "[events][ipc][socket][regression]") {
+    InterprocessConnectionServer server;
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::unique_ptr<InterprocessConnection> accepted;
+    bool server_received = false;
+    std::string server_text;
+
+    server.on_client_connected = [&](std::unique_ptr<InterprocessConnection> conn) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        conn->set_on_text_message([&](std::string_view message) {
+            std::lock_guard<std::mutex> lock(mutex);
+            server_text.assign(message);
+            server_received = true;
+            cv.notify_all();
+        });
+
+        std::lock_guard<std::mutex> lock(mutex);
+        accepted = std::move(conn);
+        cv.notify_all();
+    };
+
+    auto port = start_socket_server_on_loopback(server);
+    REQUIRE(port.has_value());
+
+    InterprocessConnection client;
+    REQUIRE(client.connect("127.0.0.1:" + std::to_string(*port), IpcTransport::Socket));
+    REQUIRE(client.send_message("early-client-frame"));
+
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(2), [&] {
+            return server_received;
+        }));
+        REQUIRE(server_text == "early-client-frame");
+    }
+
+    client.disconnect();
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (accepted) accepted->disconnect();
+    }
+    server.stop();
+    REQUIRE_FALSE(server.is_running());
+}
+
+TEST_CASE("IPC socket server can dispatch first frame before accepted callback returns",
+          "[events][ipc][socket][regression]") {
+    InterprocessConnectionServer server;
+
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::unique_ptr<InterprocessConnection> accepted;
+    bool server_received = false;
+    bool callback_saw_frame = false;
+    bool callback_returned = false;
+    std::string server_text;
+
+    server.on_client_connected = [&](std::unique_ptr<InterprocessConnection> conn) {
+        conn->set_on_text_message([&](std::string_view message) {
+            std::lock_guard<std::mutex> lock(mutex);
+            server_text.assign(message);
+            server_received = true;
+            cv.notify_all();
+        });
+
+        {
+            std::unique_lock<std::mutex> lock(mutex);
+            callback_saw_frame = cv.wait_for(
+                lock, std::chrono::milliseconds(500),
+                [&] { return server_received; });
+            accepted = std::move(conn);
+            callback_returned = true;
+        }
+        cv.notify_all();
+    };
+
+    auto port = start_socket_server_on_loopback(server);
+    REQUIRE(port.has_value());
+
+    InterprocessConnection client;
+    REQUIRE(client.connect("127.0.0.1:" + std::to_string(*port), IpcTransport::Socket));
+    REQUIRE(client.send_message("handshake-frame"));
+
+    {
+        std::unique_lock<std::mutex> lock(mutex);
+        REQUIRE(cv.wait_for(lock, std::chrono::seconds(2),
+                            [&] { return callback_returned; }));
+        REQUIRE(callback_saw_frame);
+        REQUIRE(server_received);
+        REQUIRE(server_text == "handshake-frame");
+    }
+
+    client.disconnect();
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (accepted) accepted->disconnect();
+    }
+    server.stop();
+    REQUIRE_FALSE(server.is_running());
+}
+
 TEST_CASE("IPC socket server virtual callback accepts empty frames",
           "[events][ipc][socket][issue-642]") {
     CapturingServer server;

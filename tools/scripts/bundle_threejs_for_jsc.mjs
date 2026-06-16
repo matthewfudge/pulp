@@ -66,12 +66,19 @@ async function loadEsbuild() {
     const localEsbuildEntry = path.join(SCRIPT_DIR, "node_modules", "esbuild", "lib", "main.js");
     if (!fs.existsSync(localEsbuildEntry)) {
         process.stderr.write("[bundle_threejs] esbuild not present in tools/scripts/node_modules — running `npm install` (one-time)...\n");
-        const result = spawnSync("npm", ["install", "--no-audit", "--no-fund", "--prefix", SCRIPT_DIR], {
+        const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
+        const result = spawnSync(npmBin, ["install", "--no-audit", "--no-fund"], {
+            cwd: SCRIPT_DIR,
             stdio: "inherit",
-            shell: false,
+            // npm.cmd is a shell script on Windows and cannot be spawned
+            // directly by Node's exec/spawn path on every hosted runner.
+            shell: process.platform === "win32",
         });
+        if (result.error) {
+            throw new Error(`failed to launch ${npmBin}: ${result.error.message}`);
+        }
         if (result.status !== 0) {
-            throw new Error(`npm install --prefix ${SCRIPT_DIR} exited ${result.status}`);
+            throw new Error(`${npmBin} install in ${SCRIPT_DIR} exited ${result.status}`);
         }
     }
     return REQUIRE(path.join(SCRIPT_DIR, "node_modules", "esbuild"));

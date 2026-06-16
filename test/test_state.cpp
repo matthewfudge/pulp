@@ -1,9 +1,11 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <pulp/events/event_loop.hpp>
+#include <pulp/runtime/scoped_no_alloc.hpp>
 #include <pulp/state/binding.hpp>
 #include <pulp/state/state.hpp>
 #include <pulp/state/state_migration.hpp>
+#include "harness/rt_allocation_probe.hpp"
 #include <array>
 #include <atomic>
 #include <chrono>
@@ -87,6 +89,54 @@ TEST_CASE("ParamRange normalization", "[state][range]") {
     REQUIRE_THAT(range.denormalize(1.0f), WithinAbs(100.0, 0.001));
 }
 
+TEST_CASE("StateStore normalized seam honors a shaped (skewed) range",
+          "[state][range][shaped][store]") {
+    // The adapter-facing path is StateStore::set_normalized_rt /
+    // get_normalized, which both convert through ParamRange. A skewed range
+    // must round-trip through that seam exactly the way a format adapter
+    // (e.g. VST3 plainToNormalized/normalizedToPlain) drives it. A linear
+    // param registered alongside must be unaffected.
+    StateStore store;
+
+    ParamInfo freq = make_param_info(
+        1, "Freq", "Hz",
+        ParamRange::with_centre(20.0f, 20000.0f, 1000.0f));
+    ParamInfo gain = make_param_info(2, "Gain", "dB", {-60.0f, 12.0f, 0.0f});
+    store.add_parameter(freq);
+    store.add_parameter(gain);
+
+    REQUIRE_FALSE(store.info(1)->range.is_linear());
+    REQUIRE(store.info(2)->range.is_linear());
+
+    // Skewed param: 0.5 normalized maps to the 1 kHz centre, and the value
+    // read back as normalized matches what we wrote.
+    store.set_normalized(1, 0.5f);
+    REQUIRE_THAT(store.get_value(1), WithinAbs(1000.0, 1.0));
+    REQUIRE_THAT(store.get_normalized(1), WithinAbs(0.5, 1e-4));
+
+    // Endpoints exact through the store seam.
+    store.set_normalized(1, 0.0f);
+    REQUIRE_THAT(store.get_value(1), WithinAbs(20.0, 1e-3));
+    store.set_normalized(1, 1.0f);
+    REQUIRE_THAT(store.get_value(1), WithinAbs(20000.0, 1e-3));
+
+    // Full round-trip monotonicity through the realtime write path.
+    float prev = -1.0f;
+    for (int i = 0; i <= 100; ++i) {
+        const float n = static_cast<float>(i) / 100.0f;
+        store.set_normalized_rt(1, n);
+        const float v = store.get_value(1);
+        REQUIRE(v >= prev);
+        REQUIRE_THAT(store.get_normalized(1), WithinAbs(n, 1e-3));
+        prev = v;
+    }
+
+    // Linear param is bit-identical to a plain affine map through the seam.
+    store.set_normalized(2, 0.5f);
+    REQUIRE_THAT(store.get_value(2), WithinAbs(-24.0, 1e-3)); // -60 + 0.5*72
+    REQUIRE(store.get_normalized(2) == gain.range.normalize(store.get_value(2)));
+}
+
 TEST_CASE("ParamInfo defaults to control rate and preserves audio-rate metadata",
           "[state][params][rate]") {
     ParamInfo default_info;
@@ -148,10 +198,16 @@ TEST_CASE("ParameterEventQueue enforces capacity and preserves stable sort order
     }
 
     REQUIRE_FALSE(queue.push(ParameterEvent{.param_id = 9999, .sample_offset = 0, .value = 1.0f}));
+    REQUIRE(queue.overflowed());
+    REQUIRE(queue.dropped_event_count() == 1);
+    REQUIRE_FALSE(queue.push(ParameterEvent{.param_id = 10000, .sample_offset = 1, .value = 2.0f}));
+    REQUIRE(queue.dropped_event_count() == 2);
     REQUIRE(queue.size() == queue.capacity());
 
     queue.clear();
     REQUIRE(queue.empty());
+    REQUIRE_FALSE(queue.overflowed());
+    REQUIRE(queue.dropped_event_count() == 0);
     REQUIRE(queue.push(ParameterEvent{.param_id = 1, .sample_offset = 8, .value = 1.0f}));
     REQUIRE(queue.push(ParameterEvent{.param_id = 2, .sample_offset = 8, .value = 2.0f}));
     REQUIRE(queue.push(ParameterEvent{.param_id = 3, .sample_offset = 4, .value = 3.0f}));
@@ -214,6 +270,188 @@ TEST_CASE("ParamCursor is monotonic and null event queues fall back to StateStor
     cursor.advance_to(2);
     REQUIRE(cursor.position() == 5);
     REQUIRE(cursor.value(7) == 0.75f);
+}
+
+TEST_CASE("ParamCursor interpolates ramp-duration parameter events",
+          "[state][params][cursor][ramp]") {
+    StateStore store;
+    store.add_parameter(make_param_info(1, "Gain", "", {0.0f, 1.0f, 0.0f}));
+    store.set_value(1, 0.0f);
+
+    ParameterEventQueue events;
+    REQUIRE(events.push(ParameterEvent{.param_id = 1,
+                                       .sample_offset = 4,
+                                       .value = 1.0f,
+                                       .ramp_duration_sample_frames = 4}));
+    events.sort();
+
+    ParamCursor cursor(store, &events);
+    REQUIRE(cursor.is_tracked(1));
+
+    cursor.advance_to(3);
+    REQUIRE_FALSE(cursor.is_ramping(1));
+    REQUIRE_THAT(cursor.value(1), WithinAbs(0.0f, 1e-6f));
+
+    cursor.advance_to(4);
+    REQUIRE(cursor.is_ramping(1));
+    REQUIRE_THAT(cursor.value(1), WithinAbs(0.0f, 1e-6f));
+    REQUIRE_THAT(cursor.value_at(1, 6), WithinAbs(0.5f, 1e-6f));
+
+    cursor.advance_to(5);
+    REQUIRE_THAT(cursor.value(1), WithinAbs(0.25f, 1e-6f));
+
+    cursor.advance_to(6);
+    REQUIRE_THAT(cursor.value(1), WithinAbs(0.5f, 1e-6f));
+
+    cursor.advance_to(7);
+    REQUIRE_THAT(cursor.value(1), WithinAbs(0.75f, 1e-6f));
+
+    cursor.advance_to(8);
+    REQUIRE_FALSE(cursor.is_ramping(1));
+    REQUIRE_THAT(cursor.value(1), WithinAbs(1.0f, 1e-6f));
+    REQUIRE_THAT(store.get_value(1), WithinAbs(0.0f, 1e-6f));
+}
+
+TEST_CASE("ParamCursor ramps from the current interpolated value when events overlap",
+          "[state][params][cursor][ramp]") {
+    StateStore store;
+    store.add_parameter(make_param_info(1, "Gain", "", {0.0f, 1.0f, 0.0f}));
+    store.set_value(1, 0.0f);
+
+    ParameterEventQueue events;
+    REQUIRE(events.push(ParameterEvent{.param_id = 1,
+                                       .sample_offset = 0,
+                                       .value = 1.0f,
+                                       .ramp_duration_sample_frames = 8}));
+    REQUIRE(events.push(ParameterEvent{.param_id = 1,
+                                       .sample_offset = 4,
+                                       .value = 0.0f,
+                                       .ramp_duration_sample_frames = 4}));
+    events.sort();
+
+    ParamCursor cursor(store, &events);
+    cursor.advance_to(2);
+    REQUIRE_THAT(cursor.value(1), WithinAbs(0.25f, 1e-6f));
+
+    cursor.advance_to(4);
+    REQUIRE(cursor.is_ramping(1));
+    REQUIRE_THAT(cursor.value(1), WithinAbs(0.5f, 1e-6f));
+
+    cursor.advance_to(6);
+    REQUIRE_THAT(cursor.value(1), WithinAbs(0.25f, 1e-6f));
+
+    cursor.advance_to(8);
+    REQUIRE_FALSE(cursor.is_ramping(1));
+    REQUIRE_THAT(cursor.value(1), WithinAbs(0.0f, 1e-6f));
+}
+
+TEST_CASE("ParamCursor ramp interpolation stays inside the no-allocation contract",
+          "[state][params][cursor][ramp][rt]") {
+    StateStore store;
+    store.add_parameter(make_param_info(1, "Gain", "", {0.0f, 1.0f, 0.5f}));
+    store.set_value(1, 0.5f);
+
+    ParameterEventQueue events;
+    REQUIRE(events.push(ParameterEvent{.param_id = 1,
+                                       .sample_offset = 0,
+                                       .value = 1.0f,
+                                       .ramp_duration_sample_frames = 4}));
+    REQUIRE(events.push(ParameterEvent{.param_id = 1,
+                                       .sample_offset = 4,
+                                       .value = 0.0f,
+                                       .ramp_duration_sample_frames = 4}));
+    events.sort();
+
+    std::array<float, 5> sampled{};
+    {
+        pulp::runtime::ScopedNoAlloc guard;
+        ParamCursor cursor(store, &events);
+        cursor.advance_to(0);
+        sampled[0] = cursor.value(1);
+        sampled[1] = cursor.value_at(1, 2);
+        cursor.advance_to(2);
+        sampled[2] = cursor.value(1);
+        cursor.advance_to(6);
+        sampled[3] = cursor.value(1);
+        cursor.advance_to(8);
+        sampled[4] = cursor.value(1);
+    }
+
+    REQUIRE_THAT(sampled[0], WithinAbs(0.5f, 1e-6f));
+    REQUIRE_THAT(sampled[1], WithinAbs(0.75f, 1e-6f));
+    REQUIRE_THAT(sampled[2], WithinAbs(0.75f, 1e-6f));
+    REQUIRE_THAT(sampled[3], WithinAbs(0.5f, 1e-6f));
+    REQUIRE_THAT(sampled[4], WithinAbs(0.0f, 1e-6f));
+    REQUIRE_THAT(store.get_value(1), WithinAbs(0.5f, 1e-6f));
+}
+
+TEST_CASE("ParamCursor interpolates overlapping ramps across a large host block",
+          "[state][params][cursor][ramp][capacity]") {
+    StateStore store;
+    store.add_parameter(make_param_info(1, "Gain", "", {0.0f, 1.0f, 0.0f}));
+    store.set_value(1, 0.0f);
+
+    ParameterEventQueue events;
+    REQUIRE(events.push(ParameterEvent{.param_id = 1,
+                                       .sample_offset = 0,
+                                       .value = 1.0f,
+                                       .ramp_duration_sample_frames = 4096}));
+    REQUIRE(events.push(ParameterEvent{.param_id = 1,
+                                       .sample_offset = 2048,
+                                       .value = 0.0f,
+                                       .ramp_duration_sample_frames = 2048}));
+    events.sort();
+
+    std::array<float, 5> sampled{};
+    {
+        pulp::runtime::ScopedNoAlloc guard;
+        ParamCursor cursor(store, &events);
+        cursor.advance_to(0);
+        sampled[0] = cursor.value(1);
+        sampled[1] = cursor.value_at(1, 1024);
+        cursor.advance_to(2048);
+        sampled[2] = cursor.value(1);
+        cursor.advance_to(3072);
+        sampled[3] = cursor.value(1);
+        cursor.advance_to(4096);
+        sampled[4] = cursor.value(1);
+    }
+
+    REQUIRE_THAT(sampled[0], WithinAbs(0.0f, 1e-6f));
+    REQUIRE_THAT(sampled[1], WithinAbs(0.25f, 1e-6f));
+    REQUIRE_THAT(sampled[2], WithinAbs(0.5f, 1e-6f));
+    REQUIRE_THAT(sampled[3], WithinAbs(0.25f, 1e-6f));
+    REQUIRE_THAT(sampled[4], WithinAbs(0.0f, 1e-6f));
+    REQUIRE_THAT(store.get_value(1), WithinAbs(0.0f, 1e-6f));
+}
+
+TEST_CASE("ParamCursor clamps ramp targets and treats non-positive durations as immediate",
+          "[state][params][cursor][ramp]") {
+    StateStore store;
+    store.add_parameter(make_param_info(1, "Gain", "", {0.0f, 1.0f, 0.0f}));
+    store.set_value(1, 0.25f);
+
+    ParameterEventQueue events;
+    REQUIRE(events.push(ParameterEvent{.param_id = 1,
+                                       .sample_offset = 0,
+                                       .value = 2.0f,
+                                       .ramp_duration_sample_frames = 4}));
+    REQUIRE(events.push(ParameterEvent{.param_id = 1,
+                                       .sample_offset = 8,
+                                       .value = -1.0f,
+                                       .ramp_duration_sample_frames = -1}));
+    events.sort();
+
+    ParamCursor cursor(store, &events);
+    cursor.advance_to(2);
+    REQUIRE_THAT(cursor.value(1), WithinAbs(0.625f, 1e-6f));
+
+    cursor.advance_to(4);
+    REQUIRE_THAT(cursor.value(1), WithinAbs(1.0f, 1e-6f));
+
+    cursor.advance_to(8);
+    REQUIRE_FALSE(cursor.is_ramping(1));
+    REQUIRE_THAT(cursor.value(1), WithinAbs(0.0f, 1e-6f));
 }
 
 TEST_CASE("ParameterEventQueue exposes mutable and const iteration over active events",
@@ -1971,6 +2209,61 @@ TEST_CASE("set_value_rt clamps and the RT queue is lossy under overflow",
     REQUIRE_THAT(store.get_value(1),
                  WithinAbs(static_cast<float>((kOverflowN - 1) % 100) * 0.01,
                            0.001));
+}
+
+TEST_CASE("StateStore exposes RT listener queue telemetry",
+          "[state][listener][rt][telemetry][phase2]") {
+    StateStore store;
+    store.add_parameter(make_param_info(1, "X", "", {0.0f, 1.0f, 0.0f}));
+
+    auto token = store.add_listener([](ParamID, float) {}, ListenerThread::Main);
+
+    const auto initial = store.rt_listener_queue_telemetry();
+    REQUIRE(initial.size_approx == 0);
+    REQUIRE(initial.capacity > 0);
+    REQUIRE(initial.overflow_count == 0);
+
+    for (std::size_t i = 0; i < initial.capacity; ++i) {
+        store.set_value_rt(1, static_cast<float>(i % 100) * 0.01f);
+    }
+    const auto full = store.rt_listener_queue_telemetry();
+    REQUIRE(full.size_approx == initial.capacity);
+    REQUIRE(full.capacity == initial.capacity);
+    REQUIRE(full.overflow_count == 0);
+
+    store.set_value_rt(1, 0.25f);
+    store.set_value_rt(1, 0.5f);
+    const auto overflow = store.rt_listener_queue_telemetry();
+    REQUIRE(overflow.size_approx == initial.capacity);
+    REQUIRE(overflow.overflow_count == 2);
+
+    store.reset_rt_listener_queue_overflow_count();
+    const auto reset = store.rt_listener_queue_telemetry();
+    REQUIRE(reset.size_approx == initial.capacity);
+    REQUIRE(reset.overflow_count == 0);
+
+    REQUIRE(store.pump_listeners() == initial.capacity);
+    REQUIRE(store.rt_listener_queue_telemetry().size_approx == 0);
+}
+
+TEST_CASE("StateStore RT listener telemetry hot path allocates zero times",
+          "[state][listener][rt][telemetry][rt-safety][phase2]") {
+    StateStore store;
+    store.add_parameter(make_param_info(1, "X", "", {0.0f, 1.0f, 0.0f}));
+
+    auto token = store.add_listener([](ParamID, float) {}, ListenerThread::Main);
+
+    pulp::test::RtAllocationProbe probe;
+
+    const auto capacity = store.rt_listener_queue_telemetry().capacity;
+    for (std::size_t i = 0; i < capacity; ++i) {
+        store.set_value_rt(1, static_cast<float>(i % 100) * 0.01f);
+    }
+    store.set_value_rt(1, 0.75f);
+    (void)store.rt_listener_queue_telemetry();
+    store.reset_rt_listener_queue_overflow_count();
+
+    REQUIRE_FALSE(probe.saw_allocation());
 }
 
 TEST_CASE("RT-queued changes are skipped when the token was reset before pump",

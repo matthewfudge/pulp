@@ -1,6 +1,7 @@
 #include <pulp/format/native_core_processor.hpp>
 
 #include <pulp/native_components/native_core.hpp>
+#include <pulp/runtime/scoped_no_alloc.hpp>
 
 #include <cstdlib>
 #include <cstring>
@@ -46,6 +47,7 @@ NativeCoreProcessor::~NativeCoreProcessor() {
 }
 
 void* NativeCoreProcessor::host_alloc(void*, std::size_t bytes) {
+    pulp_rt_trap_if_no_alloc_scope(1, bytes);
     return std::malloc(bytes);
 }
 void NativeCoreProcessor::host_free(void*, void* ptr) { std::free(ptr); }
@@ -180,6 +182,8 @@ void NativeCoreProcessor::process(audio::BufferView<float>& audio_output,
                                   midi::MidiBuffer& /*midi_in*/,
                                   midi::MidiBuffer& /*midi_out*/,
                                   const ProcessContext& context) {
+    pulp::runtime::ScopedNoAlloc no_alloc_guard;
+
     if (instance_ == nullptr || !prepared_) {
         audio_output.clear();
         return;
@@ -236,6 +240,7 @@ void NativeCoreProcessor::process(audio::BufferView<float>& audio_output,
         view.events = event_scratch_.data();
         view.count = n;
         view.capacity = static_cast<uint32_t>(event_scratch_.size());
+        view.overflowed = queue->overflowed() ? 1u : 0u;
     } else {
         view.events = nullptr;  // distinct from present-but-empty
     }

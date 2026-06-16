@@ -210,6 +210,9 @@ static int32_t block_relative_sample_offset(AUEventSampleTime event_sample_time,
 - (uint32_t)pulpBypassParameterId;
 
 - (NSUInteger)pulpLastParameterEventCount;
+- (NSUInteger)pulpLastParameterEventCapacity;
+- (BOOL)pulpLastParameterEventsOverflowed;
+- (uint32_t)pulpLastParameterEventDropCount;
 - (uint32_t)pulpLastParameterEventParamIDAtIndex:(NSUInteger)index;
 - (int32_t)pulpLastParameterEventSampleOffsetAtIndex:(NSUInteger)index;
 - (int32_t)pulpLastParameterEventRampDurationAtIndex:(NSUInteger)index;
@@ -800,6 +803,8 @@ static int32_t block_relative_sample_offset(AUEventSampleTime event_sample_time,
         pulp::format::ProcessContext ctx;
         ctx.sample_rate = bridge->sample_rate;
         ctx.num_samples = static_cast<int>(frameCount);
+        ctx.process_mode = pulp::format::ProcessMode::Realtime;
+        ctx.render_speed_hint = pulp::format::RenderSpeedHint::Realtime;
 
         // Item 1.3 — populate transport fields from the host blocks the
         // AUv3 host installed via the KVO-able properties on
@@ -871,8 +876,53 @@ static int32_t block_relative_sample_offset(AUEventSampleTime event_sample_time,
         pulp::format::detail::derive_bar_from_beats(ctx);
         pulp::format::detail::compute_playhead_changes(ctx, bridge->playhead_prev);
 
+        std::array<pulp::format::ProcessBusBufferView<const float>, 2> input_buses{{
+            {
+                .info = {
+                    .name = "Audio In",
+                    .index = 0,
+                    .direction = pulp::format::BusDirection::Input,
+                    .role = pulp::format::BusRole::Main,
+                    .declared_channels = bridge->input_channels,
+                    .optional = bridge->input_channels == 0,
+                    .active = input_view.num_channels() > 0,
+                },
+                .buffer = input_view,
+            },
+            {
+                .info = {
+                    .name = "Sidechain",
+                    .index = 1,
+                    .direction = pulp::format::BusDirection::Input,
+                    .role = pulp::format::BusRole::Sidechain,
+                    .declared_channels = bridge->sidechain_channels,
+                    .optional = true,
+                    .active = sidechain_view.num_channels() > 0,
+                },
+                .buffer = sidechain_view,
+            },
+        }};
+        std::array<pulp::format::ProcessBusBufferView<float>, 1> output_buses{{
+            {
+                .info = {
+                    .name = "Audio Out",
+                    .index = 0,
+                    .direction = pulp::format::BusDirection::Output,
+                    .role = pulp::format::BusRole::Main,
+                    .declared_channels = bridge->output_channels,
+                    .optional = false,
+                    .active = output_view.num_channels() > 0,
+                },
+                .buffer = output_view,
+            },
+        }};
+        pulp::format::ProcessBuffers process_buffers{
+            pulp::format::ProcessBusBufferSet<const float>{std::span(input_buses)},
+            pulp::format::ProcessBusBufferSet<float>{std::span(output_buses)},
+        };
+
         bridge->processor->set_param_events(&bridge->param_events);
-        bridge->processor->process(output_view, input_view, midi_in, midi_out, ctx);
+        bridge->processor->process(process_buffers, midi_in, midi_out, ctx);
 
         // Item 3.11 — drain RT-safe pending flags the processor may have
         // set during process() and publish them via KVO. AUAudioUnit
@@ -976,6 +1026,18 @@ static int32_t block_relative_sample_offset(AUEventSampleTime event_sample_time,
 
 - (NSUInteger)pulpLastParameterEventCount {
     return static_cast<NSUInteger>(_bridge.param_events.size());
+}
+
+- (NSUInteger)pulpLastParameterEventCapacity {
+    return static_cast<NSUInteger>(_bridge.param_events.capacity());
+}
+
+- (BOOL)pulpLastParameterEventsOverflowed {
+    return _bridge.param_events.overflowed() ? YES : NO;
+}
+
+- (uint32_t)pulpLastParameterEventDropCount {
+    return _bridge.param_events.dropped_event_count();
 }
 
 - (uint32_t)pulpLastParameterEventParamIDAtIndex:(NSUInteger)index {

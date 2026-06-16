@@ -182,6 +182,21 @@ then, an MPE synth loaded as VST3/AU sees MIDI events but the
 `MpeBuffer` will be empty; the voice tracker inside the processor
 still works if you extract per-note data from `MidiBuffer` yourself.
 
+### Realtime sidecar buffers are capacity-limited
+
+`MpeBuffer` and `UmpBuffer` support the same adapter-owned realtime
+capacity policy as `MidiBuffer`: reserve storage before the audio
+thread, call `set_realtime_capacity_limit(true)`, and treat `add()`
+returning `false` plus `dropped_event_count()` as the overflow signal.
+
+This matters for CLAP because one short MIDI event can fan out to many
+MPE sidecar callbacks, and native `CLAP_EVENT_MIDI2` packets append
+directly to the UMP sidecar before `Processor::process()`. The CLAP
+adapter reserves both sidecars in `clap_activate()` and drops rather
+than growing vectors during `clap_process()`. If you add a new adapter
+or widen the sidecar contract, test the overflow path without copying
+large event vectors inside the processor no-allocation guard.
+
 ## Reference material
 
 - Guide: [docs/guides/mpe.md](../../../docs/guides/mpe.md)
@@ -226,6 +241,28 @@ The reassembler's `feed_packet` is a function-pointer-callback
 API so it stays RT-safe in the audio render block; the
 `feed_collect` convenience wrapper allocates and is meant for
 tests / cold paths only.
+
+**Reassembly state is per-stream → per-UMP-group, not per-port.** UMP
+SysEx7 streams from one endpoint can interleave across the 16 UMP
+groups, so a backend that owns a *single* `UmpSysex7Reassembler` per
+port will let a Start on group 1 reset/corrupt an in-flight stream on
+group 0. Keep one reassembler per group (`std::array<…,16>` indexed by
+`packet.group()`) — the WinRT MIDI 2.0 backend does this; mirror it in
+any new UMP backend.
+
+### UMP ↔ MIDI 1.0 conversion covers System messages (Type 0x1)
+
+`ump_to_midi1_event` / `midi1_event_to_ump2` in
+`core/midi/include/pulp/midi/ump_conversion.hpp` handle **System Real
+Time and System Common** (UMP Type 0x1: clock `0xF8`, start/stop,
+song-position `0xF2`, …) in addition to channel voice — system
+messages encode as Type 0x1 (NOT Type 0x2 MIDI 1.0 Channel Voice,
+which is malformed for them) and decode back to MIDI 1.0 short
+messages. So `ump_to_midi1` flattening a UMP buffer now yields
+clock/transport events, not channel-voice-only — don't assume a
+flattened buffer is note data. (SysEx Type 0x3 still routes through
+`UmpSysex7Reassembler`, above; per-note expression still goes through
+the MpeBuffer sidecar, not these converters.)
 
 ### UMP Session / Endpoint / VirtualEndpoint (post macOS-plan 8.1)
 

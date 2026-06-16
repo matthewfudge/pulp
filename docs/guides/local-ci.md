@@ -22,6 +22,58 @@ shipyard runner watch --kill-hung-workers # prevent self-hosted runner wedges
 shipyard update --check --json            # report installed vs latest
 ```
 
+### Runner timing metrics
+
+Pulp does not store CI timing history in the Pulp CLI or MCP server. When a
+checkout uses Shipyard, and optionally tartci for disposable local VMs,
+Shipyard owns the timing database and query surface:
+
+- Shipyard can import GitHub Actions job timings and local command evidence.
+- tartci can optionally emit per-VM runtime records for macOS, Linux, and
+  Windows VM lanes: boot/setup/run/cleanup durations, labels, host, provider,
+  golden/cache hints, outcome, and failure class.
+- Shipyard imports those tartci records into its local metrics store and exposes
+  agent-readable summaries, slowest lanes, trend/drift checks, comparisons, and
+  placement advice.
+
+This is mainly for agents watching Pulp CI over time. It gives them enough
+history to answer "is this runner behaving normally?", "did boot/build time
+regress?", "which lane should I monitor next?", and "is this worth
+investigating or just within the usual range?" Humans can use the same commands
+for high-level platform comparisons, but no observability service is required.
+
+The `shipyard metrics` commands require a Shipyard build that includes the
+metrics subcommand. Pulp's current pinned source-checkout version in
+`tools/shipyard.toml` is `v0.68.0`, which does not include that surface yet. Use
+a newer Shipyard binary or source checkout for this optional metrics workflow
+until the Pulp pin is bumped.
+
+```bash
+# Enable VM runtime records on tartci hosts or LaunchAgents.
+export TARTCI_RUNTIME_MEASURE=1
+export TARTCI_RUNTIME_GH_ENRICH=1
+
+# Inspect tartci's local VM timing records.
+tartci runtime recent --repo danielraffel/pulp --limit 20 --json
+tartci runtime summary --repo danielraffel/pulp --json
+
+# Import both GitHub Actions and tartci VM timing into Shipyard's metrics store.
+shipyard metrics import github --repo danielraffel/pulp --limit 50 --json
+tartci runtime export --repo danielraffel/pulp --since-days 14 \
+  | shipyard metrics import tartci --json
+
+# Agent-friendly queries.
+shipyard metrics summary --project pulp --json
+shipyard metrics slowest --project pulp --limit 20 --json
+shipyard metrics watch --project pulp --since 14d --json
+shipyard metrics advise --project pulp --json
+```
+
+Use the Shipyard and tartci docs for setup details; this guide only records how
+Pulp expects agents and contributors to consume the optional integration.
+Without tartci, `shipyard metrics import github` and manual/command metrics
+still work for GitHub-hosted or SSH-backed CI lanes.
+
 Pulp intentionally pins Shipyard in `tools/shipyard.toml` even if your daily
 global `shipyard` is newer. Use `shipyard pin bump --to vX.Y.Z` for pin
 updates instead of hand-editing the file; newer Rust Shipyard releases changed
@@ -36,6 +88,29 @@ Shipyard is missing; contributors who prefer their own PR flow can set
 `pulp config set pr.workflow github` or `manual`. The `github` workflow uses
 `gh` directly and requires it to be installed and authenticated. Run
 `pulp status` to see the effective workflow and local tool health.
+
+### Optional local VM routing
+
+Core Pulp development can also use local, disposable VMs through
+[tartci](https://github.com/danielraffel/tartci). This is optional: a normal
+contributor can open a PR and let GitHub Actions run on hosted runners. The
+value of the local VM setup is faster feedback on trusted Apple Silicon
+hardware while keeping every job clean-per-run.
+
+The current Pulp routing policy is intentionally kept in parseable TOML at
+[`.shipyard/ci-profiles/normal-local-fast.toml`](../../.shipyard/ci-profiles/normal-local-fast.toml)
+instead of copied into this guide. It names the PR, release, coverage,
+scheduled, and issue-on-failure policies and maps stable target IDs to concrete
+GitHub `runs-on` selectors. Shipyard owns orchestration and profile selection;
+tartci owns the local VM providers, goldens, host caches, and per-host status.
+Use the upstream docs for details:
+
+- [Shipyard profiles](https://github.com/danielraffel/Shipyard/blob/main/docs/profiles.md)
+  explain how profiles and fallback resolution work.
+- [tartci](https://github.com/danielraffel/tartci) explains the Tart/QEMU VM
+  lanes, `tartci status --json`, and `tartci profile explain|plan`.
+- [mac-ci-host-setup.md](mac-ci-host-setup.md) is the Pulp-specific host setup
+  guide for joining the macOS VM pool.
 
 ### Shipping a PR: `shipyard pr`
 
@@ -161,10 +236,19 @@ To opt out for an individual run, pass `--pipeline default` explicitly.
 
 ## macOS overflow routing (Plan B)
 
+> **Namespace is OFF (cost).** We build macOS on **local Macs + GitHub-hosted**
+> only. `PULP_NAMESPACE_BUILD_MACOS_RUNS_ON_JSON` is kept **UNSET**, so the
+> Namespace overflow described here never fires — it's a documented break-glass
+> option, not the active path. The local overflow tier is the **M5 Mac**
+> (`PULP_OVERFLOW_BUILD_MACOS_RUNS_ON_JSON = pulp-build-m5`); the required gate is
+> the **Mac Studio** (`PULP_LOCAL_MACOS_RUNS_ON_JSON`). Do **not** repurpose the
+> Namespace var to point at self-hosted runners (see CLAUDE.md "Runner priority").
+
 When the local self-hosted Mac runner is saturated, `build.yml`'s
-`resolve-provider` job routes new macOS legs to a Namespace cloud
-runner instead of queueing on local. Snap-back is automatic — once
-local clears, fresh dispatches return to local. Source of truth:
+`resolve-provider` job *could* route new macOS legs to a Namespace cloud runner
+instead of queueing on local — but only if the Namespace var is set, which it is
+not. Snap-back is automatic — once local clears, fresh dispatches return to
+local. Source of truth:
 `planning/2026-05-13-namespace-overflow-implementation.md` (Plan B,
 reviewed by `/codex` 2026-05-13).
 
@@ -641,6 +725,12 @@ hard-coded defaults they had before this mechanism was lifted into a
 shared resolver. Nothing changes by default.** Setting one variable moves
 one job. Nothing more.
 
+Coverage is stricter than the build matrix. It reads explicit
+`workflow_dispatch` inputs and `PULP_COVERAGE_*_RUNS_ON_JSON`, not
+`PULP_NAMESPACE_BUILD_*`. If coverage moves local, use a dedicated ephemeral
+label such as `pulp-coverage-vm-macos`; do not point coverage at `pulp-build`,
+`pulp-build-vm`, or the warm macOS gate pool.
+
 ### Global default (`build.yml` matrix only)
 
 | Variable | Effect | Example |
@@ -654,14 +744,32 @@ one job. Nothing more.
 | `PULP_NAMESPACE_BUILD_LINUX_RUNS_ON_JSON` | Namespace | `gh variable set PULP_NAMESPACE_BUILD_LINUX_RUNS_ON_JSON --body '["namespace-profile-generouscorp"]'` |
 | `PULP_NAMESPACE_BUILD_WINDOWS_RUNS_ON_JSON` | Namespace | `gh variable set PULP_NAMESPACE_BUILD_WINDOWS_RUNS_ON_JSON --body '["namespace-profile-generouscorp-windows"]'` |
 | `PULP_NAMESPACE_BUILD_MACOS_RUNS_ON_JSON` | Namespace (optional) | `gh variable set PULP_NAMESPACE_BUILD_MACOS_RUNS_ON_JSON --body '"namespace-profile-generouscorp-macos"'` |
-| `PULP_LOCAL_MAC_RUNS_ON_JSON` | Local (reserved for a follow-up PR) | `gh variable set PULP_LOCAL_MAC_RUNS_ON_JSON --body '["self-hosted","macos","arm64","build"]'` |
-| `PULP_LOCAL_LINUX_RUNS_ON_JSON` | Local (reserved for a follow-up PR) | `gh variable set PULP_LOCAL_LINUX_RUNS_ON_JSON --body '["self-hosted","linux","arm64","build"]'` |
-| `PULP_LOCAL_WINDOWS_RUNS_ON_JSON` | Local (reserved for a follow-up PR) | `gh variable set PULP_LOCAL_WINDOWS_RUNS_ON_JSON --body '["self-hosted","windows","x64","build"]'` |
+| `PULP_LOCAL_MACOS_RUNS_ON_JSON` | Local macOS ARM64 VM pool | `gh variable set PULP_LOCAL_MACOS_RUNS_ON_JSON --body '["self-hosted","macOS","ARM64","pulp-build","pulp-build-vm"]'` |
+| `PULP_LOCAL_LINUX_RUNS_ON_JSON` | Local Linux ARM64 VM pool | `gh variable set PULP_LOCAL_LINUX_RUNS_ON_JSON --body '["self-hosted","Linux","ARM64","pulp-build-linux"]'` |
+| `PULP_LOCAL_WINDOWS_RUNS_ON_JSON` | Local Windows ARM64 QEMU pool | `gh variable set PULP_LOCAL_WINDOWS_RUNS_ON_JSON --body '["self-hosted","Windows","ARM64","pulp-build-windows"]'` |
 
-The `PULP_LOCAL_*_RUNS_ON_JSON` family is recognized by the shared
-resolver, but `build.yml` currently does not pass a `--local-env` for
-those legs. Wiring `local` into `build.yml`'s Linux/Windows legs is a
-separate follow-up; call that out in the PR that does it.
+`.tartci/normal-local-fast.toml` is the repo-local profile that documents the
+intended default policy: PR macOS, Linux, and Windows prefer local ARM64 VMs
+where available, while GitHub-hosted x64 Linux/Windows remains the scheduled
+compatibility safety net. Use `tartci profile plan normal-local-fast --repo
+danielraffel/pulp --json` from the tartci checkout to see the concrete variable
+values before changing repository variables.
+
+Do not put ordered fallback chains directly into GitHub Actions. GitHub receives
+one `runs-on` selector per job; Shipyard/tartci must resolve "Mac Studio, then
+M5/blackbook, then GitHub" before dispatch or variable application.
+
+Windows local QEMU is Windows ARM64. An x64 MSVC/Prism smoke can be useful, but
+it is not a replacement for the GitHub-hosted `windows-latest` Intel/x64 signal
+until explicitly proven.
+
+### Nightly GitHub Intel validation
+
+`.github/workflows/cross-platform-check.yml` is the scheduled Linux/Windows
+Intel safety net for this profile. It runs GitHub-hosted `ubuntu-latest` and
+`windows-latest`, files or updates one deduped issue per broken platform, and
+auto-closes the tracker when the platform recovers. Do not add a duplicate
+nightly Intel workflow unless this one is deliberately retired.
 
 ### `sanitizers.yml` — per-sanitizer target selection
 
@@ -692,6 +800,20 @@ manual run:
 gh workflow run sanitizers.yml \
   -f tsan_runner_selector_json='["self-hosted","macos","arm64","sanitizer"]'
 ```
+
+`coverage.yml` accepts `linux_runner_selector_json`,
+`macos_runner_selector_json`, and `windows_runner_selector_json` inputs. The
+macOS Tart coverage proof path is:
+
+```bash
+gh workflow run coverage.yml \
+  -f macos_runner_selector_json='["self-hosted","macOS","ARM64","pulp-coverage-vm-macos"]'
+```
+
+Only set `PULP_COVERAGE_MACOS_RUNS_ON_JSON` to that selector after the proof
+run uploads the `os-macos` Codecov flag. The coverage LaunchAgent uses
+`--queue-match-labels` so existing hosted Coverage jobs do not accidentally
+boot a local coverage VM.
 
 `build.yml` has the equivalent `linux_runner_selector_json`,
 `windows_runner_selector_json`, and `macos_runner_selector_json` inputs.

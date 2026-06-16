@@ -358,6 +358,95 @@ TEST_CASE("JsEngine availability", "[js_engine]") {
     }
 }
 
+TEST_CASE("JsEngine runtime/provider identity defaults are empty for non-V8 backends",
+          "[js_engine][identity]") {
+    // QuickJS and JSC do not report a runtime version or provider; the
+    // identity surface must degrade to empty strings, never crash or fabricate.
+    for (auto type : {JsEngineType::quickjs, JsEngineType::jsc}) {
+        if (!is_engine_available(type))
+            continue;
+        auto engine = create_js_engine(type);
+        REQUIRE(engine != nullptr);
+        DYNAMIC_SECTION("engine=" << engine_type_name(type)) {
+            CHECK(engine->runtime_version().empty());
+            CHECK(engine->provider_kind().empty());
+            CHECK(engine->provider_path().empty());
+            CHECK(engine->expected_runtime_version().empty());
+        }
+    }
+}
+
+TEST_CASE("ScriptEngine forwards runtime/provider identity to the active backend",
+          "[js_engine][identity][script_engine]") {
+    // ScriptEngine's identity accessors are thin pass-throughs to the wrapped
+    // JsEngine. Exercise them through the wrapper (not just the raw engine) so
+    // the forwarding layer is covered, and assert it agrees with the backend it
+    // wraps. For non-V8 backends the identity surface is empty; for a linked V8
+    // the wrapper must report exactly what the underlying engine reports.
+    for (auto type : {JsEngineType::quickjs, JsEngineType::jsc, JsEngineType::v8}) {
+        if (!is_engine_available(type))
+            continue;
+        DYNAMIC_SECTION("engine=" << engine_type_name(type)) {
+            ScriptEngine script(type);
+            const auto& engine = script.engine();
+            CHECK(script.engine_type() == type);
+            CHECK(script.runtime_version() == engine.runtime_version());
+            CHECK(script.provider_kind() == engine.provider_kind());
+            CHECK(script.provider_path() == engine.provider_path());
+            CHECK(script.expected_runtime_version() ==
+                  engine.expected_runtime_version());
+            if (type == JsEngineType::v8) {
+                CHECK_FALSE(script.runtime_version().empty());
+                CHECK_FALSE(script.provider_kind().empty());
+            } else {
+                CHECK(script.runtime_version().empty());
+                CHECK(script.provider_kind().empty());
+            }
+        }
+    }
+}
+
+TEST_CASE("V8 engine reports a non-empty runtime version and provider identity",
+          "[js_engine][identity][v8]") {
+    // Runtime-gated (not #ifdef): PULP_HAS_V8 is private to pulp-view-script, so
+    // the test TU never sees it. is_engine_available() is the truthful query for
+    // whether V8 is linked into pulp::view in this build.
+    if (!is_engine_available(JsEngineType::v8)) {
+        SUCCEED("V8 not linked in this build — identity asserts covered by the "
+                "strict provider_identity CTest on the sealed lane");
+        return;
+    }
+    auto engine = create_js_engine(JsEngineType::v8);
+    REQUIRE(engine != nullptr);
+    REQUIRE(engine->type() == JsEngineType::v8);
+
+    // v8::V8::GetVersion() must yield something like "15.1.27.0".
+    const auto runtime = engine->runtime_version();
+    INFO("runtime_version=" << runtime);
+    REQUIRE_FALSE(runtime.empty());
+    REQUIRE(runtime.find('.') != std::string::npos);
+
+    // The provider kind is wired at build time. It is non-empty whenever V8 is
+    // actually linked (sealed v8builder, libnode, v8_monolith, or external).
+    const auto kind = engine->provider_kind();
+    INFO("provider_kind=" << kind);
+    REQUIRE_FALSE(kind.empty());
+
+    // When the build pinned an expected version (parsed from the V8 tag in
+    // tools/deps/manifest.json), the runtime V8 reports must start with it. This
+    // is the cross-check that proves the sealed seal is the runtime, not just the
+    // headers. When no expectation was pinned, skip the equality assert but still
+    // require the runtime/provider basics above.
+    const auto expected = engine->expected_runtime_version();
+    if (!expected.empty()) {
+        INFO("expected_runtime_version=" << expected << " runtime=" << runtime);
+        REQUIRE(runtime.rfind(expected, 0) == 0u);
+        // A pinned expectation only ever comes from the v8-builder seal.
+        REQUIRE(kind == "v8builder");
+        REQUIRE_FALSE(engine->provider_path().empty());
+    }
+}
+
 TEST_CASE("JsEngine script recommendation handles large-script threshold edge", "[js_engine][recommend]") {
     constexpr size_t large_script_threshold = 512 * 1024;
 

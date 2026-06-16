@@ -38,7 +38,17 @@ The plugin descriptor (id, name, vendor, version, features) is derived automatic
 
 ### Parameter Sync
 
-**Host to plugin:** During `clap_process()`, the adapter iterates `in_events`, looking for `CLAP_EVENT_PARAM_VALUE` events. Each one writes to `StateStore::set_value()`. Gesture events (`CLAP_EVENT_PARAM_GESTURE_BEGIN` / `END`) are forwarded to `StateStore::begin_gesture()` / `end_gesture()`.
+**Host to plugin:** During `clap_process()`, the adapter iterates `in_events`,
+looking for `CLAP_EVENT_PARAM_VALUE` events. Each one is pushed into the
+per-block `ParameterEventQueue` and written with `StateStore::set_value_rt()`.
+Gesture events (`CLAP_EVENT_PARAM_GESTURE_BEGIN` / `END`) are forwarded to
+`StateStore::begin_gesture()` / `end_gesture()`.
+
+The per-block queue is fixed-capacity and real-time safe. If a host sends more
+than 1024 parameter value events in one block, the adapter keeps the first 1024
+sample-accurate points, records the overflow/drop count on the queue, and still
+writes every incoming value to `StateStore` so block-end reads observe the
+latest host value.
 
 The `params_flush()` extension callback handles the same events outside of `process()` (e.g., when the plugin is bypassed).
 
@@ -46,14 +56,25 @@ The `params_flush()` extension callback handles the same events outside of `proc
 
 ### CLAP Modulation
 
-The adapter handles `CLAP_EVENT_PARAM_MOD` events. At the start of each process call, `store.reset_all_mod()` clears per-buffer modulation offsets. Incoming mod events write to `StateStore::set_mod_offset()`. Processors can call `store.get_modulated(id)` to read `base + mod_offset`.
+The adapter handles `CLAP_EVENT_PARAM_MOD` events. At the start of each process call, `store.reset_all_mod()` clears per-buffer modulation offsets. Incoming mod events are validated as global, control-rate `state::ModulationLane` routes before writing to `StateStore::set_mod_offset()`. Processors can call `store.get_modulated(id)` to read `base + mod_offset`.
 
 ### MIDI Routing
 
-Note events are converted between CLAP's `clap_event_note_t` format and Pulp's `MidiEvent`:
+CLAP note and MIDI events are converted into Pulp's block event surfaces:
 
 - `CLAP_EVENT_NOTE_ON` becomes `MidiEvent::note_on(channel, key, velocity * 127)`
 - `CLAP_EVENT_NOTE_OFF` becomes `MidiEvent::note_off(channel, key, velocity * 127)`
+- `CLAP_EVENT_NOTE_CHOKE` becomes a zero-velocity note-off
+- `CLAP_EVENT_MIDI` carries raw MIDI 1.0 channel messages such as CC, pitch
+  bend, channel pressure, poly pressure, and program change
+- `CLAP_EVENT_MIDI_SYSEX` is copied into a preallocated inbound payload arena
+  (128 events per block, 4096 bytes per event); overflow or larger payloads are
+  dropped and counted. Outbound processor-owned SysEx emits as
+  `CLAP_EVENT_MIDI_SYSEX`
+- `CLAP_EVENT_MIDI2` is routed through `ump_input()` when the plugin opts into
+  UMP
+- `CLAP_EVENT_NOTE_EXPRESSION` feeds the MPE sidecar when the plugin opts into
+  MPE
 - `sample_offset` is set from `hdr->time` for sample-accurate timing
 
 Note port declaration is driven by `descriptor().accepts_midi` and `descriptor().produces_midi`. Ports support both `CLAP_NOTE_DIALECT_CLAP` and `CLAP_NOTE_DIALECT_MIDI`, preferring CLAP dialect.
@@ -78,18 +99,46 @@ Audio port count and info come from `descriptor().input_buses` and `descriptor()
 - Port type: `CLAP_PORT_MONO` for 1 channel, `CLAP_PORT_STEREO` otherwise
 - `in_place_pair` set to `CLAP_INVALID_ID`
 
-The process callback currently routes the first input and first output bus. Additional buses are declared but not yet routed to `Processor::process()`.
+The process callback routes bus 0 as the main input/output and routes input bus
+1 to `Processor::sidechain_input()` when present. Additional input buses and
+secondary output buses require a richer process surface than the current simple
+`Processor::process()` signature.
+
+`format::ProcessBuffers` and `format::ProcessBusBufferSet` are the additive
+shared vocabulary for that richer surface. They are non-owning views over
+host-owned bus buffers and let adapters validate active buses, declared channel
+counts, and null channel pointers before projecting the current
+main-in/main-out/sidechain view into `Processor::process()`.
+
+Processors that override the richer surface can inspect no-input instrument
+layouts, surround main outputs, and named auxiliary or stem outputs directly
+through `ProcessBuffers::inputs` and `ProcessBuffers::outputs`. Use
+`BusBufferSet::find()`, `find_by_index()`, or `find_by_name()` for secondary
+buses; `main_input()`, `main_output()`, and `sidechain_input()` remain the
+ergonomic compatibility helpers.
+
+Inactive buses are treated as disconnected and should carry empty buffer views.
+An active bus with any null channel pointer fails
+`active_buses_have_storage()`, even when its declared channel count matches, so
+adapters can fail closed or omit the bus instead of handing processors a
+half-valid buffer.
 
 ### Latency and Tail
 
-- **Latency:** `clap_plugin_latency_t::get` returns `processor->latency_samples()`.
-- **Tail:** `clap_plugin_tail_t::get` returns `descriptor().tail_samples`. A value of `-1` (infinite tail) maps to `UINT32_MAX`.
+- **Latency:** `clap_plugin_latency_t::get` returns
+  `processor->latency_samples()` after host-quirk clamping, so negative
+  latency reports as 0 on the normal path.
+- **Tail:** `clap_plugin_tail_t::get` returns `descriptor().tail_samples`. A
+  value of `-1` (infinite tail) maps to `UINT32_MAX`.
 
 ### Known Limitations
 
-- Only the first input and output bus are passed to `process()`. Sidechain buses are declared to the host but not yet routed.
+- Bus 0 and one sidechain input are routed. Additional input buses and
+  secondary output buses are not exposed through the simple `Processor`
+  callback.
 - No GUI extension is wired.
-- Per-note modulation (`note_id`, `port_index`, `channel`, `key` fields in param mod events) is accepted but not per-note routed.
+- Per-note modulation (`note_id`, `port_index`, `channel`, `key` fields in
+  param mod events) is accepted but not per-note routed.
 
 ---
 
@@ -120,7 +169,13 @@ The FUID must be generated once and never changed across versions. It is the sta
 
 ### Parameter Sync
 
-**Host to plugin:** During `process()`, the adapter reads `data.inputParameterChanges`. For each changed parameter, it reads the last point value (normalized 0-1) and writes it to `StateStore::set_normalized()`.
+**Host to plugin:** During `process()`, the adapter reads
+`data.inputParameterChanges`. Each point is denormalized, pushed into the
+per-block `ParameterEventQueue`, and written with
+`StateStore::set_normalized_rt()`. If a host sends more than 1024 points in one
+block, the adapter keeps the first 1024 sample-accurate points, records the
+overflow/drop count on the queue, and still writes every incoming point to
+`StateStore` so block-end reads observe the latest host value.
 
 **Plugin to host:** The adapter snapshots all parameter values before calling `Processor::process()`. After processing, any value that changed is:
 1. Written to `data.outputParameterChanges` as a normalized value (so the host can record automation)
@@ -166,8 +221,10 @@ Audio buses from `descriptor().input_buses` and `descriptor().output_buses` are 
 
 ### Latency and Tail
 
-- `getLatencySamples()` returns `processor->latency_samples()`
-- `getTailSamples()` returns `descriptor().tail_samples`, mapping `-1` to `kInfiniteTail`
+- `getLatencySamples()` returns `processor->latency_samples()` after host-quirk
+  clamping, so negative latency reports as 0 on the normal path.
+- `getTailSamples()` returns `descriptor().tail_samples`, mapping `-1` to
+  `kInfiniteTail`.
 
 ### Known Limitations
 
@@ -222,6 +279,12 @@ Instruments have zero audio inputs and one audio output. MIDI is received via `H
 
 **Host to plugin (instruments):** `Render()` reads parameters via `Globals()->GetParameterRT()`.
 
+**Parameter event model:** AU v2 exposes current parameter values through the
+AU parameter store rather than a render-event list. The effect adapter attaches
+an empty `ParameterEventQueue` before `Processor::process()` so plugins see the
+same non-null queue contract as other adapters, but AU v2 parameter changes are
+block-rate `StateStore` values today.
+
 **Plugin to host:** Parameter output changes are not yet emitted back to the AU host. Initial defaults are set via `Globals()->SetParameter()` during `Initialize()`.
 
 **Gesture callbacks (effects):** The adapter wires `StateStore` gesture callbacks to `AUEventListenerNotify()` with `kAudioUnitEvent_BeginParameterChangeGesture` and `kAudioUnitEvent_EndParameterChangeGesture` event types.
@@ -264,7 +327,9 @@ The AU adapter stores Pulp state alongside the standard AU state dictionary:
 
 **Effects:** `GetTailTime()` converts `descriptor().tail_samples` to seconds by dividing by sample rate. `GetLatency()` does the same for `latency_samples()`. A tail of `-1` maps to `infinity`.
 
-**Instruments:** Tail and latency return 0 (override in your processor if needed).
+**Instruments:** `GetTailTime()` and `GetLatency()` report the same processor
+runtime contract as effects, using the output stream sample rate. A tail of `-1`
+maps to `infinity`.
 
 ### auval Validation
 
@@ -316,6 +381,15 @@ AU v3 mirrors the AU v2 state contract through `AUAudioUnit.fullState`:
   Older blobs that contain only raw `StateStore` data still load and call
   `deserialize_plugin_state()` with empty bytes.
 
+### Parameter Events
+
+AU v3 receives sample-accurate `AURenderEventParameter` and
+`AURenderEventParameterRamp` events in the render event list. The adapter writes
+each event into the realtime `ParameterEventQueue` and also updates
+`StateStore` with the latest value. The queue is fixed-capacity; events beyond
+capacity are dropped from the sparse queue and counted as overflow, while the
+latest value still reaches `StateStore` for block-rate reads.
+
 ---
 
 ## LV2
@@ -359,6 +433,12 @@ sequences and broader control/atom coverage are still in progress.
 5. Atom output port (present when `descriptor().produces_midi == true`)
 
 `run()` reads control-input port values into `StateStore` at the top of each buffer.
+LV2 control ports are block-rate current values, not scheduled sparse
+parameter events. The adapter still attaches an empty
+`ParameterEventQueue` before `Processor::process()` so
+`Processor::param_events()` is non-null, but control-port ingress does not
+consume sparse queue capacity; large host-block capacity for LV2 is ordinary
+control-port count/state update behavior.
 
 ### MIDI Routing
 
@@ -391,7 +471,7 @@ object plus one or more `.ttl` files that describe ports and metadata.
 ### Known Limitations
 
 - Atom sysex events are ignored — only 1–3-byte short MIDI messages are
-  routed. Sysex sidecar wiring is tracked under issue #239.
+  routed through the LV2 atom input sequence.
 - No `state:interface` implementation yet; host-side preset save/restore
   works, but Pulp's own `StateStore` binary state is not exposed through
   the LV2 state extension.
@@ -428,7 +508,7 @@ PULP_AAX_PLUGIN(my_namespace::create_my_processor)
 [`docs/status/support-matrix.yaml`](../status/support-matrix.yaml). AAX is
 intentionally opt-in: the adapter compiles and loads in Pro Tools, but
 custom editor surface, AudioSuite role exercise, and public-CI coverage
-are follow-up work. The SDK is developer-supplied and never bundled or
+remain incomplete. The SDK is developer-supplied and never bundled or
 shipped by Pulp.
 
 ### Build Requirements
@@ -546,15 +626,64 @@ Key methods:
 | Method | Description |
 |---|---|
 | `prepare(sample_rate, max_buffer_size, in_ch, out_ch)` | Initialize the processor |
+| `try_prepare(sample_rate, max_buffer_size, in_ch, out_ch, limits)` | Initialize only if the processor's prepare-resource estimate fits the supplied non-zero limits |
 | `process(output, input)` | Process audio (no MIDI) |
 | `process(output, input, midi_in, midi_out)` | Process audio with MIDI |
+| `render_offline(input, options)` | Render effect-shaped `AudioFileData` through deterministic offline blocks |
 | `release()` | Release processing resources |
 | `state()` | Access the `StateStore` for parameter reads/writes |
 | `save_state()` | Serialize current plugin state to bytes |
 | `load_state(data)` | Restore parameter and plugin-owned state from bytes |
 | `descriptor()` | Read the plugin's `PluginDescriptor` |
 
+Use `try_prepare()` when a test, batch render, or benchmark needs to prove a
+plugin fails closed before allocating oversized prepare-time resources:
+
+```cpp
+pulp::format::PrepareResourceLimits limits;
+limits.max_total_bytes = 8 * 1024 * 1024;
+limits.max_voices = 64;
+
+if (!host.try_prepare(48000, 512, 2, 2, limits)) {
+    auto reason = host.last_prepare_limit_failure();
+    // Report or assert the first exceeded budget.
+}
+```
+
+When `try_prepare()` fails a non-zero limit, it returns before
+`Processor::prepare()` and leaves the previous successful prepared render
+context intact. Use `last_prepare_limit_failure()` for diagnostics, then either
+continue rendering with the prior prepare or retry with adjusted limits.
+If the host also reports memory pressure, a processor may shed rebuildable
+owner-thread caches before the retry, but it must keep prepared core state and
+fixed per-block scratch accounting valid.
+
 Input and output views may alias for in-place processing.
+
+Use `render_offline()` when a batch/golden path already has an
+`AudioFileData` artifact and needs `OfflineRenderOptions` metadata forwarded to
+`ProcessContext`: scheduled block size, sample position, tempo, beat position,
+and render-speed hint. It is effect-shaped today, so the rendered artifact has
+the same channel count as the input. Parity fixtures should compare both the
+rendered samples and the per-block `ProcessContext` metadata against direct
+stepped processing for the same schedule.
+
+Format adapter runtime-mode tests should assert the adapter-owned source of
+truth rather than inferring mode from transport. VST3 maps
+`ProcessSetup::processMode == kOffline` to `ProcessMode::Offline` with a
+faster-than-realtime render hint. CLAP has no equivalent process-mode field, so
+its adapter reports realtime mode and realtime render speed unless a future CLAP
+extension exposes stronger host intent. AU v2 effect and instrument render
+callbacks also report realtime mode and realtime render speed because the v2 SDK
+does not surface offline-bounce intent to `ProcessBufferLists()` / `Render()`;
+AU v3 mirrors that explicit realtime render-path contract. Bypass, tail-drain,
+reset, and transport-jump flags stay explicit `ProcessContext` metadata and
+should be covered where the host API can actually deliver them. VST3 process
+context sample-position discontinuities, AU v2 host-callback sample-position
+discontinuities, AU v3 transport-state sample-position discontinuities, and
+CLAP beat-timeline discontinuities are diffed against the previous block and set
+`transport_jump`, so processors that use `should_reset_dsp_state()` can reset
+delay, lookahead, or oscillator state on host seeks.
 
 ---
 

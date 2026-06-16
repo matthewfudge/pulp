@@ -23,6 +23,14 @@ on:
           `main` while still checking out the broken TAG's source code.
         required: false
         default: ''
+      make_latest:
+        description: |
+          Update GitHub's /releases/latest pointer for this manual dispatch.
+          Leave false for old-tag backfills; set true only when backfilling
+          the current newest release tag after a failed automatic tag run.
+        required: false
+        type: boolean
+        default: false
 
 # Never cancel an in-flight release. If two tags push back-to-back,
 # serialize rather than cancel — interrupting a binary build halfway
@@ -38,19 +46,30 @@ env:
   # same output as the hook that writes CHANGELOG.md. Must track
   # tools/shipyard.toml to avoid split behavior between local flows
   # and release-time jobs (Codex P1 on PR #719).
-  SHIPYARD_VERSION: "0.59.0"
+  SHIPYARD_VERSION: "0.68.0"
 
 jobs:
-  # Resolve the macOS runner for the darwin-arm64 matrix legs. When
-  # PULP_NAMESPACE_BUILD_MACOS_RUNS_ON_JSON is set (the same repo
-  # variable build.yml uses for PR macOS routing post-2026-05-18
-  # cutover), route release-cli's macOS leg through Namespace cloud
-  # runners instead of GitHub-hosted macos-15. Falls back to macos-15
-  # when unset so reverting the cutover doesn't break releases.
-  # Background: 2026-05-18 SDK starvation — the GitHub-hosted macos-15
-  # queue backed up for hours and blocked v0.111..v0.134 release-cli
-  # runs from completing (compound with the supersede bug fixed in
-  # pulp #2238 and the Skia gate fix in pulp #2281).
+  # Resolve the macOS runner for the darwin-arm64 matrix legs.
+  #
+  # Priority (first set wins):
+  #   1. PULP_RELEASE_MACOS_RUNS_ON_JSON — dedicated release-cli override
+  #      (the "wire each lane its own runs-on var" pattern from CLAUDE.md).
+  #   2. PULP_LOCAL_MACOS_RUNS_ON_JSON — the self-hosted Studio/M5 pool that
+  #      already backs the required `macos` PR gate (build.yml). release-cli
+  #      is low-volume (tags only) so it won't starve that gate, and the
+  #      `actions/checkout` default `clean: true` (git clean -ffdx) wipes the
+  #      untracked build dirs each run, so a release build on the persistent
+  #      self-hosted disk is clean-by-construction (no warm-dir ODR — release
+  #      also never touches the shared ccache).
+  #   3. PULP_NAMESPACE_BUILD_MACOS_RUNS_ON_JSON — Namespace cloud (off for cost).
+  #   4. GitHub-hosted macos-15 — last-resort fallback.
+  #
+  # Why this changed: the GitHub-hosted macos-15 pool repeatedly starves
+  # release-cli's darwin leg for hours (2026-05-18 blocked v0.111..v0.134;
+  # 2026-06-09 blocked v0.396.0+ for 3h+ while ~6 macos-15 lanes — coverage,
+  # sanitizers — exhausted the hosted concurrency cap and 4 self-hosted Macs
+  # sat idle). Routing the release leg to the idle self-hosted pool by default
+  # removes that single point of failure for publishing.
   resolve-macos-runner:
     runs-on: ubuntu-latest
     outputs:
@@ -58,9 +77,17 @@ jobs:
     steps:
       - id: resolve
         env:
+          RELEASE_JSON: ${{ vars.PULP_RELEASE_MACOS_RUNS_ON_JSON }}
+          LOCAL_JSON: ${{ vars.PULP_LOCAL_MACOS_RUNS_ON_JSON }}
           NAMESPACE_JSON: ${{ vars.PULP_NAMESPACE_BUILD_MACOS_RUNS_ON_JSON }}
         run: |
-          if [ -n "${NAMESPACE_JSON:-}" ]; then
+          if [ -n "${RELEASE_JSON:-}" ]; then
+            echo "runs_on_json=${RELEASE_JSON}" >> "$GITHUB_OUTPUT"
+            echo "Routing macOS release-cli via PULP_RELEASE_MACOS_RUNS_ON_JSON: ${RELEASE_JSON}"
+          elif [ -n "${LOCAL_JSON:-}" ]; then
+            echo "runs_on_json=${LOCAL_JSON}" >> "$GITHUB_OUTPUT"
+            echo "Routing macOS release-cli via self-hosted PULP_LOCAL_MACOS_RUNS_ON_JSON: ${LOCAL_JSON}"
+          elif [ -n "${NAMESPACE_JSON:-}" ]; then
             echo "runs_on_json=${NAMESPACE_JSON}" >> "$GITHUB_OUTPUT"
             echo "Routing macOS release-cli through Namespace: ${NAMESPACE_JSON}"
           else
@@ -96,7 +123,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          lfs: true
+          # lfs: false — release-cli fetches the Skia binaries explicitly via
+          # fetch_skia_for_release.py (see "Fetch Skia prebuilt binaries" below;
+          # the LFS pull does NOT populate them). Pulling LFS here is redundant
+          # AND fails the checkout on the self-hosted macOS runners (git-lfs not
+          # configured there — the working main `macos` gate in build.yml also
+          # uses lfs: false). This was an 8-second checkout failure on
+          # pulp-studio-01 that blocked v0.400.0's darwin-arm64 leg.
+          lfs: false
           # On `workflow_dispatch`, prefer `source_ref` if the user supplied
           # one; otherwise check out the `version` tag they typed. On
           # push-tag triggers, fall through to the default (the tag ref).
@@ -145,15 +179,15 @@ jobs:
       # configure doesn't trip on them.
 
       # Backfill safety net (pulp #1962): when a workflow_dispatch
-      # backfill is checking out a tag that pre-dates the chrome/m144
-      # layout flatten fix, the script in that tag's source tree is the
-      # OLD version and will fail. Pull the current `main` copy of the
-      # script over the in-tree copy so the workflow's fetch step picks
-      # up the fix regardless of when the tag was cut. This is a no-op
-      # for tag-push triggers (the dispatched source_ref is empty so we
-      # skip).
+      # backfill leaves source_ref blank, actions/checkout uses the old
+      # `version` tag source tree. Tags that pre-date release-pipeline
+      # fixes carry the OLD helper scripts and CMake glue, so pull the
+      # current `main` copies over the checked-out tag before building.
+      # This is a no-op for tag-push triggers and intentionally skipped
+      # when source_ref is supplied, because that mode builds the
+      # operator-selected source ref under the requested version label.
       - name: Overlay latest release-pipeline files (workflow_dispatch backfill)
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.source_ref != '' }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.source_ref == '' }}
         shell: bash
         # Pull the current `main` copies of files that gate release-cli's
         # success but live in the source tree rather than the workflow
@@ -168,24 +202,65 @@ jobs:
         #   - core/canvas/CMakeLists.txt: fontconfig propagation from
         #     pulp-canvas STATIC lib via PkgConfig::FONTCONFIG IMPORTED
         #     target (#1962 follow-up).
-        #   - tools/cli/CMakeLists.txt: re-link fontconfig in pulp-cli
-        #     so it appears AFTER libskia.a in the GNU ld link line
-        #     (left-to-right archive resolution; the chrome/m144 Skia
-        #     archive references Fc* symbols that ld won't resolve from
-        #     an earlier-positioned -lfontconfig). #1962 follow-up.
+        #   - tools/deps/manifest.json: release asset inventory must
+        #     include all require_gpu release Skia binaries, including
+        #     linux-arm64, when backfilling older tags.
+        #   - tools/scripts/package_cli.py: release packaging/rpath fixes,
+        #     including macOS ad-hoc re-signing after install_name_tool rewrites.
+        #
+        # Do NOT wholesale-overlay tools/cli/CMakeLists.txt. That file's
+        # source list drifts as CLI features land on main, and an older tag may
+        # not contain newly referenced .cpp files. Patch only the fontconfig
+        # tail-link block below so the tag keeps its own source list.
         run: |
           set -euo pipefail
           repo='${{ github.repository }}'
           for path in \
               tools/scripts/fetch_skia_for_release.py \
+              tools/scripts/package_cli.py \
               core/canvas/CMakeLists.txt \
-              tools/cli/CMakeLists.txt \
+              tools/deps/manifest.json \
               ; do
             url="https://raw.githubusercontent.com/${repo}/main/${path}"
             echo "Overlaying ${path} from ${url}"
             curl -fsSL "$url" -o "$path"
             wc -c "$path"
           done
+
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          path = Path("tools/cli/CMakeLists.txt")
+          text = path.read_text(encoding="utf-8")
+          if "_PULP_CLI_FONTCONFIG" in text:
+              print("tools/cli/CMakeLists.txt already has the fontconfig tail-link block")
+              raise SystemExit(0)
+
+          match = re.search(r"(?m)^target_link_libraries\(pulp-cli PRIVATE[^\n]*\)\n", text)
+          if not match:
+              raise SystemExit("FAIL: cannot find single-line pulp-cli target_link_libraries block")
+
+          block = """
+
+          # Link-order fix for libskia.a -> fontconfig on Linux+GNU ld (#1962).
+          # Keep this as a targeted backfill patch instead of overlaying this
+          # whole CMake file from main: old tags may not have new CLI source
+          # files referenced by main's add_executable() list.
+          if(UNIX AND NOT APPLE AND NOT ANDROID)
+              find_package(PkgConfig)
+              if(PkgConfig_FOUND)
+                  pkg_check_modules(_PULP_CLI_FONTCONFIG IMPORTED_TARGET fontconfig)
+                  if(_PULP_CLI_FONTCONFIG_FOUND)
+                      target_link_libraries(pulp-cli PRIVATE PkgConfig::_PULP_CLI_FONTCONFIG)
+                  endif()
+              endif()
+          endif()
+          """
+          text = text[: match.end()] + block + text[match.end() :]
+          path.write_text(text, encoding="utf-8")
+          print("Patched tools/cli/CMakeLists.txt with the fontconfig tail-link block")
+          PY
 
       - name: Fetch Skia binaries
         run: python3 tools/scripts/fetch_skia_for_release.py ${{ matrix.platform }}
@@ -203,6 +278,43 @@ jobs:
       # Pulp's documented JS engine policy (CLAUDE.md) is QuickJS on
       # Linux, so the CLI must not link JSC-GTK at all. Issue #720.
       #
+      # Ensure a WORKING Rust toolchain is on PATH before configure. The
+      # user-facing `pulp` binary is the Rust CLI (experimental/pulp-rs);
+      # CMake only wires that target up when find_program(cargo) succeeds at
+      # CONFIGURE time, and the pulp-rs CMakeLists fail-SOFTs (STATUS, not
+      # FATAL) when cargo is missing — so a broken toolchain silently drops
+      # build/pulp and only surfaces far downstream as
+      # `package_cli.py: FAIL: binary not at build/pulp`.
+      #
+      # Failure modes seen on self-hosted Macs (2026-06-10, v0.400.0):
+      #   - cargo not on the non-interactive job PATH (lives at ~/.cargo/bin);
+      #   - a BROKEN rustup install — ~/.cargo/bin/rustup proxy missing, so the
+      #     cargo/rustc shims are dangling symlinks and won't execute even
+      #     though ~/.rustup/toolchains/<tc>/bin/cargo is a perfectly good
+      #     binary.
+      # GitHub-hosted runners already ship a working cargo on PATH, so this
+      # step is a fast no-op there. Self-heal by finding a cargo that actually
+      # RUNS (PATH → ~/.cargo/bin → the toolchain's own bin, which bypasses a
+      # broken proxy) and prepending its dir to GITHUB_PATH. Fail LOUD if none
+      # works, so a runner without Rust never silently ships a CLI-less tarball.
+      - name: Ensure a working Rust toolchain on PATH
+        if: runner.os != 'Windows'
+        run: |
+          runs() { "$1/cargo" --version >/dev/null 2>&1; }
+          use() { echo "$1" >> "$GITHUB_PATH"; echo "rust: using cargo at $1 ($("$1/cargo" --version))"; }
+          if command -v cargo >/dev/null 2>&1 && cargo --version >/dev/null 2>&1; then
+            echo "rust: cargo already works on PATH ($(cargo --version))"; exit 0
+          fi
+          if runs "$HOME/.cargo/bin"; then use "$HOME/.cargo/bin"; exit 0; fi
+          # Broken rustup proxy / dangling shim — fall back to a toolchain's
+          # direct bin (a real cargo binary, no proxy needed).
+          for tc in "$HOME"/.rustup/toolchains/*/bin; do
+            if runs "$tc"; then use "$tc"; exit 0; fi
+          done
+          echo "::error::No working cargo found (broken rustup? run 'rustup default stable' on this runner). release-cli needs Rust to build the user-facing build/pulp CLI — refusing to ship a CLI-less tarball." >&2
+          exit 1
+        shell: bash
+
       # Build the CLI binary WITHOUT WebView; the SDK build below
       # reconfigures with WebView=ON so plugin authors still get the
       # WebView code in the SDK tarball.
@@ -225,6 +337,7 @@ jobs:
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DPULP_BUILD_TESTS=OFF \
+            -DPULP_ENABLE_AUDIO_PROBES=OFF \
             $REQUIRE_GPU \
             ${{ runner.os == 'Linux' && '-DPULP_BUILD_WEBVIEW=OFF' || '-DPULP_BUILD_WEBVIEW=ON' }}
         shell: bash
@@ -237,6 +350,39 @@ jobs:
         run: cmake --build build --config Release
         shell: bash
 
+      - name: Normalize CLI binary layout (Unix)
+        if: runner.os != 'Windows'
+        # Backfill compatibility: tags before the Rust CLI swap only build the
+        # C++ CLI delegate (`build/tools/cli/pulp-cpp`) and have no top-level
+        # `build/pulp`. Package those trees under the stable user-facing
+        # `pulp` name without changing current releases, where `build/pulp`
+        # already exists and remains the primary binary.
+        run: |
+          set -euo pipefail
+          if [ ! -e build/pulp ] && [ -x build/tools/cli/pulp-cpp ]; then
+            echo "Pre-swap CLI layout detected; copying pulp-cpp to build/pulp for packaging"
+            cp -p build/tools/cli/pulp-cpp build/pulp
+          fi
+          test -x build/pulp
+        shell: bash
+
+      - name: Normalize CLI binary layout (Windows)
+        if: runner.os == 'Windows'
+        # Same backfill compatibility as Unix, adjusted for Visual Studio's
+        # multi-config output directory.
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $primary = 'build/pulp.exe'
+          $cpp = 'build/tools/cli/Release/pulp-cpp.exe'
+          if (!(Test-Path $primary) -and (Test-Path $cpp)) {
+              Write-Host 'Pre-swap CLI layout detected; copying pulp-cpp.exe to build/pulp.exe for packaging'
+              Copy-Item -Path $cpp -Destination $primary
+          }
+          if (!(Test-Path $primary)) {
+              throw "Primary CLI binary missing after normalization: $primary"
+          }
+        shell: pwsh
+
       # Phase 8: post-swap there are TWO CLI binaries shipping side by
       # side — `pulp` (Rust, the user-facing default) at the top of
       # the build dir, and `pulp-cpp` (C++, the fallthrough delegate
@@ -244,12 +390,33 @@ jobs:
       # `tools/cli/`. The release tarball must include both.
       - name: Strip binaries (Unix)
         if: runner.os != 'Windows'
+        # Linux: GNU strip works directly. macOS (Apple Silicon): binaries are
+        # ad-hoc code-signed at link time, and `strip` invalidates that
+        # signature — on the self-hosted Macs that surfaces as a hard `strip`
+        # failure (GitHub-hosted tolerated it). Strip is only a size
+        # optimization, so on macOS we strip best-effort and re-apply the
+        # ad-hoc signature; a functional binary must never block the release.
+        # #2067: pulp-mcp ships in the CLI tarball so the Claude Code plugin's
+        # MCP launcher can resolve it on $PATH after install.
         run: |
-          strip build/pulp
-          strip build/tools/cli/pulp-cpp
-          # #2067: pulp-mcp ships in the CLI tarball so the Claude Code
-          # plugin's MCP launcher can resolve it on $PATH after install.
-          strip build/tools/mcp/pulp-mcp
+          for bin in build/pulp build/tools/cli/pulp-cpp build/tools/mcp/pulp-mcp; do
+            # Fail LOUD if a binary is missing. The strip itself is best-effort
+            # on macOS (below), which would otherwise SILENTLY swallow an
+            # absent binary — exactly how a skipped Rust `build/pulp` target hid
+            # until package_cli.py reported it a step later (2026-06-10). Catch
+            # it here with a clear message instead.
+            if [ ! -f "$bin" ]; then
+              echo "::error::expected release binary '$bin' is missing — the build did not produce it (e.g. 'build/pulp' means the Rust CLI target was skipped, usually a missing/broken cargo). Refusing to package an incomplete tarball." >&2
+              exit 1
+            fi
+            if [ "${RUNNER_OS}" = "macOS" ]; then
+              strip -x "$bin" 2>/dev/null || strip "$bin" 2>/dev/null || \
+                echo "note: strip skipped for $bin (non-fatal)"
+              codesign --force --sign - "$bin" 2>/dev/null || true
+            else
+              strip "$bin"
+            fi
+          done
 
       - name: Install Linux rpath helper
         if: runner.os == 'Linux'
@@ -321,6 +488,7 @@ jobs:
           cmake -S . -B build-sdk \
             -DCMAKE_BUILD_TYPE=Release \
             -DPULP_BUILD_TESTS=OFF \
+            -DPULP_ENABLE_AUDIO_PROBES=OFF \
             $REQUIRE_GPU \
             -DPULP_BUILD_WEBVIEW=ON
           # Build everything the SDK install step needs. This is a full
@@ -667,3 +835,8 @@ jobs:
             artifacts/**/*
           draft: false
           prerelease: false
+          # Explicitly claim GitHub's "latest release" pointer for normal tag
+          # pushes. Manual dispatches are often old-tag backfills, so they must
+          # opt in with `make_latest=true`; otherwise a backfill for an older
+          # tag can move `/releases/latest` backward.
+          make_latest: ${{ github.event_name != 'workflow_dispatch' || inputs.make_latest }}

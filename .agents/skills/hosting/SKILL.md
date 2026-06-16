@@ -128,6 +128,13 @@ predictable output, no MIDI.
 
 ## Signal graph gotchas
 
+- `SignalGraph` dispatches plugin nodes through the additive
+  `PluginSlot::process(format::ProcessBuffers&, ...)` overload. The default
+  implementation projects the active main input/output bus back to the legacy
+  `process(output, input, ...)` callback, and still calls legacy processing with
+  empty audio views for MIDI-only slots. Override the `ProcessBuffers` overload
+  when a hosted format or fixture needs direct bus metadata for sidechains,
+  auxes, surround, or multi-output products.
 - `connect()` returns `false` on cycle — always check. `would_create_cycle`
   lets you preview without mutating.
 - `processing_order()` is recomputed each call; cache it in the audio
@@ -142,6 +149,21 @@ predictable output, no MIDI.
   Use `connect_audio_rate_modulation()` only for continuous, automatable
   `HostParamInfo::rate == AudioRate` params; do not route dense CV into
   stepped/read-only/control-rate parameters.
+- MIDI graph edges carry one block with three parallel payloads: short MIDI
+  events, SysEx, and optional UMP sidecars. When copying or clearing graph MIDI
+  scratch, handle all three together. If a `MidiBuffer` attaches a `UmpBuffer`
+  owned by `NodeRuntime`, attach it only after the runtime object is in its
+  final `CompiledGraph` storage; attaching before a move leaves a stale sidecar
+  pointer.
+- `SignalGraph::inject_midi()` and `extract_midi()` cross the
+  control/audio-thread boundary through per-node mailboxes, not by mutating
+  audio-thread scratch directly. Keep mailbox snapshots and writer scratch
+  preallocated by `prepare()`; constructing a fresh MIDI snapshot in
+  `inject_midi()` reintroduces realtime-path allocation.
+- Keep plugin automation scratch preallocated by `SignalGraph::prepare()`.
+  The audio-thread `process()` path must not create per-block containers for
+  input pointer casts, sparse automation accumulation, or dense audio-rate
+  modulation accumulation.
 - Custom graph nodes are registered per `SignalGraph` with `CustomNodeType`
   (`type_id`, `version`, port counts, default name, optional process
   callback), then instantiated with `add_custom_node(type_id)` or
@@ -172,14 +194,17 @@ predictable output, no MIDI.
   pack (a `.dylib`/`.so`/`.dll` exporting `pulp_node_v1_entry` + a JSON manifest).
   It verifies trust BEFORE any `dlopen`: the signer key must be in the
   `NodePackTrust` set, the Ed25519 signature over `node_pack_signed_message()`
-  (pack_id + abi_major + binary SHA-256) must be authentic, the on-disk binary's
-  SHA-256 must match the signed hash, and the entry's `abi_major` must match —
-  any failure returns a `NodePackError` and loads nothing. Revocation = drop a
-  key from the trust set. Desktop + Android only; `pulp-host` (and this loader)
-  is compiled out on iOS, where native components are static-bundled + signed
-  with the app. The crypto comes from `pulp::runtime` (`ed25519_verify`,
-  `sha256_hex`); OS codesign/notarization is a separate, additional distribution
-  step on top of the manifest signature.
+  (pack_id + abi_major + binary SHA-256 + declared nodes/resources/requirements)
+  must be authentic, the on-disk binary's SHA-256 must match the signed hash,
+  and the entry's `abi_major` must match — any failure returns a
+  `NodePackError` and loads nothing. Revocation = drop a key from the trust set.
+  Desktop + Android only; `pulp-host` (and this loader) is compiled out on iOS,
+  where native components are static-bundled + signed with the app. The crypto
+  comes from `pulp::runtime` (`ed25519_verify`, `sha256_hex`); OS
+  codesign/notarization is a separate, additional distribution step on top of
+  the manifest signature. Registry/package discovery metadata still needs its
+  own signed canonical manifest; do not treat screenshots, validation reports,
+  licenses, or provenance as covered by the node-pack loader signature.
 
 ## Common tripwires
 
@@ -197,6 +222,10 @@ predictable output, no MIDI.
   should identify `<plugin>`, not the `seeAlso` object. Keep parser coverage
   in `test/test_plugin_info_metadata.cpp` or `test/test_lv2_host_discovery.cpp`
   when changing `core/host/src/scanner.cpp`.
+- LV2 invalid-bundle tests deliberately use placeholder `.so` / `.dylib` files.
+  Keep the loader's magic-byte preflight before `dlopen` / `LoadLibrary` so
+  invalid modules fail quickly and consistently on Windows instead of waiting
+  on the platform loader.
 
 ## Phase 0 contracts (PR #153)
 
@@ -214,6 +243,14 @@ rules:
   The published snapshot copies the shared_ptr, so a plugin survives
   past the removal of its GraphNode until the audio thread's stale
   snapshot reference drops. Do not stash raw plugin pointers.
+- **Release ordering.** `SignalGraph::release()` must unpublish the live
+  snapshot and wait for in-flight snapshot readers before calling
+  `PluginSlot::release()` or custom-node release callbacks. Do not move
+  release callbacks ahead of snapshot retirement.
+- **Live control scalars.** If a control-path setter updates state inside the
+  already-published `CompiledGraph`, the audio-thread field must be RT-safe.
+  `set_node_gain()` stores into a per-runtime `std::atomic<float>`; do not
+  reintroduce plain mutable snapshot fields for values read by `process()`.
 - **Parameter domain.** `HostParamInfo::min_value` / `max_value` /
   `default_value` are the **plain** parameter domain. VST3-internal
   normalization is hidden behind the loader.
@@ -433,11 +470,10 @@ contract now is:
   `Contents/Resources/moduleinfo.json`, normalized to a 32-char
   lowercase hex string. Read via `scanner_vst3.cpp` — **no dlopen at
   scan time**. This is deliberate: opening random VST3 bundles during
-  a bulk scan used to crash on Visage/JUCE-based plugins with
-  duplicate ObjC classes and on plugins whose `bundleEntry()` requires
-  a real `CFBundleRef`. moduleinfo.json is Steinberg's declarative
-  discovery format (VST 3.7+) and lets us read identity without
-  running any plugin code.
+  a bulk scan used to crash on plugins with duplicate ObjC classes and on
+  plugins whose `bundleEntry()` requires a real `CFBundleRef`. moduleinfo.json
+  is Steinberg's declarative discovery format (VST 3.7+) and lets us read
+  identity without running any plugin code.
 - **LV2**: the plugin URI from `manifest.ttl` (the same URI
   `plugin_slot_lv2.cpp` uses at load time to pick a descriptor).
   Parsed via a tiny regex — we deliberately don't pull in

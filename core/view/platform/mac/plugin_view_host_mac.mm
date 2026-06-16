@@ -4,14 +4,21 @@
 #if TARGET_OS_OSX
 
 #include <pulp/canvas/cg_canvas.hpp>
+#include <pulp/runtime/log.hpp>
 #include <pulp/view/input_events.hpp>
 #include <pulp/view/widgets.hpp>
 #include <pulp/view/ui_components.hpp>
 #include <pulp/view/window_host.hpp>  // compute_design_viewport_transform
 #import <Cocoa/Cocoa.h>
+// CoreVideo is used unconditionally now: the CPU (CoreGraphics, no-Skia)
+// plugin host also drives a CVDisplayLink for continuous frames + the idle
+// pump, not just the GPU host. Must be outside the PULP_HAS_SKIA guard.
+#import <CoreVideo/CVDisplayLink.h>
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 
 #include <functional>
@@ -46,6 +53,9 @@ NSArray* pulp_text_accessibility_all_elements_macos();
 @interface PulpPluginView : NSView
 @property (nonatomic, assign) pulp::view::View* rootView;
 @property (nonatomic, copy) void (^onResize)(uint32_t, uint32_t);
+// Fired from -viewDidMoveToWindow so the host can start/stop its CPU frame
+// driver only while the view actually lives in a window.
+@property (nonatomic, copy) void (^onWindowChange)(void);
 // Inverse-design-viewport transform applied to every host-space input point
 // before hit_test, mirroring the standalone PulpView. nil = identity. Set
 // by MacPluginViewHost::set_design_viewport.
@@ -242,14 +252,152 @@ void pulp_plugin_wheel(pulp::view::View* root, pulp::view::Point pt, NSEvent* ev
   }
 }
 
+// Route a keyDown to the currently focused input widget — the embedded analog of
+// the standalone PulpView's key handling (window_host_mac.mm). Without this an
+// embedded TextEditor (e.g. an imported search field) never receives typing: the
+// host NSView is first responder but had no keyDown:, so characters were dropped.
+// A click already sets focus (claim_input_focus in mouseDown). Returns true when
+// a focused input consumed the event, so the caller only falls through to
+// [super keyDown:] (host menu shortcuts etc.) when nothing was focused.
+// The input-focus slot (`View::focused_input_`) is a process-GLOBAL static, so
+// in a host with two Pulp plugin editors open at once it may point into a
+// DIFFERENT editor's view tree. Every focus decision here must be scoped to
+// THIS NSView's embedded root, or editor B steals/ misroutes the keyboard when
+// editor A holds focus. Returns the focused view only when it is `root` or a
+// descendant of it; nullptr otherwise. The static is auto-cleared by ~View
+// (#1708), so the pointer is never stale.
+static pulp::view::View* pulp_focus_under_root(pulp::view::View* root) {
+    auto* fv = pulp::view::View::focused_input_;
+    if (!fv || !root) return nullptr;
+    for (pulp::view::View* v = fv; v != nullptr; v = v->parent())
+        if (v == root) return fv;
+    return nullptr;
+}
+
+bool pulp_plugin_key_down(pulp::view::View* root, NSEvent* event) {
+  try {
+    if (!root) return false;
+    // Only dispatch to a focused widget that belongs to THIS editor's tree —
+    // never another open plugin editor's focused field (focused_input_ is
+    // process-global).
+    auto* fv = pulp_focus_under_root(root);
+    if (!fv) return false;
+    pulp::view::KeyEvent ke;
+    ke.key = pulp::view::mac_geometry::key_code_from_ns(event.keyCode);
+    ke.modifiers = pulp::view::mac_geometry::modifiers_from_ns_flags(event.modifierFlags);
+    ke.is_down = true;
+    ke.is_repeat = event.isARepeat;
+    fv->on_key_event(ke);  // backspace / arrows / enter (TextEditor handles these)
+    // Printable characters → text insertion. (Full IME / marked-text via
+    // NSTextInputClient is a follow-up; this covers ASCII + most Latin typing.)
+    NSString* chars = event.characters;
+    if (chars.length > 0) {
+        unichar c0 = [chars characterAtIndex:0];
+        if (c0 >= 0x20 && c0 != 0x7f) {
+            pulp::view::TextInputEvent te;
+            te.text = chars.UTF8String;
+            fv->on_text_input(te);
+        }
+    }
+    root->request_repaint();
+    return true;
+  } catch (const std::exception& e) {
+    std::fprintf(stderr, "[plugin-view-host] keyDown handler threw: %s\n", e.what());
+    return true;  // swallow; don't beep/propagate a half-handled key
+  } catch (...) {
+    std::fprintf(stderr, "[plugin-view-host] keyDown handler threw (unknown)\n");
+    return true;
+  }
+}
+
+// The host window's previous first responder, restored when a pulp widget
+// releases text-input focus. Built without ARC and holding NO ownership: the
+// saved pointer is NEVER dereferenced — it is re-found BY IDENTITY in the
+// window's current view tree before use, so a responder freed while we held
+// the keyboard degrades to nil (the window) instead of a dangling send. The
+// restore matters: handing focus to nil instead of back to the host's own
+// view leaves hosts like Logic with dead keyboard routing (Musical Typing
+// stays silent after a type-in commit until the user resets the track).
+static NSResponder* pulp_plugin_live_prior_responder(NSResponder* saved, NSWindow* win) {
+    if (saved == nil || saved == (NSResponder*)win || win.contentView == nil) return nil;
+    NSMutableArray<NSView*>* stack = [NSMutableArray arrayWithObject:win.contentView];
+    while (stack.count > 0) {
+        NSView* v = stack.lastObject;
+        [stack removeLastObject];
+        if (v == (NSView*)saved) return saved;
+        [stack addObjectsFromArray:v.subviews];
+    }
+    return nil;
+}
+
+// End the focused widget's text input because the HOST moved the keyboard
+// away (the user clicked a host control while a type-in was open). Clearing
+// the slot first makes the widget's own release_input_focus() a no-op, so
+// the on_focus_changed notification can commit/close its editing UI without
+// recursing. Returns true when a widget was actually ended (repaint needed).
+// Scoped to `root`: a resignFirstResponder on THIS editor must never end a
+// type-in owned by another open plugin editor (focused_input_ is global).
+static bool pulp_plugin_end_text_input(pulp::view::View* root) {
+    auto* fv = pulp_focus_under_root(root);
+    if (!fv) return false;
+    fv->release_input_focus();
+    try {
+        fv->on_focus_changed(false);
+    } catch (...) {
+        std::fprintf(stderr, "[plugin-view-host] on_focus_changed(false) threw\n");
+    }
+    return true;
+}
+
 } // namespace
 
 @implementation PulpPluginView {
     pulp::view::View* _dragTarget;  // captured at mouseDown, re-validated each event
+    NSResponder* _priorResponder;   // identity-validated before use, never deref'd
 }
 
 - (BOOL)isFlipped { return NO; }
-- (BOOL)acceptsFirstResponder { return YES; }
+// Keyboard-focus contract (host-etiquette): a plugin editor must NOT hold the
+// host window's first responder except while one of its widgets is actively
+// receiving text input. An editor that grabs first responder on every click
+// swallows the host's keyboard routing — in Logic that silences Musical
+// Typing on software-instrument tracks the moment the user touches a plugin
+// control, until they refocus a host view (perceived as "adjusting the plugin
+// kills the instrument"). So: accept first responder only while a pulp widget
+// holds the input-focus slot, and hand focus back the moment it clears.
+- (BOOL)acceptsFirstResponder {
+    return pulp_focus_under_root(self.rootView) != nullptr;
+}
+- (void)syncKeyFocus {
+    NSWindow* win = self.window;
+    if (!win) return;
+    const bool wants = pulp_focus_under_root(self.rootView) != nullptr;
+    if (wants && win.firstResponder != self) {
+        _priorResponder = win.firstResponder;  // remember whose keyboard we take
+        [win makeFirstResponder:self];
+    } else if (!wants && win.firstResponder == self) {
+        // Return keys to the host's OWN view, not nil: Logic's Musical Typing
+        // routing dies if the responder it had is not restored.
+        NSResponder* prior = pulp_plugin_live_prior_responder(_priorResponder, win);
+        _priorResponder = nil;
+        [win makeFirstResponder:prior];
+    }
+}
+// The host moved the keyboard elsewhere (click on a host control, window
+// switching) while a widget still held text-input focus: close that text
+// input instead of silently re-claiming on the next event — the host's grab
+// wins. Without this an open type-in left behind keeps acceptsFirstResponder
+// true and steals the keyboard back, which reads as "the plugin killed
+// Musical Typing again".
+- (BOOL)resignFirstResponder {
+    _priorResponder = nil;  // the host chose a new responder; nothing to restore
+    if (pulp_plugin_end_text_input(self.rootView)) [self setNeedsDisplay:YES];
+    return [super resignFirstResponder];
+}
+- (void)keyDown:(NSEvent*)event {
+    if (!pulp_plugin_key_down(self.rootView, event)) [super keyDown:event];
+    [self syncKeyFocus];  // commit/escape may have ended text input — release
+}
 // Resolve a window-space event into root-view coords, applying the inverse
 // design-viewport transform when set so hit_test runs against design-space
 // coords. Identity when pointTransform is nil.
@@ -262,6 +410,7 @@ void pulp_plugin_wheel(pulp::view::View* root, pulp::view::Point pt, NSEvent* ev
     if (!self.rootView) return;
     pulp_plugin_mouse_down(self.rootView, event, [self localPoint:event], &_dragTarget);
     [self setNeedsDisplay:YES];
+    [self syncKeyFocus];
 }
 - (void)mouseDragged:(NSEvent*)event {
     pulp_plugin_mouse_drag(self.rootView, [self localPoint:event], &_dragTarget);
@@ -270,6 +419,7 @@ void pulp_plugin_wheel(pulp::view::View* root, pulp::view::Point pt, NSEvent* ev
 - (void)mouseUp:(NSEvent*)event {
     pulp_plugin_mouse_up(self.rootView, event, [self localPoint:event], &_dragTarget);
     [self setNeedsDisplay:YES];
+    [self syncKeyFocus];  // a tap may have entered (or left) type-in
 }
 - (void)scrollWheel:(NSEvent*)event {
     if (!self.rootView) return;
@@ -330,41 +480,60 @@ void pulp_plugin_wheel(pulp::view::View* root, pulp::view::Point pt, NSEvent* ev
 
     if (!self.rootView) return;
 
-    // Design viewport: pin root at design size, apply translate+scale
-    // before paint_all so content renders proportionally. Otherwise lay
-    // out at host bounds. Mirrors WindowHost paint_scene.
-    float sx, sy, tx, ty;
-    const bool has_viewport = self.designW > 0.0f && self.designH > 0.0f &&
-        pulp::view::WindowHost::compute_design_viewport_transform(
-            bw, bh, self.designW, self.designH, sx, sy, tx, ty);
+    // An exception escaping drawRect: is FATAL to the entire hosting process:
+    // AppKit's _crashOnException kills it, and in a DAW's shared AU sandbox
+    // (Logic's AUHostingService) that takes down EVERY plugin in the process —
+    // observed live as "adjusting one plugin kills the instrument's audio until
+    // it is reopened". Painting one bad frame is always preferable; catch, log
+    // once, and keep the process alive.
+    @try {
+        // Design viewport: pin root at design size, apply translate+scale
+        // before paint_all so content renders proportionally. Otherwise lay
+        // out at host bounds. Mirrors WindowHost paint_scene.
+        float sx, sy, tx, ty;
+        const bool has_viewport = self.designW > 0.0f && self.designH > 0.0f &&
+            pulp::view::WindowHost::compute_design_viewport_transform(
+                bw, bh, self.designW, self.designH, sx, sy, tx, ty);
 
-    if (has_viewport) {
-        self.rootView->set_bounds({0, 0, self.designW, self.designH});
-        self.rootView->layout_children();
-        const int saved = canvas.save_count();
-        canvas.save();
-        canvas.translate(tx, ty);
-        canvas.scale(sx, sy);
-        self.rootView->paint_all(canvas);
-        // paint_overlays MUST run inside the design transform — overlays
-        // (ComboBox dropdowns, inspector layer) draw in ROOT coordinates,
-        // and mouse input inverse-maps window→root via pointTransform
-        // before hit_test. Painting them outside the transform would put
-        // them at root coords in window space → visually misaligned and
-        // non-clickable at any host size that isn't exactly design size.
-        // Matches the standalone host (pulp PR #1984 Codex P1).
-        pulp::view::View::paint_overlays(canvas, self.rootView);
-        canvas.restore_to_count(saved);
-    } else {
-        self.rootView->set_bounds({0, 0, bw, bh});
-        self.rootView->layout_children();
-        self.rootView->paint_all(canvas);
-        pulp::view::View::paint_overlays(canvas, self.rootView);
+        if (has_viewport) {
+            self.rootView->set_bounds({0, 0, self.designW, self.designH});
+            self.rootView->layout_children();
+            const int saved = canvas.save_count();
+            canvas.save();
+            canvas.translate(tx, ty);
+            canvas.scale(sx, sy);
+            self.rootView->paint_all(canvas);
+            // paint_overlays MUST run inside the design transform — overlays
+            // (ComboBox dropdowns, inspector layer) draw in ROOT coordinates,
+            // and mouse input inverse-maps window→root via pointTransform
+            // before hit_test. Painting them outside the transform would put
+            // them at root coords in window space → visually misaligned and
+            // non-clickable at any host size that isn't exactly design size.
+            // Matches the standalone host (pulp PR #1984 Codex P1).
+            pulp::view::View::paint_overlays(canvas, self.rootView);
+            canvas.restore_to_count(saved);
+        } else {
+            self.rootView->set_bounds({0, 0, bw, bh});
+            self.rootView->layout_children();
+            self.rootView->paint_all(canvas);
+            pulp::view::View::paint_overlays(canvas, self.rootView);
+        }
+    } @catch (NSException* e) {
+        static bool warned = false;
+        if (!warned) {
+            warned = true;
+            pulp::runtime::log_error(
+                "[plugin-view] exception during editor paint (suppressed to keep "
+                "the host process alive): {} — {}",
+                e.name.UTF8String ? e.name.UTF8String : "?",
+                e.reason.UTF8String ? e.reason.UTF8String : "?");
+        }
     }
 }
 
 - (void)viewDidMoveToWindow {
     [super viewDidMoveToWindow];
+    if (self.onWindowChange) self.onWindowChange();
     [self setNeedsDisplay:YES];
 }
 
@@ -459,6 +628,50 @@ static void detach_child_view_from_host(NSView* container, void* child_view_hand
 
 namespace pulp::view {
 
+// Shared frame-pump helpers used by BOTH the CPU and GPU plugin hosts so the
+// continuous-repaint + widget-animation behaviour is identical on either path.
+// Pure functions over the view tree (no host state).
+static bool view_needs_continuous_frames(View* view) {
+    if (!view) return false;
+    if (view->wants_continuous_repaint()) return true;
+    if (auto* k = dynamic_cast<Knob*>(view)) {
+        if ((k->hover_glow() > 0.01f && k->hover_glow() < 0.99f) || k->shader_uses_time())
+            return true;
+    }
+    if (auto* t = dynamic_cast<Toggle*>(view)) {
+        if ((t->thumb_position() > 0.01f && t->thumb_position() < 0.99f) || t->shader_uses_time())
+            return true;
+    }
+    if (auto* f = dynamic_cast<Fader*>(view)) {
+        if (f->hover_scale() > 1.01f || f->shader_uses_time())
+            return true;
+    }
+    if (auto* sv = dynamic_cast<ScrollView*>(view)) {
+        if (sv->scroll_animating()) return true;
+    }
+    if (view->animation_play_state() != "paused") {
+        for (const auto& a : view->active_animations()) {
+            if (a.active) return true;
+        }
+    }
+    for (size_t i = 0; i < view->child_count(); ++i) {
+        if (view_needs_continuous_frames(view->child_at(i))) return true;
+    }
+    return false;
+}
+
+static void advance_widget_animations(View* view, float dt) {
+    if (!view) return;
+    if (auto* k = dynamic_cast<Knob*>(view)) k->advance_animations(dt);
+    else if (auto* t = dynamic_cast<Toggle*>(view)) t->advance_animations(dt);
+    else if (auto* f = dynamic_cast<Fader*>(view)) f->advance_animations(dt);
+    else if (auto* sv = dynamic_cast<ScrollView*>(view)) sv->advance_animations(dt);
+    else if (auto* tip = dynamic_cast<Tooltip*>(view)) tip->advance_animations(dt);
+    view->tick_animations(dt);
+    for (size_t i = 0; i < view->child_count(); ++i)
+        advance_widget_animations(view->child_at(i), dt);
+}
+
 class MacPluginViewHost : public PluginViewHost {
 public:
     MacPluginViewHost(View& root, Size size)
@@ -471,10 +684,18 @@ public:
             view_.onResize = ^(uint32_t w, uint32_t h) {
                 this->on_native_frame_changed(w, h);
             };
+            // Start/stop the CPU frame driver as the view enters/leaves a
+            // window (cleared in the destructor before `this` is freed).
+            view_.onWindowChange = ^{ this->update_render_link(); };
         }
     }
 
     ~MacPluginViewHost() override {
+        // Stop the frame driver before anything it captures is freed. The
+        // shared token is flipped first so any block already in flight on the
+        // main queue (or a reentrant one) bails out before touching `this`.
+        link_state_->alive.store(false, std::memory_order_release);
+        stop_render_link();
         root_.set_plugin_view_host(nullptr);
         // CRITICAL: clear pointTransform BEFORE the host C++ object is freed.
         // The block captures `this` by raw pointer. If the DAW retains the
@@ -485,6 +706,7 @@ public:
         @autoreleasepool {
             view_.pointTransform = nil;
             view_.onResize = nil;
+            view_.onWindowChange = nil;
         }
         detach();
     }
@@ -503,18 +725,106 @@ public:
         }
     }
 
+    bool is_attached() const noexcept override {
+        // Truthful native check: the view is parented iff it sits in a view
+        // hierarchy. `attach_to_parent` only ever adds `view_` to the supplied
+        // parent, so a non-nil superview means the attach took.
+        return view_ != nil && view_.superview != nil;
+    }
+
     void detach() override {
         @autoreleasepool {
             if (view_) {
                 [view_ removeFromSuperview];
             }
         }
+        // Removed from its window → no more frames needed. (viewDidMoveToWindow
+        // also fires onWindowChange, but stop explicitly so a host that detaches
+        // without a window transition still releases the link.)
+        stop_render_link();
     }
 
     void repaint() override {
         @autoreleasepool {
             [view_ setNeedsDisplay:YES];
         }
+    }
+
+    // The CPU host repaints only on input (setNeedsDisplay) by default, which
+    // strands live content (a spectrum that animates, values that track host
+    // automation) and the idle callback that drains the store's automation
+    // listeners. So while the editor is in a window AND an idle pump is
+    // installed (every format adapter installs one), run a CVDisplayLink
+    // that — each vsync, on the main thread — runs the idle callback,
+    // advances widget/CSS animations, and marks the CPU view dirty if any
+    // view needs continuous frames. Lifecycle-tied + reentrancy-safe to
+    // match MacGpuPluginViewHost.
+    void set_idle_callback(std::function<void()> callback) override {
+        idle_cb_ = std::move(callback);
+        // The window-change hook starts the link on attach; if the view is
+        // already in a window (e.g. AU returned it then the DAW attached it
+        // before this call), reconcile now.
+        update_render_link();
+    }
+
+    // Start iff in a window with an idle pump; stop otherwise. Idempotent.
+    void update_render_link() {
+        const bool want = view_ != nil && view_.window != nil && (bool)idle_cb_;
+        if (want) start_render_link();
+        else stop_render_link();
+    }
+    void start_render_link() {
+        if (render_link_) return;
+        CVDisplayLinkCreateWithActiveCGDisplays(&render_link_);
+        if (!render_link_) return;
+        CVDisplayLinkSetOutputCallback(render_link_, &render_link_callback, this);
+        CVDisplayLinkStart(render_link_);
+    }
+    void stop_render_link() {
+        if (render_link_) {
+            CVDisplayLinkStop(render_link_);   // synchronous: no callback after this
+            CVDisplayLinkRelease(render_link_);
+            render_link_ = nullptr;
+        }
+    }
+
+    static CVReturn render_link_callback(CVDisplayLinkRef, const CVTimeStamp*,
+                                         const CVTimeStamp*, CVOptionFlags,
+                                         CVOptionFlags*, void* ctx) {
+        auto* self = static_cast<MacPluginViewHost*>(ctx);
+        // Capture the shared liveness/queue token: it outlives `self`, so the
+        // dispatched block never touches a freed host.
+        auto state = self->link_state_;
+        if (!state->alive.load(std::memory_order_acquire)) return kCVReturnSuccess;
+        bool expected = false;
+        if (!state->queued.compare_exchange_strong(
+                expected, true, std::memory_order_acq_rel, std::memory_order_relaxed))
+            return kCVReturnSuccess;  // a tick is already queued this vsync
+        dispatch_async(dispatch_get_main_queue(), ^{
+            @autoreleasepool {
+                if (!state->alive.load(std::memory_order_acquire)) {
+                    state->queued.store(false, std::memory_order_release);
+                    return;
+                }
+                // Copy the idle callback locally so running it can't free the
+                // std::function out from under its own call; then drain
+                // host-automation listeners to the UI (bind_parameter widgets
+                // repaint themselves via request_repaint on change).
+                std::function<void()> idle = self->idle_cb_;
+                if (idle) idle();
+                // Idle work (store pump / scripted poll) can reentrantly close
+                // the editor → ~host sets alive=false and frees `self`. Re-check
+                // before touching ANY self member; the queue flag lives on the
+                // shared state, so leaving it set after teardown is harmless
+                // (the link is already stopped, no further callbacks fire).
+                if (!state->alive.load(std::memory_order_acquire)) return;
+                advance_widget_animations(&self->root_, 1.0f / 60.0f);
+                if (self->view_ && view_needs_continuous_frames(&self->root_))
+                    [self->view_ setNeedsDisplay:YES];
+                state->queued.store(false, std::memory_order_release);
+            }
+        });
+        return kCVReturnSuccess;
     }
 
     void set_size(uint32_t width, uint32_t height) override {
@@ -602,6 +912,17 @@ private:
     Size size_;
     PulpPluginView* view_ = nil;
     std::function<void(uint32_t, uint32_t)> resize_cb_;
+    // Continuous-frame driver for the CPU (non-GPU) editor path.
+    std::function<void()> idle_cb_;
+    CVDisplayLinkRef render_link_ = nullptr;
+    // Shared liveness + per-vsync queue flag. Lives in a shared_ptr so the
+    // CVDisplayLink callback's main-queue block can outlive the host without
+    // touching freed memory.
+    struct FrameLink {
+        std::atomic<bool> alive{true};
+        std::atomic<bool> queued{false};
+    };
+    std::shared_ptr<FrameLink> link_state_ = std::make_shared<FrameLink>();
     // Design viewport: when (>0, >0) root paints at design size and the
     // canvas applies translate+scale to fit the host bounds. Mouse coords
     // are inverse-mapped via window_to_root_point().
@@ -644,9 +965,42 @@ private:
 
 @implementation PulpGpuPluginView {
     pulp::view::View* _dragTarget;  // captured at mouseDown, re-validated each event
+    NSResponder* _priorResponder;   // identity-validated before use, never deref'd
 }
 
-- (BOOL)acceptsFirstResponder { return YES; }
+// Keyboard-focus contract — see PulpPluginView::acceptsFirstResponder above:
+// only hold the host window's first responder while a pulp widget is in
+// active text input, and hand it back the moment that ends, so the host's
+// own keyboard routing (e.g. Logic's Musical Typing) keeps working.
+- (BOOL)acceptsFirstResponder {
+    return pulp_focus_under_root(self.rootView) != nullptr;
+}
+- (void)syncKeyFocus {
+    NSWindow* win = self.window;
+    if (!win) return;
+    const bool wants = pulp_focus_under_root(self.rootView) != nullptr;
+    if (wants && win.firstResponder != self) {
+        _priorResponder = win.firstResponder;  // remember whose keyboard we take
+        [win makeFirstResponder:self];
+    } else if (!wants && win.firstResponder == self) {
+        // Return keys to the host's OWN view, not nil — see PulpPluginView.
+        NSResponder* prior = pulp_plugin_live_prior_responder(_priorResponder, win);
+        _priorResponder = nil;
+        [win makeFirstResponder:prior];
+    }
+}
+// Host took the keyboard while a type-in was open: close it, don't re-claim.
+// See PulpPluginView::resignFirstResponder.
+- (BOOL)resignFirstResponder {
+    _priorResponder = nil;
+    if (pulp_plugin_end_text_input(self.rootView) && self.rootView)
+        self.rootView->request_repaint();
+    return [super resignFirstResponder];
+}
+- (void)keyDown:(NSEvent*)event {
+    if (!pulp_plugin_key_down(self.rootView, event)) [super keyDown:event];
+    [self syncKeyFocus];
+}
 // Resolve a window-space event into root-view coords, applying the inverse
 // design-viewport transform when set.
 - (pulp::view::Point)localPoint:(NSEvent*)event {
@@ -658,6 +1012,7 @@ private:
     if (!self.rootView) return;
     pulp_plugin_mouse_down(self.rootView, event, [self localPoint:event], &_dragTarget);
     if (self.rootView) self.rootView->request_repaint();
+    [self syncKeyFocus];
 }
 - (void)mouseDragged:(NSEvent*)event {
     pulp_plugin_mouse_drag(self.rootView, [self localPoint:event], &_dragTarget);
@@ -666,6 +1021,7 @@ private:
 - (void)mouseUp:(NSEvent*)event {
     pulp_plugin_mouse_up(self.rootView, event, [self localPoint:event], &_dragTarget);
     if (self.rootView) self.rootView->request_repaint();
+    [self syncKeyFocus];
 }
 - (void)scrollWheel:(NSEvent*)event {
     if (!self.rootView) return;
@@ -676,29 +1032,77 @@ private:
 - (instancetype)initWithFrame:(NSRect)frame {
     self = [super initWithFrame:frame];
     if (self) {
-        self.wantsLayer = YES;
         // Follow the host's editor-container resize. AU v2 hosts (and VST3/CLAP
         // when they resize the parent) move our frame; flexible autoresizing
         // makes -setFrameSize: fire, which resizes the surfaces + relays out.
         self.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
-        CAMetalLayer* layer = [CAMetalLayer layer];
-        layer.device = MTLCreateSystemDefaultDevice();
-        layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
-        // framebufferOnly = NO so the embedded back buffer can be read back
-        // for headless capture (`capture_back_buffer_png`) — matches the
-        // standalone MacGpuWindowHost. (Plugin host previously set YES,
-        // which blocked readback.)
-        layer.framebufferOnly = NO;
-        CGFloat scale = self.window ? self.window.backingScaleFactor
-                                    : [NSScreen mainScreen].backingScaleFactor;
-        layer.contentsScale = scale;
-        layer.drawableSize = CGSizeMake(frame.size.width * scale, frame.size.height * scale);
-        layer.opaque = YES;
-        self.layer = layer;
-        _metalLayer = layer;
+
+        // BLACK-SCREEN ROOT CAUSE (pulp foreign-host-embed): a foreign DAW host
+        // that embeds us via juce::NSViewComponent adds our NSView as a subview
+        // of *its own* layer-backed content view. Per Apple's NSView docs,
+        // "Creating a layer-backed view implicitly causes the entire view
+        // hierarchy under that view to become layer-backed." So AppKit forces
+        // THIS view layer-backed and — if we merely assign `self.layer` in init
+        // — wraps our content in an AppKit-owned `NSViewBackingLayer` and demotes
+        // our CAMetalLayer to a *sublayer*. Dawn presents into the CAMetalLayer
+        // every vsync (the GPU renders correct, non-black frames — proven via
+        // the env-gated live-stat readback), but the demoted sublayer's
+        // presented drawable is not what the window server composites → the
+        // editor stays BLACK on screen while headless capture looks perfect.
+        //
+        // The robust fix is to make our CAMetalLayer the view's genuine BACKING
+        // layer by returning it from -makeBackingLayer (the documented hook
+        // AppKit calls to create the backing layer). This survives forced
+        // layer-backing under any foreign parent: our CAMetalLayer IS the
+        // backing layer, never a wrapped sublayer. This is the same mechanism
+        // JUCE itself uses for its Metal peer. Trigger it now by requesting
+        // layer-backing; AppKit calls -makeBackingLayer synchronously.
+        self.wantsLayer = YES;
     }
     return self;
 }
+
+// AppKit calls this to create the view's backing layer (on first
+// `wantsLayer = YES`, and again if the view is forced layer-backed by a
+// layer-backed ancestor). Returning our configured CAMetalLayer guarantees it
+// is the view's real backing layer in every embedding, not a demoted sublayer.
+- (CALayer*)makeBackingLayer {
+    CAMetalLayer* layer = [CAMetalLayer layer];
+    layer.device = MTLCreateSystemDefaultDevice();
+    layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+    // framebufferOnly = NO so the embedded back buffer can be read back for
+    // headless capture (`capture_back_buffer_png`) — matches MacGpuWindowHost.
+    layer.framebufferOnly = NO;
+    CGFloat scale = self.window ? self.window.backingScaleFactor
+                                : [NSScreen mainScreen].backingScaleFactor;
+    layer.contentsScale = scale;
+    layer.drawableSize = CGSizeMake(self.bounds.size.width * scale,
+                                    self.bounds.size.height * scale);
+
+    // pulp #1382 — opaque + seeded dark background (RGB 30,30,46 = 0x1E1E2E),
+    // mirroring the standalone PulpMetalView, so there is no clear/undefined
+    // composite while the foreign host reparents and relayers the view.
+    layer.opaque = YES;
+    const CGFloat dark[4] = { 30.0 / 255.0, 30.0 / 255.0, 46.0 / 255.0, 1.0 };
+    CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    layer.backgroundColor = CGColorCreate(cs, dark);
+    CGColorSpaceRelease(cs);
+
+    _metalLayer = layer;
+    return layer;
+}
+
+// pulp #1382 — `wantsUpdateLayer = YES` puts AppKit on the layer-update path
+// (calls -updateLayer instead of -drawRect:) and stops it from auto-clearing
+// the backing layer between updates, so the most-recent Metal frame stays
+// presented until the next display-link tick. Matches PulpMetalView.
+- (BOOL)wantsUpdateLayer { return YES; }
+
+// No-op: Metal frames are produced by MacGpuPluginViewHost::render_frame off
+// the display link, NOT inside AppKit's update cycle. We only need these to
+// exist so AppKit honors wantsUpdateLayer and skips its own paint pipeline.
+- (void)updateLayer {}
+- (void)drawRect:(NSRect)dirtyRect { (void)dirtyRect; }
 
 - (BOOL)isFlipped { return NO; }
 
@@ -807,6 +1211,10 @@ public:
                 needs_repaint_.store(true, std::memory_order_relaxed);
             }
         }
+    }
+
+    bool is_attached() const noexcept override {
+        return metal_view_ != nil && metal_view_.superview != nil;
     }
 
     void detach() override {
@@ -961,6 +1369,7 @@ private:
     // teardown is a no-op (DAW teardown order is not under our control).
     std::shared_ptr<std::atomic<bool>> alive_;
     int frame_ok_count_ = 0;
+    int display_link_ticks_ = 0;  // env-gated diagnostic counter only
     // Design viewport: when (>0, >0) root paints at design size and the
     // Skia canvas applies translate+scale to fit the host bounds. Mouse
     // coords are inverse-mapped via window_to_root_point().
@@ -1087,7 +1496,75 @@ private:
             view_needs_continuous_frames(&root_) || frame_clock_.has_active_subscribers(),
             std::memory_order_relaxed);
 
-        skia_surface_->end_frame();
+        // PULP_EMBED_GPU_FRAME_STAT — env-gated LIVE display-link present-path
+        // pixel proof (NOT the forced capture path). Every Nth on-screen frame,
+        // flush the Graphite recording and read the back buffer back, then log a
+        // coarse luma / non-black stat. This proves the live present cadence is
+        // emitting real, non-black content frame after frame — impossible to
+        // confirm with screencapture in a permission-blocked env. Off by default;
+        // costs a full GPU readback on the sampled frames only.
+        static const int kStatEvery = [] {
+            if (const char* e = std::getenv("PULP_EMBED_GPU_FRAME_STAT")) {
+                int n = std::atoi(e);
+                return n > 0 ? n : 30;
+            }
+            return 0;
+        }();
+        // Once-per-run on-screen geometry/visibility proof. A foreign host that
+        // embeds us can leave the view at 0x0 (its NSViewComponent wrapper is
+        // never sized) or relayer it so the CAMetalLayer is no longer the view's
+        // backing layer — both render the editor black even though the GPU emits
+        // perfect frames. view_size > 0, not hidden, backing==metal confirms the
+        // full on-screen compositing chain is intact (the thing screencapture
+        // would otherwise verify).
+        if (kStatEvery > 0 && !capture_pixels && frame_ok_count_ == 5) {
+            CAMetalLayer* ml = metal_view_.metalLayer;
+            CALayer* backing = metal_view_.layer;
+            NSRect inWin = [metal_view_ convertRect:metal_view_.bounds toView:nil];
+            fprintf(stderr,
+                    "[plugin-gpu-host][onscreen] view_size=%.0fx%.0f "
+                    "frame_in_window=(%.0f,%.0f %.0fx%.0f) backing_is_metal=%d "
+                    "hidden=%d alpha=%.2f has_window=%d\n",
+                    metal_view_.bounds.size.width, metal_view_.bounds.size.height,
+                    inWin.origin.x, inWin.origin.y, inWin.size.width, inWin.size.height,
+                    (backing == ml) ? 1 : 0,
+                    metal_view_.hidden ? 1 : 0,
+                    (double)metal_view_.alphaValue,
+                    metal_view_.window != nil ? 1 : 0);
+        }
+        if (kStatEvery > 0 && !capture_pixels &&
+            (frame_ok_count_ % kStatEvery) == 1) {
+            std::vector<uint8_t> px;
+            uint32_t pw = 0, ph = 0;
+            // read_current_rgba() snaps + submits the in-progress Graphite
+            // recording itself before reading, so the readback sees the painted
+            // frame rather than a blank/cleared backing.
+            if (skia_surface_->read_current_rgba(px, pw, ph) && !px.empty()) {
+                double luma_sum = 0.0;
+                size_t non_black = 0;
+                size_t n = static_cast<size_t>(pw) * ph;
+                // Coarse unique-color estimate via a small bucketed signature
+                // set (top 3 bits per channel → 512 buckets).
+                std::array<bool, 512> seen{};
+                size_t unique = 0;
+                for (size_t i = 0; i < n; ++i) {
+                    uint8_t r = px[i * 4 + 0], g = px[i * 4 + 1], b = px[i * 4 + 2];
+                    double l = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+                    luma_sum += l;
+                    if (r > 8 || g > 8 || b > 8) ++non_black;
+                    int bucket = ((r >> 5) << 6) | ((g >> 5) << 3) | (b >> 5);
+                    if (!seen[bucket]) { seen[bucket] = true; ++unique; }
+                }
+                fprintf(stderr,
+                        "[plugin-gpu-host][live-stat] frame=%d size=%ux%u "
+                        "mean_luma=%.1f non_black=%.1f%% color_buckets=%zu\n",
+                        frame_ok_count_, pw, ph,
+                        luma_sum / static_cast<double>(n),
+                        100.0 * static_cast<double>(non_black) /
+                            static_cast<double>(n),
+                        unique);
+            }
+        }
 
         bool captured = true;
         if (capture_pixels && capture_width && capture_height) {
@@ -1096,6 +1573,7 @@ private:
                                                         *capture_height);
         }
 
+        skia_surface_->end_frame();
         gpu_surface_->end_frame();
 
         needs_repaint_.store(continuous_frames_.load(std::memory_order_relaxed),
@@ -1112,6 +1590,19 @@ private:
         // races this callback.
         auto alive = self->alive_;
         if (!alive->load(std::memory_order_acquire)) return kCVReturnSuccess;
+
+        // PULP_EMBED_GPU_FRAME_STAT — env-gated proof that the CVDisplayLink is
+        // actually ticking in the embedded case. Logs every ~120 vsyncs.
+        if (std::getenv("PULP_EMBED_GPU_FRAME_STAT")) {
+            int n = ++self->display_link_ticks_;
+            if (n == 1 || (n % 120) == 0) {
+                fprintf(stderr, "[plugin-gpu-host][dl] display-link tick=%d "
+                                "needs_repaint=%d continuous=%d\n",
+                        n,
+                        self->needs_repaint_.load(std::memory_order_relaxed) ? 1 : 0,
+                        self->continuous_frames_.load(std::memory_order_relaxed) ? 1 : 0);
+            }
+        }
 
         const bool has_idle = self->has_idle_callback_.load(std::memory_order_acquire);
         if (self->needs_repaint_.load(std::memory_order_relaxed) ||
@@ -1214,6 +1705,7 @@ private:
     // ── Continuous-frame / animation drivers (parity with MacGpuWindowHost) ──
     static bool view_needs_continuous_frames(View* view) {
         if (!view) return false;
+        if (view->wants_continuous_repaint()) return true;
         if (auto* k = dynamic_cast<Knob*>(view)) {
             if ((k->hover_glow() > 0.01f && k->hover_glow() < 0.99f) || k->shader_uses_time())
                 return true;

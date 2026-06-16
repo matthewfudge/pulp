@@ -1,6 +1,6 @@
 # Signal Processing
 
-The `pulp::signal` namespace provides 20 DSP processors for use inside `Processor::process()`. All are real-time safe after initialization. Include individual headers or use the convenience header:
+The `pulp::signal` namespace provides 30+ DSP processors for use inside `Processor::process()`. Process methods are real-time safe after construction/configuration/`prepare()` as documented per helper; setup methods that allocate tables, delay buffers, coefficient storage, or impulse-response data must run off the audio thread. Include individual headers or use the convenience header:
 
 ```cpp
 #include <pulp/signal/signal.hpp>  // everything
@@ -44,6 +44,10 @@ Template parameter: `T` (default `float`). Also works with `double`.
 
 **Sample rate dependency:** `set_ramp_time()` must be called with the current sample rate.
 
+**Caveat:** Fixed-state and allocation-free. Configure ramp time outside the
+inner sample loop; `set_target()`, `next()`, `skip()`, and accessors are
+real-time safe.
+
 ---
 
 ### Gain
@@ -83,24 +87,36 @@ Crossfades between dry and wet signals. Mix 0.0 = fully dry, 1.0 = fully wet.
 ```cpp
 signal::DryWetMixer mixer;
 mixer.set_mix(0.5f);  // 50/50
+mixer.prepare(max_channels, max_block_size);
 
-// Per-sample:
-float out = mixer.process(dry_sample, wet_sample);
+// Before running the wet processor:
+const float* dry_channels[] = {dry_left, dry_right};
+mixer.push_dry(dry_channels, 2, num_samples);
 
-// Per-buffer:
-mixer.process(dry_buf, wet_buf, output_buf, num_samples);
+// After the wet processor has written its output in-place:
+float* wet_channels[] = {wet_left, wet_right};
+mixer.mix_wet(wet_channels, 2, num_samples);
 ```
 
 | Method | Description |
 |---|---|
 | `set_mix(float)` | Set mix ratio. Clamped to [0, 1]. |
 | `mix()` | Current mix value. |
-| `process(float dry, float wet)` | Mix one sample pair. |
-| `process(dry*, wet*, out*, int)` | Mix buffers. |
+| `set_curve(MixCurve)` | Select the crossfade law. |
+| `set_wet_latency(int samples)` | Delay the dry path to compensate wet-path latency. |
+| `prepare(int max_channels, int max_block_size)` | Allocate internal dry/latency storage. |
+| `push_dry(float* const* dry, int channels, int samples)` | Capture dry input before wet processing. |
+| `mix_wet(float* const* wet, int channels, int samples)` | Mix captured dry into the wet buffer in-place. |
+| `reset()` | Clear delay/dry history. |
 
 Default mix: 1.0 (fully wet).
 
 **Sample rate dependency:** None.
+
+**Caveat:** `prepare()` and `set_wet_latency()` allocate or resize internal
+storage. Call them outside the audio callback. After `prepare()`, `push_dry()`,
+`mix_wet()`, `set_mix()`, `set_curve()`, and `reset()` are real-time safe for
+channel/block sizes within the prepared capacity.
 
 ---
 
@@ -177,6 +193,10 @@ for (int i = 0; i < num_samples; ++i)
 Setting attack/decay/release to 0 causes instant transitions (rate = 1.0).
 
 **Sample rate dependency:** `set_sample_rate()` must be called before use.
+
+**Caveat:** Fixed-state and allocation-free. Configure parameters and sample
+rate from `prepare()` or control code; `note_on()`, `note_off()`, `next()`,
+buffer application, `reset()`, and accessors are real-time safe.
 
 ---
 
@@ -662,6 +682,11 @@ for (int i = 0; i < num_samples; ++i) {
         return shaper.process(s);
     });
 }
+
+// Or process a contiguous block with the same callback:
+os.process_block(input, output, num_samples, [&](float s) {
+    return shaper.process(s);
+});
 ```
 
 | Method | Description |
@@ -669,13 +694,28 @@ for (int i = 0; i < num_samples; ++i) {
 | `set_factor(Factor)` | `Factor::x2` or `Factor::x4`. |
 | `set_sample_rate(float)` | Set base sample rate. Configures anti-aliasing filters. |
 | `process(float, callback)` | Upsample, process via callback, downsample. |
+| `process_block(const float*, float*, size_t, callback)` | Process a contiguous block; input and output may alias. |
 | `reset()` | Clear filter states. |
 
-The anti-aliasing filters are lowpass Biquads set to `0.4 * base_sample_rate` at the oversampled rate. Energy is preserved by scaling the upsampled signal by the oversampling factor.
+The default anti-aliasing lane uses lowpass Biquads set to `0.4 * base_sample_rate` at the oversampled rate. `Kind::polyphase_iir` uses half-band IIR stages and cascades two stages for 4x oversampling. Energy is preserved by scaling the upsampled signal by the oversampling factor.
+
+`process()` and `process_block()` use a templated callback and fixed internal scratch storage. After construction/configuration, they do not allocate on the audio thread as long as the callback does not allocate. Configure factor, sample rate, and kind from `prepare()` or a control thread; those setters reset or reconfigure filter state.
+
+The oversampler does not latency-compensate its output. The Biquad lane has stateful IIR phase delay, and the polyphase lane inherits the half-band stage delay (about six samples per 2x half-band stage at that stage's input rate with the default coefficients). Compensate at the processor/plugin level when exact dry/wet alignment is required.
 
 **Sample rate dependency:** `set_sample_rate()` required.
 
-**Caveat:** The callback uses `std::function<float(float)>`, which may allocate on first use. In latency-critical paths, consider pre-allocating or using a lambda that captures by reference.
+### Resampling Helpers
+
+`Resampler` is the arbitrary-ratio polyphase FIR sample-rate converter.
+`SincResampler` is a table-driven fractional-delay sinc interpolator used when
+callers already own the source-buffer traversal.
+
+`Resampler::prepare()` and `SincResampler::build()` allocate filter tables and
+delay/scratch storage. Run them outside the audio callback. After setup,
+`Resampler::set_ratio()`, `reset()`, `process_block*()`, `max_output_for()`,
+and accessors are allocation-free with caller-owned input/output buffers.
+`SincResampler::apply()` and `read()` are allocation-free after `build()`.
 
 ---
 
@@ -707,7 +747,7 @@ fft.magnitude_db(freq.data(), magnitudes.data(), 512);
 
 **Sample rate dependency:** None (operates in sample domain). To convert bin index to frequency: `bin * sample_rate / fft_size`.
 
-**Caveat:** The constructor allocates twiddle factor storage. Create `Fft` objects in `prepare()`, not on the audio thread. `forward()` and `inverse()` are real-time safe.
+**Caveat:** The constructor allocates twiddle factor storage. Create `Fft` objects in `prepare()`, not on the audio thread. `forward()`, `inverse()`, `forward_real()`, and magnitude helpers are real-time safe after construction when callers provide output buffers.
 
 ---
 
@@ -774,4 +814,14 @@ fft.forward_real(audio_buffer, freq.data());
 
 **Sample rate dependency:** None.
 
-**Caveat:** `generate()` allocates a vector. Call during `prepare()`, not on the audio thread.
+**Caveat:** `generate()` allocates a vector. Call during `prepare()`, not on the audio thread. `apply()` is real-time safe when passed a precomputed window.
+
+---
+
+### Spectrogram helpers
+
+`ColorMapper` and `FrequencyAxis` are fixed-state utilities for display-side spectral mapping. Their mapping methods are allocation-free. `SpectrogramBuffer::configure()` allocates pixel storage, so configure it off the audio thread; `push_column()` is allocation-free after configuration and can be used in bounded realtime or UI-adjacent analysis paths with caller-owned magnitude data.
+
+### Filter and polynomial design helpers
+
+Scalar `FilterDesign` biquad helpers return fixed-size coefficient structs and do not allocate, but they are intended for prepare/control-rate retuning because applying coefficients can reset processor state. Butterworth, Chebyshev, elliptic, and polynomial helpers that return `std::vector` allocate result storage and belong on prepare/control/offline threads.

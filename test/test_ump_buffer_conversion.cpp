@@ -6,6 +6,8 @@
 #include <pulp/midi/ump_conversion.hpp>
 #include <pulp/midi/mpe_voice_tracker.hpp>
 
+#include "harness/rt_allocation_probe.hpp"
+
 using namespace pulp::midi;
 using Catch::Approx;
 
@@ -168,6 +170,46 @@ TEST_CASE("midi1_event_to_ump2 handles note-off aliases and raw fallbacks",
     REQUIRE(out.data()[1] == 12);
 }
 
+TEST_CASE("System real-time and common round-trip as UMP Type 0x1",
+          "[midi][ump][pr3781]") {
+    // Codex #3781 P2: system messages (clock/start/stop, song position) must
+    // encode as UMP Type 0x1 (System), not Type 0x2 (MIDI 1.0 Channel Voice),
+    // and must survive UMP→MIDI1 conversion (the WinRT input path was dropping
+    // them via the channel-voice-only decoder).
+    struct Case { uint8_t status, d1, d2; uint32_t len; };
+    const Case cases[] = {
+        {0xF8, 0, 0, 1},   // Timing Clock (real-time, 1 byte)
+        {0xFA, 0, 0, 1},   // Start
+        {0xFC, 0, 0, 1},   // Stop
+        {0xF2, 0x7F, 0x40, 3},  // Song Position Pointer (common, 3 bytes)
+    };
+    for (const auto& c : cases) {
+        MidiEvent ev{choc::midi::ShortMessage(c.status, c.d1, c.d2), 0, 0.0};
+        REQUIRE(ev.size() == c.len);
+
+        const UmpPacket p = midi1_event_to_ump2(ev, 5);
+        REQUIRE(p.message_type() == UmpMessageType::System);  // NOT Midi1ChannelVoice
+        REQUIRE(p.group() == 5);
+        REQUIRE(p.status() == c.status);
+
+        MidiEvent out{};
+        REQUIRE(ump_to_midi1_event(p, out));        // must NOT be dropped
+        REQUIRE(out.size() == c.len);
+        REQUIRE(out.data()[0] == c.status);
+        if (c.len > 1) REQUIRE(out.data()[1] == c.d1);
+        if (c.len > 2) REQUIRE(out.data()[2] == c.d2);
+    }
+
+    // A raw Type 0x1 input packet (as the WinRT backend receives) decodes too.
+    UmpPacket raw{};
+    raw.word_count = 1;
+    raw.words[0] = (0x1u << 28) | (0x00u << 24) | (uint32_t(0xF8) << 16);
+    MidiEvent clock{};
+    REQUIRE(ump_to_midi1_event(raw, clock));
+    REQUIRE(clock.data()[0] == 0xF8);
+    REQUIRE(clock.size() == 1);
+}
+
 TEST_CASE("midi1_to_ump round-trip via ump_to_midi1", "[midi][ump]") {
     MidiBuffer in;
     in.add(MidiEvent::note_on(1, 60, 100));
@@ -227,6 +269,57 @@ TEST_CASE("midi1_to_ump preserves sample offsets and group metadata",
     REQUIRE(out[1].sample_offset == 256);
     REQUIRE(out[1].packet.group() == 7);
     REQUIRE(out[1].packet.data_32() == 0xFE000000u);
+}
+
+TEST_CASE("UMP conversion helpers are allocation-free with prepared destinations",
+          "[midi][ump][rt-safety]") {
+    MidiBuffer midi_in;
+    midi_in.reserve(4, 0);
+    midi_in.set_realtime_capacity_limit(true);
+
+    auto note = MidiEvent::note_on(1, 60, 100);
+    note.sample_offset = 8;
+    auto bend = MidiEvent::pitch_bend(2, 0x2000);
+    bend.sample_offset = 16;
+    auto cc = MidiEvent::cc(3, 74, 127);
+    cc.sample_offset = 24;
+    midi_in.add(note);
+    midi_in.add(bend);
+    midi_in.add(cc);
+
+    UmpBuffer ump_out;
+    ump_out.reserve(midi_in.size());
+    ump_out.set_realtime_capacity_limit(true);
+
+    {
+        pulp::test::RtAllocationProbe probe;
+        midi1_to_ump(midi_in, ump_out, 6);
+        REQUIRE_FALSE(probe.saw_allocation());
+    }
+
+    REQUIRE(ump_out.size() == midi_in.size());
+    REQUIRE(ump_out[0].packet.group() == 6);
+    REQUIRE(ump_out[0].sample_offset == 8);
+    REQUIRE(ump_out[1].sample_offset == 16);
+    REQUIRE(ump_out[2].sample_offset == 24);
+
+    MidiBuffer midi_out;
+    midi_out.reserve(ump_out.size(), 0);
+    midi_out.set_realtime_capacity_limit(true);
+
+    {
+        pulp::test::RtAllocationProbe probe;
+        ump_to_midi1(ump_out, midi_out);
+        REQUIRE_FALSE(probe.saw_allocation());
+    }
+
+    REQUIRE(midi_out.size() == midi_in.size());
+    REQUIRE(midi_out[0].is_note_on());
+    REQUIRE(midi_out[0].sample_offset == 8);
+    REQUIRE(midi_out[1].is_pitch_bend());
+    REQUIRE(midi_out[1].sample_offset == 16);
+    REQUIRE(midi_out[2].is_cc());
+    REQUIRE(midi_out[2].sample_offset == 24);
 }
 
 TEST_CASE("ump_to_midi1_event converts MIDI2 edge values",

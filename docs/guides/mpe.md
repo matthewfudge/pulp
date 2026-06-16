@@ -84,6 +84,18 @@ The tracker normalises expressions so voices see consistent units:
 `pitch_bend()`, `pressure()`, `timbre()` directly without fighting
 zipper noise.
 
+`MpeVoiceAllocator<Voice>::telemetry()` returns an owner-thread snapshot with
+polyphony, active/releasing voice counts, steal count, steal mode, and the
+latest glide flag. If UI or tooling needs that data, call it from the processor
+owner and publish the returned value through a lock-free latest-value channel.
+For optional per-voice analysis, preview, or diagnostics, pass a
+`runtime::RuntimeBudgetFrame` to
+`MpeVoiceAllocator<Voice>::evaluate_optional_runtime_budget()`. The allocator
+uses the same voice telemetry to return a run/defer/shed/bypass decision without
+changing the MPE voice render path. Budget degradation does not disable active
+notes, change expression smoothing, or alter voice stealing; it is only for
+optional analysis, preview, or diagnostic work.
+
 ## Example
 
 `examples/mpe-synth/` ships an MPE-aware sine synth that demonstrates
@@ -91,16 +103,27 @@ opt-in, per-note pitch bend across the full ±48 semitone range,
 pressure-driven amplitude, and CC 74 brightness control via a one-pole
 lowpass.
 
-## Status
+## Adapter status
 
-- **Phase 1** — `MpeVoiceTracker` (landed)
-- **Phase 2** — `MpeBuffer` sidecar, `Processor::mpe_input()`, CLAP wiring (landed)
-- **Phase 3** — `MpeSynthVoice`, `MpeVoiceAllocator`, `MpeGlideDetector`, `examples/mpe-synth/` (landed)
-- **Phase 4** — MIDI 2.0 UMP native path (landed)
+The CLAP adapter populates `mpe_input()` and `ump_input()` when the descriptor
+opts in. Other adapters still deliver the standard `MidiBuffer` path only, so
+MPE-aware processors should continue to handle ordinary MIDI input as their
+fallback.
 
-VST3 and AU adapters will gain the same sidecar wiring in a follow-up
-pass; the API is stable so plugins can opt in today and benefit
-automatically once the other adapters ship.
+## SignalGraph routing
+
+`SignalGraph` does not carry a separate graph-owned `MpeBuffer`. Graph MIDI
+edges preserve the block event stream that MPE is derived from: MIDI 1.0
+channel messages, SysEx sidecars, and attached `UmpBuffer` packets. That means
+MIDI 1.0 MPE channel messages and MIDI 2.0 per-note UMP expression packets can
+pass through `connect_midi()` routes without losing sample offsets or per-note
+payloads.
+
+At plugin/adapter boundaries, processors that opt into MPE still consume the
+derived `Processor::mpe_input()` sidecar. Hosts or adapters that need an
+`MpeBuffer` after graph routing should run the routed `MidiBuffer` and attached
+`UmpBuffer` through `MpeVoiceTracker`, the same way format adapters derive MPE
+for processors.
 
 ## MIDI 2.0 UMP sidecar
 

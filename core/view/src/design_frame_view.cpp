@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <limits>
 #include <memory>
 
@@ -72,6 +73,115 @@ constexpr float kSweepDeg = 270.0f;  // value 0->-135, 0.5->0 (up), 1->+135
 
 }  // namespace
 
+bool suppress_svg_rect(std::string& svg, float x, float y, float w, float h,
+                       float tol) {
+    // Read a numeric attribute by its space-delimited key (" x=\"") so we don't
+    // mistake rx=/cx=/ry= for x=/y=. Returns NaN when absent.
+    auto attr = [](const std::string& tag, const char* spaced_key) -> float {
+        const auto p = tag.find(spaced_key);
+        if (p == std::string::npos) return std::numeric_limits<float>::quiet_NaN();
+        const auto vs = p + std::string(spaced_key).size();
+        const auto ve = tag.find('"', vs);
+        if (ve == std::string::npos) return std::numeric_limits<float>::quiet_NaN();
+        return std::strtof(tag.substr(vs, ve - vs).c_str(), nullptr);
+    };
+    std::size_t pos = 0;
+    while ((pos = svg.find("<rect", pos)) != std::string::npos) {
+        const auto end = svg.find('>', pos);
+        if (end == std::string::npos) break;
+        const std::string tag = svg.substr(pos, end - pos + 1);
+        const float rx = attr(tag, " x=\""), ry = attr(tag, " y=\"");
+        const float rw = attr(tag, " width=\""), rh = attr(tag, " height=\"");
+        if (!std::isnan(rx) && !std::isnan(ry) && !std::isnan(rw) && !std::isnan(rh) &&
+            std::fabs(rx - x) <= tol && std::fabs(ry - y) <= tol &&
+            std::fabs(rw - w) <= tol && std::fabs(rh - h) <= tol) {
+            svg.erase(pos, end - pos + 1);
+            return true;
+        }
+        pos = end + 1;
+    }
+    return false;
+}
+
+bool suppress_svg_glow_at(std::string& svg, float x, float y, float w, float h) {
+    const float x0 = x, y0 = y, x1 = x + w, y1 = y + h;
+    const char* kOpen = "<g filter=\"url(#";
+    std::size_t pos = 0;
+    while ((pos = svg.find(kOpen, pos)) != std::string::npos) {
+        const auto gt = svg.find('>', pos);
+        if (gt == std::string::npos) break;
+        // First drawn coordinate of the group: the "d=\"M x y" of its first path.
+        // A glyph glow's first point sits on the digit, inside the tab cell.
+        float fx = std::numeric_limits<float>::quiet_NaN(), fy = fx;
+        const auto dp = svg.find("d=\"M", gt);
+        if (dp != std::string::npos && dp < gt + 600) {
+            const char* p = svg.c_str() + dp + 4;
+            while (*p == ' ') ++p;
+            char* endp = nullptr;
+            fx = std::strtof(p, &endp);
+            if (endp != p) {
+                p = endp;
+                while (*p == ' ' || *p == ',') ++p;
+                fy = std::strtof(p, &endp);
+                if (endp == p) fy = std::numeric_limits<float>::quiet_NaN();
+            } else {
+                fx = std::numeric_limits<float>::quiet_NaN();
+            }
+        }
+        if (!std::isnan(fx) && !std::isnan(fy) &&
+            fx >= x0 && fx <= x1 && fy >= y0 && fy <= y1) {
+            // Erase the whole group, depth-matching nested <g>…</g>.
+            std::size_t i = gt + 1;
+            int depth = 1;
+            while (i < svg.size() && depth > 0) {
+                const auto ng = svg.find("<g", i);
+                const auto cg = svg.find("</g>", i);
+                if (cg == std::string::npos) break;
+                if (ng != std::string::npos && ng < cg) { depth++; i = ng + 2; }
+                else { depth--; i = cg + 4; }
+            }
+            if (depth == 0) {
+                svg.erase(pos, i - pos);
+                return true;
+            }
+        }
+        pos = gt + 1;
+    }
+    return false;
+}
+
+bool suppress_svg_glyph_at(std::string& svg, float x, float y, float w, float h) {
+    const float x0 = x, y0 = y, x1 = x + w, y1 = y + h;
+    std::size_t pos = 0;
+    while ((pos = svg.find("<path", pos)) != std::string::npos) {
+        const auto end = svg.find("/>", pos);
+        if (end == std::string::npos) break;
+        const auto dp = svg.find("d=\"M", pos);
+        float fx = std::numeric_limits<float>::quiet_NaN(), fy = fx;
+        if (dp != std::string::npos && dp < end) {
+            const char* p = svg.c_str() + dp + 4;
+            while (*p == ' ') ++p;
+            char* endp = nullptr;
+            fx = std::strtof(p, &endp);
+            if (endp != p) {
+                p = endp;
+                while (*p == ' ' || *p == ',') ++p;
+                fy = std::strtof(p, &endp);
+                if (endp == p) fy = std::numeric_limits<float>::quiet_NaN();
+            } else {
+                fx = std::numeric_limits<float>::quiet_NaN();
+            }
+        }
+        if (!std::isnan(fx) && !std::isnan(fy) &&
+            fx >= x0 && fx <= x1 && fy >= y0 && fy <= y1) {
+            svg.erase(pos, end - pos + 2);
+            return true;
+        }
+        pos = end + 2;
+    }
+    return false;
+}
+
 DesignFrameView::DesignFrameView(std::string svg, std::vector<DesignFrameElement> elements,
                                  float panel_x, float panel_y, float panel_w, float panel_h)
     : svg_(std::move(svg)), elements_(std::move(elements)) {
@@ -85,6 +195,35 @@ DesignFrameView::DesignFrameView(std::string svg, std::vector<DesignFrameElement
         panel_x_ = 0; panel_y_ = 0; panel_w_ = svg_w_; panel_h_ = svg_h_;
     }
     build_overlays();
+
+    // Suppress each design's BAKED selected-tab highlight so the live
+    // DesignTabGroup pill is the ONLY highlight ever shown — otherwise switching
+    // tabs leaves the baked pill behind at the original slot (a double-pill). The
+    // baked highlight is a filled <rect> occupying the originally-selected slot;
+    // remove it by geometry computed from the tab_group element (general — no
+    // per-design constant). The strip background behind it remains, so the slot
+    // reads as unselected until the live pill lands there.
+    for (const auto& e : elements_) {
+        if (e.kind != DesignFrameElement::Kind::tab_group || e.options.empty())
+            continue;
+        const int n = static_cast<int>(e.options.size());
+        const float slot_w = e.w / static_cast<float>(n);
+        const int sel = std::clamp(e.selected_index, 0, n - 1);
+        suppress_svg_rect(svg_, e.x + static_cast<float>(sel) * slot_w, e.y,
+                          slot_w, e.h);
+        // Drop the BAKED tab digits so the live DesignTabGroup is the sole,
+        // consistent renderer of them. Otherwise the live labels paint over the
+        // baked ones — two slightly different glyphs (the design font vs the
+        // overlay font) → a faint "doubled" look — and the baked SELECTED digit
+        // keeps its glow + bright colour stuck in place when the live pill moves.
+        // Per slot, remove the baked glyph: the selected one is a glow filter
+        // group, the rest are plain <path>s; try the group first, then the path.
+        for (int slot = 0; slot < n; ++slot) {
+            const float cx = e.x + static_cast<float>(slot) * slot_w;
+            if (!suppress_svg_glow_at(svg_, cx, e.y, slot_w, e.h))
+                suppress_svg_glyph_at(svg_, cx, e.y, slot_w, e.h);
+        }
+    }
 }
 
 void DesignFrameView::build_overlays() {
@@ -92,14 +231,23 @@ void DesignFrameView::build_overlays() {
         const auto& e = elements_[i];
         std::unique_ptr<View> widget;
         if (e.kind == DesignFrameElement::Kind::text_field) {
-            // Opaque TextEditor over the design's search box: it paints its own
-            // rounded bg (covering the baked box so there's no double-render),
-            // shows the placeholder until focused, and draws an accent focus ring
-            // on tap — the requested tap-to-focus + highlight behavior.
+            // TextEditor over the design's search box: it shows the placeholder
+            // until focused and draws an accent focus ring on tap. Its rect is
+            // inset past the leading magnifier icon (which stays baked/visible),
+            // and it paints the design's OWN field color when supplied so the
+            // inset edge blends seamlessly with the baked box.
             auto editor = std::make_unique<TextEditor>();
             editor->placeholder = e.placeholder;
-            // Match the design's dark field; the focus ring + caret come for free.
-            editor->set_background_color(canvas::Color::rgba8(0x2c, 0x2d, 0x2d, 0xff));
+            canvas::Color bg = canvas::Color::rgba8(0x2c, 0x2d, 0x2d, 0xff);
+            if (e.bg_color.size() >= 7 && e.bg_color[0] == '#') {
+                try {
+                    const unsigned v = static_cast<unsigned>(
+                        std::stoul(e.bg_color.substr(1, 6), nullptr, 16));
+                    bg = canvas::Color::rgba8((v >> 16) & 0xff, (v >> 8) & 0xff,
+                                              v & 0xff, 0xff);
+                } catch (...) { /* keep the default on malformed hex */ }
+            }
+            editor->set_background_color(bg);
             widget = std::move(editor);
         } else if (e.kind == DesignFrameElement::Kind::dropdown) {
             // Opaque ComboBox over the design's dropdown: it paints its own box +
@@ -112,14 +260,26 @@ void DesignFrameView::build_overlays() {
                     std::clamp(e.selected_index, 0,
                                static_cast<int>(e.options.size()) - 1));
             }
+            combo->on_change = [this, i](int idx) { notify_choice(i, idx); };
             widget = std::move(combo);
         } else if (e.kind == DesignFrameElement::Kind::tab_group &&
                    !e.options.empty()) {
             // Opaque segmented control over the design's tab strip; clicking a tab
             // moves the selection highlight (real selection state).
-            widget = std::make_unique<DesignTabGroup>(
+            auto tabs = std::make_unique<DesignTabGroup>(
                 e.options, std::clamp(e.selected_index, 0,
                                       static_cast<int>(e.options.size()) - 1));
+            tabs->on_select = [this, i](int idx) { notify_choice(i, idx); };
+            widget = std::move(tabs);
+        } else if (e.kind == DesignFrameElement::Kind::stepper &&
+                   !e.options.empty()) {
+            // `< >` stepper over the design's header preset selector: the value
+            // text slides as the chevrons step through the options in place.
+            auto stepper = std::make_unique<DesignStepper>(
+                e.options, std::clamp(e.selected_index, 0,
+                                      static_cast<int>(e.options.size()) - 1));
+            stepper->on_select = [this, i](int idx) { notify_choice(i, idx); };
+            widget = std::move(stepper);
         }
         if (widget) {
             View* raw = widget.get();
@@ -129,14 +289,78 @@ void DesignFrameView::build_overlays() {
     }
 }
 
+DesignFrameElement::Kind DesignFrameView::element_kind(int i) const {
+    if (i < 0 || i >= static_cast<int>(elements_.size()))
+        return DesignFrameElement::Kind::knob;
+    return elements_[i].kind;
+}
+
+float DesignFrameView::choice_to_norm(int i, int selected) const {
+    if (i < 0 || i >= static_cast<int>(elements_.size())) return 0.0f;
+    const int n = static_cast<int>(elements_[i].options.size());
+    if (n <= 1) return 0.0f;
+    return std::clamp(selected, 0, n - 1) / static_cast<float>(n - 1);
+}
+
+int DesignFrameView::norm_to_choice(int i, float v) const {
+    if (i < 0 || i >= static_cast<int>(elements_.size())) return 0;
+    const int n = static_cast<int>(elements_[i].options.size());
+    if (n <= 1) return 0;
+    return std::clamp(static_cast<int>(std::clamp(v, 0.0f, 1.0f) * (n - 1) + 0.5f),
+                      0, n - 1);
+}
+
+void DesignFrameView::notify_choice(int i, int selected) {
+    if (i >= 0 && i < static_cast<int>(elements_.size()))
+        elements_[i].selected_index = selected;
+    if (on_element_changed) on_element_changed(i, choice_to_norm(i, selected));
+}
+
 float DesignFrameView::element_value(int i) const {
     if (i < 0 || i >= static_cast<int>(elements_.size())) return -1.0f;
-    return elements_[i].value;
+    const auto& e = elements_[i];
+    switch (e.kind) {
+        case DesignFrameElement::Kind::knob:
+            return e.value;
+        case DesignFrameElement::Kind::dropdown:
+        case DesignFrameElement::Kind::tab_group:
+        case DesignFrameElement::Kind::stepper: {
+            int sel = e.selected_index;  // live widget wins when present
+            if (View* w = overlay_widget(i)) {
+                if (auto* c = dynamic_cast<ComboBox*>(w)) sel = c->selected();
+                else if (auto* t = dynamic_cast<DesignTabGroup*>(w)) sel = t->selected();
+                else if (auto* s = dynamic_cast<DesignStepper*>(w)) sel = s->selected();
+            }
+            return choice_to_norm(i, sel);
+        }
+        case DesignFrameElement::Kind::text_field:
+            return -1.0f;  // text is not a normalized value
+    }
+    return -1.0f;
 }
 
 void DesignFrameView::set_element_value(int i, float v) {
     if (i < 0 || i >= static_cast<int>(elements_.size())) return;
-    elements_[i].value = std::clamp(v, 0.0f, 1.0f);
+    auto& e = elements_[i];
+    switch (e.kind) {
+        case DesignFrameElement::Kind::knob:
+            e.value = std::clamp(v, 0.0f, 1.0f);
+            break;
+        case DesignFrameElement::Kind::dropdown:
+        case DesignFrameElement::Kind::tab_group:
+        case DesignFrameElement::Kind::stepper: {
+            const int idx = norm_to_choice(i, v);
+            e.selected_index = idx;
+            if (View* w = overlay_widget(i)) {  // silent: host->view push, no echo
+                if (auto* c = dynamic_cast<ComboBox*>(w)) c->set_selected_silent(idx);
+                else if (auto* t = dynamic_cast<DesignTabGroup*>(w)) t->set_selected_silent(idx);
+                else if (auto* s = dynamic_cast<DesignStepper*>(w)) s->set_selected_silent(idx);
+            }
+            break;
+        }
+        case DesignFrameElement::Kind::text_field:
+            return;  // not a normalized value
+    }
     request_repaint();
 }
 
@@ -208,7 +432,11 @@ int DesignFrameView::hit_element(Point pos) const {
 
 void DesignFrameView::on_mouse_down(Point pos) {
     drag_ = hit_element(pos);
-    if (drag_ >= 0) { drag_start_y_ = pos.y; drag_start_value_ = elements_[drag_].value; }
+    if (drag_ >= 0) {
+        drag_start_y_ = pos.y;
+        drag_start_value_ = elements_[drag_].value;
+        if (on_gesture_begin) on_gesture_begin(drag_);  // bracket the undo step
+    }
 }
 
 void DesignFrameView::on_mouse_drag(Point pos) {
@@ -220,6 +448,13 @@ void DesignFrameView::on_mouse_drag(Point pos) {
     elements_[drag_].value =
         std::clamp(drag_start_value_ + dy_design * 0.005f, 0.0f, 1.0f);
     request_repaint();
+    // User-driven turn -> notify the binder (knob is value-bearing).
+    if (on_element_changed) on_element_changed(drag_, elements_[drag_].value);
+}
+
+void DesignFrameView::on_mouse_up(Point /*pos*/) {
+    if (drag_ >= 0 && on_gesture_end) on_gesture_end(drag_);
+    drag_ = -1;
 }
 
 // ── DesignTabGroup ──────────────────────────────────────────────────────────
@@ -262,13 +497,91 @@ void DesignTabGroup::paint(canvas::Canvas& canvas) {
     }
 }
 
+void DesignTabGroup::set_selected_silent(int index) {
+    if (labels_.empty()) return;
+    const int idx = std::clamp(index, 0, static_cast<int>(labels_.size()) - 1);
+    if (idx != selected_) { selected_ = idx; request_repaint(); }
+}
+
 void DesignTabGroup::on_mouse_down(Point pos) {
     const auto b = local_bounds();
     if (labels_.empty() || b.width <= 0) return;
     const int n = static_cast<int>(labels_.size());
     int idx = static_cast<int>(pos.x / (b.width / static_cast<float>(n)));
     idx = std::clamp(idx, 0, n - 1);
+    if (idx != selected_) {
+        selected_ = idx;
+        request_repaint();
+        if (on_select) on_select(idx);  // user tap
+    }
+}
+
+// ── DesignStepper ─────────────────────────────────────────────────────────
+
+namespace {
+const std::string kEmptyOption;
+}  // namespace
+
+DesignStepper::DesignStepper(std::vector<std::string> options, int selected)
+    : options_(std::move(options)),
+      selected_(options_.empty()
+                    ? 0
+                    : std::clamp(selected, 0,
+                                 static_cast<int>(options_.size()) - 1)) {}
+
+const std::string& DesignStepper::current() const {
+    if (selected_ < 0 || selected_ >= static_cast<int>(options_.size()))
+        return kEmptyOption;
+    return options_[selected_];
+}
+
+void DesignStepper::paint(canvas::Canvas& canvas) {
+    const auto b = local_bounds();
+    if (options_.empty() || b.width <= 0 || b.height <= 0) return;
+    // A single option has nowhere to step: there is no live value to show beyond
+    // what the design already baked. Painting the chevrons + value here would
+    // double them on top of the baked header (the "doubled header text" bug). Let
+    // the baked SVG show through untouched; the overlay stays as a (no-op) hit
+    // target so a future multi-option list lights it up without re-importing.
+    if (options_.size() <= 1) return;
+    const float font = std::min(b.height * 0.5f, 12.0f);
+    canvas.set_font("Inter", font);
+    const float ty = b.height * 0.5f + font * 0.34f;  // baseline ~vertical center
+    // Chevrons hug the edges; dimmer when there's nowhere further to step.
+    const bool can_prev = selected_ > 0;
+    const bool can_next = selected_ < static_cast<int>(options_.size()) - 1;
+    const auto dim = canvas::Color::rgba8(0x6a, 0x6a, 0x6a, 0xff);
+    const auto lit = canvas::Color::rgba8(0xcf, 0xcf, 0xcf, 0xff);
+    canvas.set_fill_color(can_prev ? lit : dim);
+    canvas.fill_text("<", 2.0f, ty);
+    canvas.set_fill_color(can_next ? lit : dim);
+    canvas.fill_text(">", b.width - 2.0f - canvas.measure_text(">"), ty);
+    // Current value, centered between the chevrons.
+    canvas.set_fill_color(canvas::Color::rgba8(0xff, 0xff, 0xff, 0xff));
+    const std::string& val = current();
+    const float tw = canvas.measure_text(val);
+    canvas.fill_text(val, (b.width - tw) * 0.5f, ty);
+}
+
+void DesignStepper::set_selected_silent(int index) {
+    if (options_.empty()) return;
+    const int idx = std::clamp(index, 0, static_cast<int>(options_.size()) - 1);
     if (idx != selected_) { selected_ = idx; request_repaint(); }
+}
+
+void DesignStepper::on_mouse_down(Point pos) {
+    const auto b = local_bounds();
+    if (options_.empty() || b.width <= 0) return;
+    const int n = static_cast<int>(options_.size());
+    int next = selected_;
+    if (pos.x < b.width * 0.5f) next = selected_ - 1;  // left half: previous
+    else                        next = selected_ + 1;  // right half: next
+    next = std::clamp(next, 0, n - 1);
+    if (next != selected_) {
+        selected_ = next;
+        request_repaint();
+        if (on_select) on_select(next);  // user step
+    }
 }
 
 }  // namespace pulp::view

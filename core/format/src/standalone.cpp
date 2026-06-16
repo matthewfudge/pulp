@@ -1,14 +1,20 @@
 #include <pulp/format/standalone.hpp>
+#include <pulp/format/detail/delayed_action.hpp>
 #include <pulp/format/detail/screenshot_capture.hpp>
 #include <pulp/view/screenshot.hpp>
 #include <pulp/format/detail/standalone_editor_chrome.hpp>
 #include <pulp/format/editor_ui.hpp>
 #include <pulp/format/settings_panel.hpp>
 #include <pulp/format/view_bridge.hpp>
+#include <pulp/platform/file_dialog.hpp>
 #include <pulp/state/properties_file.hpp>
 #include <pulp/view/window_host.hpp>
 
+#include <algorithm>
 #include <charconv>
+#include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <string_view>
 
 // WYSIWYG P6 FIX 5 — the dev inspector (Cmd+I overlay) is gated behind the
@@ -30,10 +36,45 @@
 #if PULP_STANDALONE_INSPECTOR
 #include <pulp/inspect/inspector_overlay.hpp>
 #endif
+#if PULP_ENABLE_AUDIO_PROBES
+#include <pulp/audio/audio_probe_json.hpp>
+#include <pulp/format/detail/standalone_audio_probe_json.hpp>
+#include <pulp/format/detail/standalone_audio_scope_json.hpp>
+#include <pulp/view/audio_inspector_window.hpp>
+#include <pulp/view/command_registry.hpp>
+#endif
 #include <pulp/runtime/log.hpp>
 #include <pulp/runtime/system.hpp>
 
 namespace pulp::format {
+
+namespace {
+
+bool rate_matches(double a, double b) {
+    return std::abs(a - b) < 1.0;
+}
+
+void constrain_audio_config(StandaloneConfig& config) {
+    if (!config.allowed_sample_rates.empty()) {
+        const auto it = std::find_if(config.allowed_sample_rates.begin(),
+                                     config.allowed_sample_rates.end(),
+                                     [&](double allowed) {
+                                         return rate_matches(config.sample_rate, allowed);
+                                     });
+        if (it == config.allowed_sample_rates.end())
+            config.sample_rate = config.allowed_sample_rates.front();
+    }
+
+    if (!config.allowed_buffer_sizes.empty()) {
+        const auto it = std::find(config.allowed_buffer_sizes.begin(),
+                                  config.allowed_buffer_sizes.end(),
+                                  config.buffer_size);
+        if (it == config.allowed_buffer_sizes.end())
+            config.buffer_size = config.allowed_buffer_sizes.front();
+    }
+}
+
+}  // namespace
 
 StandaloneApp::StandaloneApp(ProcessorFactory factory)
     : factory_(factory)
@@ -70,6 +111,13 @@ bool StandaloneApp::start() {
         persisted_config_loaded_ = true;  // don't re-overlay on soft restarts (apply_config)
     }
 
+    const bool processor_has_audio_input = !desc.input_buses.empty();
+    config_.supports_audio_input = config_.supports_audio_input && processor_has_audio_input;
+    if (!config_.supports_audio_input) {
+        config_.input_channels = 0;
+    }
+    constrain_audio_config(config_);
+
     // Set up audio
     audio_system_ = audio::create_audio_system();
     audio_device_ = audio_system_->create_device(config_.audio_device_id);
@@ -90,10 +138,27 @@ bool StandaloneApp::start() {
         return false;
     }
 
+    config_.audio_device_id = audio_device_->info().id;
+    config_.sample_rate = audio_device_->sample_rate();
+    config_.buffer_size = audio_device_->buffer_size();
+
+    // The device's nominal buffer_size is NOT the largest block the audio
+    // callback can deliver. When the hardware runs at a different sample rate
+    // than the app, CoreAudio (and other backends) insert a resampler that
+    // pulls the render callback in variable, larger-than-nominal blocks — up to
+    // the host's MaximumFramesPerSlice (4096 by default on macOS). Size the
+    // processor and every scratch buffer to this MAX, not the nominal buffer,
+    // so an oversized pull can never trip Processor::process()'s
+    // `num_samples <= max_block` assert or overflow a pre-allocated buffer.
+    // (Diagnosed from a standalone SIGABRT in RealtimePitchTimeProcessor::process
+    // when the output device's rate differed from the app's configured rate.)
+    constexpr int kMaxCallbackBlockFloor = 4096;
+    max_callback_block_ = std::max(config_.buffer_size, kMaxCallbackBlockFloor);
+
     // Prepare processor
     PrepareContext prep;
     prep.sample_rate = config_.sample_rate;
-    prep.max_buffer_size = config_.buffer_size;
+    prep.max_buffer_size = max_callback_block_;
     prep.input_channels = config_.input_channels;
     prep.output_channels = config_.output_channels;
     processor_->prepare(prep);
@@ -102,18 +167,42 @@ bool StandaloneApp::start() {
     test_signal_.set_sample_rate(config_.sample_rate);
     int test_ch = std::max(config_.input_channels, config_.output_channels);
     if (test_ch < 2) test_ch = 2;
-    test_buffer_.resize(static_cast<size_t>(test_ch), static_cast<size_t>(config_.buffer_size));
+    test_buffer_.resize(static_cast<size_t>(test_ch), static_cast<size_t>(max_callback_block_));
     test_ptrs_.resize(static_cast<size_t>(test_ch));
     for (int c = 0; c < test_ch; ++c)
         test_ptrs_[static_cast<size_t>(c)] = test_buffer_.view().channel_ptr(static_cast<size_t>(c));
     meter_ptrs_.resize(static_cast<size_t>(std::max(test_ch, config_.input_channels)));
+    direct_output_ptrs_.resize(static_cast<size_t>(std::max(config_.output_channels, 2)));
+    output_meter_ptrs_.resize(static_cast<size_t>(std::max(config_.output_channels, 2)));
 
     // Pre-allocate silence buffer for when no input device is available
     int silence_ch = std::max(config_.output_channels, 2);
-    silence_buffer_.resize(static_cast<size_t>(silence_ch), static_cast<size_t>(config_.buffer_size));
+    silence_buffer_.resize(static_cast<size_t>(silence_ch), static_cast<size_t>(max_callback_block_));
     silence_ptrs_.resize(static_cast<size_t>(silence_ch));
     for (int c = 0; c < silence_ch; ++c)
         silence_ptrs_[static_cast<size_t>(c)] = silence_buffer_.view().channel_ptr(static_cast<size_t>(c));
+
+#if PULP_ENABLE_AUDIO_PROBES
+    // Phase 5 — prepare the realtime output-boundary probe BEFORE the audio
+    // callback starts. This is the only place it allocates. Probe-enabled
+    // standalone builds keep a small last-N channel-0 ring so the developer
+    // Audio Inspector can paint a live waveform whether it was opened from
+    // PULP_AUDIO_INSPECTOR at launch or toggled later by command. The ring is
+    // sized to the panel's display capacity so one UI tick fills the trace.
+    audio::AudioProbe::CaptureConfig probe_capture;
+    constexpr int kMaxScopeWindowSamples = 16384;
+    const int scope_capture_frames = config_.audio_scope_json_path.empty()
+        ? 0
+        : std::clamp(config_.audio_scope_window_samples, 1, kMaxScopeWindowSamples);
+    probe_capture.capture_frames = std::max(view::AudioWaveformView::kCapacity,
+                                            scope_capture_frames);
+    output_probe_.prepare(config_.output_channels, max_callback_block_,
+                          config_.sample_rate,
+                          audio::AudioProbeStage::kStandaloneOutputBoundary,
+                          probe_capture);
+    output_probe_ptrs_.assign(static_cast<size_t>(std::max(config_.output_channels, 0)),
+                              nullptr);
+#endif
 
     // Set up MIDI input (optional)
     if (desc.accepts_midi) {
@@ -140,6 +229,36 @@ bool StandaloneApp::start() {
         audio::BufferView<float>& output,
         const audio::CallbackContext& ctx)
     {
+        // Hard guard: the processor and all scratch buffers were prepared for at
+        // most `max_callback_block_` frames (see start()). A block beyond that —
+        // which would indicate a backend not honoring MaximumFramesPerSlice —
+        // must never reach process(), or it trips the `num_samples <= max_block`
+        // assert / overflows the buffers. Emit silence and warn once rather than
+        // crash the audio device on a real user's machine.
+        if (ctx.buffer_size > max_callback_block_) {
+            for (size_t c = 0; c < output.num_channels(); ++c) {
+                float* dst = output.channel_ptr(c);
+                std::fill(dst, dst + output.num_samples(), 0.0f);
+            }
+            static bool warned = false;
+            if (!warned) {
+                warned = true;
+                runtime::log_error(
+                    "Standalone: audio block {} exceeds prepared max {} — "
+                    "emitting silence (report this device)",
+                    ctx.buffer_size, max_callback_block_);
+            }
+            // Keep the transport clock monotonic across the dropped block.
+            // The normal path advances by ctx.buffer_size after process();
+            // skipping it here would lag transport position (and the MIDI
+            // timeline derived from it) by exactly the silenced frames.
+            if (config_.transport_playing) {
+                transport_position_samples_.fetch_add(
+                    ctx.buffer_size, std::memory_order_relaxed);
+            }
+            return;
+        }
+
         // Collect pending MIDI from the hardware input thread (mutex-guarded
         // accumulator). UI / virtual-keyboard / scripting MIDI is delivered
         // separately via `ui_midi_collector_` (item 3.5 — pulp::midi::
@@ -164,6 +283,42 @@ bool StandaloneApp::start() {
                 : 0.0;
         ui_midi_collector_.drain_into(midi_in, block_start_seconds,
                                       ctx.buffer_size, ctx.sample_rate);
+
+#if PULP_ENABLE_AUDIO_PROBES
+        auto analyze_output_probe = [&]() noexcept {
+            const size_t out_ch = output.num_channels();
+            for (size_t c = 0; c < out_ch && c < output_probe_ptrs_.size(); ++c)
+                output_probe_ptrs_[c] = output.channel_ptr(c);
+            const size_t probe_ch = std::min(out_ch, output_probe_ptrs_.size());
+            output_probe_.analyze_output(audio::BufferView<const float>(
+                output_probe_ptrs_.data(), probe_ch, output.num_samples()));
+        };
+#endif
+
+        if (test_signal_.is_active() && config_.route_test_signal_to_output) {
+            const size_t out_ch = std::min(output.num_channels(), direct_output_ptrs_.size());
+            for (size_t c = 0; c < out_ch; ++c)
+                direct_output_ptrs_[c] = output.channel_ptr(c);
+            test_signal_.fill(direct_output_ptrs_.data(),
+                              static_cast<int>(out_ch),
+                              ctx.buffer_size);
+            for (size_t c = 0; c < out_ch && c < output_meter_ptrs_.size(); ++c)
+                output_meter_ptrs_[c] = output.channel_ptr(c);
+            if (out_ch > 0) {
+                output_meter_bridge_.analyze_and_push(
+                    output_meter_ptrs_.data(),
+                    static_cast<int>(out_ch),
+                    ctx.buffer_size);
+            }
+#if PULP_ENABLE_AUDIO_PROBES
+            analyze_output_probe();
+#endif
+            if (config_.transport_playing) {
+                transport_position_samples_.fetch_add(
+                    ctx.buffer_size, std::memory_order_relaxed);
+            }
+            return;
+        }
 
         // Determine actual input: test signal overrides hardware input
         const audio::BufferView<const float>* actual_input = &input;
@@ -208,6 +363,8 @@ bool StandaloneApp::start() {
         ProcessContext proc_ctx;
         proc_ctx.sample_rate = ctx.sample_rate;
         proc_ctx.num_samples = ctx.buffer_size;
+        proc_ctx.process_mode = ProcessMode::Realtime;
+        proc_ctx.render_speed_hint = RenderSpeedHint::Realtime;
         proc_ctx.position_samples = block_start_samples;
         proc_ctx.is_playing = config_.transport_playing;
         proc_ctx.is_recording = false;
@@ -236,6 +393,26 @@ bool StandaloneApp::start() {
         }
 
         processor_->process(output, *actual_input, midi_in, midi_out, proc_ctx);
+
+        const size_t out_ch = std::min(output.num_channels(), output_meter_ptrs_.size());
+        for (size_t c = 0; c < out_ch; ++c)
+            output_meter_ptrs_[c] = output.channel_ptr(c);
+        if (out_ch > 0) {
+            output_meter_bridge_.analyze_and_push(
+                output_meter_ptrs_.data(),
+                static_cast<int>(out_ch),
+                ctx.buffer_size);
+        }
+#if PULP_ENABLE_AUDIO_PROBES
+        // Phase 5 — standalone processor-output boundary probe. Tap the
+        // processor's output immediately after render and before returning to
+        // the device callback. RT-safe: scalar-only, no allocation, no FFT.
+        // This is the boundary where "UI works, no sound" reports separate
+        // processor silence from output-boundary silence. Fill the
+        // pre-allocated const pointer array (no audio-thread allocation), then
+        // wrap it in a const view for analyze_output().
+        analyze_output_probe();
+#endif
 
         // Advance the rolling sample clock so the next block reads a
         // monotonic timeline. Done after process() so the in-block
@@ -266,6 +443,7 @@ bool StandaloneApp::apply_config(const StandaloneConfig& new_config) {
     // dangle an editor ViewBridge holding a Processor& (#2693).
     if (was_running) stop_audio_keep_processor();
     config_ = new_config;
+    constrain_audio_config(config_);
     bool ok = true;
     if (was_running) ok = start();
     // Remember the user's device/rate/buffer selection across launches (default on),
@@ -278,6 +456,14 @@ bool StandaloneApp::apply_config(const StandaloneConfig& new_config) {
 
 bool StandaloneApp::run_with_editor(bool use_gpu) {
     const auto effective_config = detail::standalone_config_from_environment(config_);
+#if !PULP_ENABLE_AUDIO_PROBES
+    if (detail::standalone_probe_json_requested_but_disabled(effective_config)) {
+        runtime::log_error(
+            "Standalone: audio probe/scope JSON requested but "
+            "PULP_ENABLE_AUDIO_PROBES=OFF");
+        return false;
+    }
+#endif
     if (detail::standalone_headless_requires_screenshot(effective_config)) {
         runtime::log_error(
             "Standalone: headless/CI mode requires a screenshot path; "
@@ -285,6 +471,7 @@ bool StandaloneApp::run_with_editor(bool use_gpu) {
         return false;
     }
 
+    config_ = effective_config;
     if (!start()) return false;
 
     if (!processor_ || !processor_->has_editor()) {
@@ -292,6 +479,11 @@ bool StandaloneApp::run_with_editor(bool use_gpu) {
         stop();
         return false;
     }
+
+    // Opt into the platform's built-in file-dialog backend so editor file
+    // pickers work natively. No-op on macOS (compiled-in impl); on Linux this
+    // installs the xdg-desktop-portal bridge when libdbus is available.
+    platform::FileDialog::install_native_backend();
 
     std::string editor_error;
     auto bridge = std::make_unique<ViewBridge>(
@@ -319,7 +511,8 @@ bool StandaloneApp::run_with_editor(bool use_gpu) {
     auto desc = processor_->descriptor();
 
     auto chrome = detail::make_standalone_editor_chrome(
-        std::move(root), effective_config, audio_system_.get(), midi_system_.get(), &input_meter_bridge_,
+        std::move(root), effective_config, audio_system_.get(), midi_system_.get(),
+        &input_meter_bridge_,
         detail::StandaloneSettingsActions{
             .apply_config = [this](const StandaloneConfig& cfg) {
                 return apply_config(cfg);
@@ -338,7 +531,8 @@ bool StandaloneApp::run_with_editor(bool use_gpu) {
                 if (play) test_signal_.play(); else test_signal_.stop();
             },
         },
-        processor_->settings_sections());  // plugin-contributed Settings tabs (e.g. Models)
+        processor_->settings_sections(),  // plugin-contributed Settings tabs (e.g. Models)
+        &output_meter_bridge_);
     auto* settings_ptr = chrome.settings_panel();
     auto& window_root = chrome.window_root();
 
@@ -382,6 +576,31 @@ bool StandaloneApp::run_with_editor(bool use_gpu) {
     auto inspector = std::make_unique<inspect::InspectorOverlay>(*inspector_host);
     auto* inspector_ptr = inspector.get();
     inspect::install_inspector_hooks(*inspector);
+#endif
+
+#if PULP_ENABLE_AUDIO_PROBES
+    // Phase 6 — Audio Inspector tool window. A SEPARATE floating window (sibling
+    // of the layout inspector, not a tab in it) that observes `output_probe_`.
+    // It dispatches its toggle (Cmd/Ctrl+Shift+A) through a shell-owned
+    // CommandRegistry routed via `route_global_keys` — that writes
+    // `window_root.on_global_key`, which is distinct from the layout inspector's
+    // `on_global_click` (Cmd+I), so the two coexist without clobbering. Only
+    // wired when a real WindowHost exists (the show() path needs one).
+    view::AudioInspectorWindow* audio_inspector_ptr = nullptr;
+    if (window) {
+        // Fresh registry + window per run (a prior run's window referenced an
+        // already-destroyed root view). Destroy the window before the registry
+        // so its RAII handler removal targets a live registry.
+        audio_inspector_.reset();
+        command_registry_ = std::make_unique<view::CommandRegistry>();
+        audio_inspector_ = std::make_unique<view::AudioInspectorWindow>(
+            nullptr, window.get(), view::AudioInspectorWindow::HostFactory{},
+            desc.name);
+        audio_inspector_->set_probe(&output_probe_);
+        audio_inspector_->register_command_handler(*command_registry_);
+        view::route_global_keys(window_root, *command_registry_);
+        audio_inspector_ptr = audio_inspector_.get();
+    }
 #endif
 
     // Wire inspector into the idle callback to push overlay paint each frame.
@@ -428,13 +647,63 @@ bool StandaloneApp::run_with_editor(bool use_gpu) {
         runtime::log_info("Standalone: inspector enabled via PULP_INSPECTOR env var");
     }
 #else
-    detail::install_standalone_idle_callback(*window, scripted_ui_ptr, settings_ptr);
+    pre_screenshot_idle = detail::make_standalone_idle_callback(
+        scripted_ui_ptr
+            ? std::function<void()>{[scripted_ui_ptr] { scripted_ui_ptr->poll(); }}
+            : std::function<void()>{},
+        settings_ptr
+            ? std::function<void()>{[settings_ptr] { settings_ptr->poll(); }}
+            : std::function<void()>{});
+    window->set_idle_callback(pre_screenshot_idle);
+#endif
+
+#if PULP_ENABLE_AUDIO_PROBES
+    // Refresh the Audio Inspector from `output_probe_` every UI tick. Compose
+    // with whatever idle work is already wired (inspector overlay / scripted_ui
+    // / settings poll) rather than clobbering it: capture the current
+    // `pre_screenshot_idle` (empty in the inspector-off build, where the
+    // standalone idle callback is installed directly) and call it first.
+    // poll() is cheap and safe when the window is hidden or no probe is set.
+    if (audio_inspector_ptr) {
+        auto prior_idle = pre_screenshot_idle;
+        pre_screenshot_idle = [prior_idle, audio_inspector_ptr] {
+            if (prior_idle) prior_idle();
+            audio_inspector_ptr->poll();
+        };
+        window->set_idle_callback(pre_screenshot_idle);
+    }
+
+    // Open the Audio Inspector when PULP_AUDIO_INSPECTOR is set (mirrors the
+    // PULP_INSPECTOR layout-inspector block above). The capture ring was sized
+    // in start() under the same env, so the window paints a live waveform.
+    if (audio_inspector_ptr && runtime::get_env("PULP_AUDIO_INSPECTOR")) {
+        audio_inspector_ptr->show();
+        runtime::log_info(
+            "Standalone: audio inspector enabled via PULP_AUDIO_INSPECTOR env var");
+    }
 #endif
 
     if (!opts.initially_hidden)
         window->show();
 
     detail::log_standalone_window_open(w, h, use_gpu, bridge->uses_script_ui(), chrome);
+
+#if PULP_ENABLE_AUDIO_PROBES
+    // ── Programmatic live-probe JSON dump (the agent/CI readout) ──
+    //
+    // Writes `output_probe().latest()` (+ the AudioStats subset) as a flat
+    // JSON object to `audio_probe_json_path`. Factored into a free function
+    // (audio_probe_snapshot_to_json) so the snapshot→JSON mapping is unit-
+    // tested without a device. Used as a side-effect of the screenshot
+    // one-shot when both are set, and drives a dedicated one-shot when only
+    // the JSON dump was requested. Empty path → no-op.
+    auto write_probe_json = [this](const std::string& path) {
+        detail::write_audio_probe_json_file(path, output_probe_);
+    };
+    auto write_scope_json = [this, effective_config](const std::string& path) {
+        detail::write_audio_scope_json_file(path, output_probe_, effective_config);
+    };
+#endif
 
     // ── Headless one-shot screenshot (SDK-codified, pulp #468 follow-up) ──
     //
@@ -451,7 +720,47 @@ bool StandaloneApp::run_with_editor(bool use_gpu) {
             ? effective_config.screenshot_frame_delay : 30;
         cap.path = effective_config.screenshot_path;
         auto* editor_view = bridge->view();
-        cap.capture_fn = [host, editor_view, w, h] {
+#if PULP_ENABLE_AUDIO_PROBES
+        // Sibling capture of the Audio Inspector's OWN window surface, written
+        // next to the main screenshot as "<stem>.audio-inspector.png" when the
+        // inspector is open. Lets a headless run prove the live panel loaded
+        // (PULP_AUDIO_INSPECTOR=1 --screenshot X.png yields X.audio-inspector.png).
+        const std::string inspector_png_path = [&] {
+            return detail::audio_inspector_screenshot_path(
+                effective_config.screenshot_path);
+        }();
+#endif
+        cap.capture_fn = [host, editor_view, w, h
+#if PULP_ENABLE_AUDIO_PROBES
+                          , audio_inspector_ptr, inspector_png_path,
+                          write_probe_json, write_scope_json,
+                          probe_json_path = effective_config.audio_probe_json_path,
+                          scope_json_path = effective_config.audio_scope_json_path
+#endif
+        ] {
+#if PULP_ENABLE_AUDIO_PROBES
+            // Side-effect: dump the live probe metrics as JSON at the same
+            // frame the screenshot is taken (composes --screenshot with
+            // --audio-probe-json in a single headless run). No-op when unset.
+            write_probe_json(probe_json_path);
+            write_scope_json(scope_json_path);
+            // Side-effect: capture the inspector window's own surface at the
+            // same frame, before the main window closes. capture_png() returns
+            // empty on hosts without GPU capture — skip the write in that case.
+            if (audio_inspector_ptr && audio_inspector_ptr->is_visible()) {
+                if (auto* ihost = audio_inspector_ptr->window_host()) {
+                    auto ipng = ihost->capture_png();
+                    if (!ipng.empty()) {
+                        std::ofstream out(inspector_png_path, std::ios::binary);
+                        out.write(reinterpret_cast<const char*>(ipng.data()),
+                                  static_cast<std::streamsize>(ipng.size()));
+                        runtime::log_info(
+                            "Standalone: audio inspector screenshot written to {}",
+                            inspector_png_path);
+                    }
+                }
+            }
+#endif
             // If the editor hosts a native overlay (a WebView), use its in-process
             // snapshot (WKWebView takeSnapshot) — capture_back_buffer_png() reads the
             // Skia back buffer and can't see an OS-composited native overlay. For a
@@ -479,6 +788,53 @@ bool StandaloneApp::run_with_editor(bool use_gpu) {
         runtime::log_info("Standalone: screenshot mode armed — will capture to {} after {} frames",
                           effective_config.screenshot_path, cap.delay);
     }
+#if PULP_ENABLE_AUDIO_PROBES
+    // Probe-JSON-only one-shot: when --audio-probe-json was requested without
+    // --screenshot, reuse the same frame-delay machinery to let the audio path
+    // run a few blocks, then write the JSON and close. (When --screenshot is
+    // also set, the dump rode the screenshot capture_fn above instead.)
+    else if (!effective_config.audio_probe_json_path.empty()) {
+        auto* host = window.get();
+        detail::DelayedAction cap;
+        cap.delay = effective_config.screenshot_frame_delay > 0
+            ? effective_config.screenshot_frame_delay : 30;
+        // JSON-only mode has no image bytes to validate or file to write through
+        // ScreenshotCapture. Use the same delayed one-shot state machine, but
+        // make the JSON dump itself the side effect.
+        cap.action_fn = [write_probe_json,
+                         path = effective_config.audio_probe_json_path]() {
+            write_probe_json(path);
+        };
+        cap.close_fn = [host] { host->request_close(); };
+        auto prior = pre_screenshot_idle;
+        host->set_idle_callback([prior, cap = std::move(cap)]() mutable {
+            if (prior) prior();
+            cap();
+        });
+        runtime::log_info(
+            "Standalone: audio-probe-json mode armed — will dump to {} after {} frames",
+            effective_config.audio_probe_json_path, cap.delay);
+    }
+    else if (!effective_config.audio_scope_json_path.empty()) {
+        auto* host = window.get();
+        detail::DelayedAction cap;
+        cap.delay = effective_config.screenshot_frame_delay > 0
+            ? effective_config.screenshot_frame_delay : 30;
+        cap.action_fn = [write_scope_json,
+                         path = effective_config.audio_scope_json_path]() {
+            write_scope_json(path);
+        };
+        cap.close_fn = [host] { host->request_close(); };
+        auto prior = pre_screenshot_idle;
+        host->set_idle_callback([prior, cap = std::move(cap)]() mutable {
+            if (prior) prior();
+            cap();
+        });
+        runtime::log_info(
+            "Standalone: audio-scope-json mode armed — will dump to {} after {} frames",
+            effective_config.audio_scope_json_path, cap.delay);
+    }
+#endif
 
     // Blocks until the window is closed. Most window-close paths have
     // already fired bridge->close(), but application-quit paths can return
@@ -506,6 +862,14 @@ void StandaloneApp::stop_audio_keep_processor() {
 
 void StandaloneApp::stop() {
     stop_audio_keep_processor();
+#if PULP_ENABLE_AUDIO_PROBES
+    // Tear the Audio Inspector down before the processor / probe so its raw
+    // `output_probe_` pointer never dangles. Destroying the window first also
+    // removes its handler from `command_registry_` (RAII in its destructor);
+    // destroy the registry after, so the removal has a live registry to target.
+    audio_inspector_.reset();
+    command_registry_.reset();
+#endif
     if (processor_) {
         processor_->release();
         processor_.reset();

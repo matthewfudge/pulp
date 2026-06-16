@@ -37,7 +37,8 @@ class PathMatchingTests(unittest.TestCase):
         self.assertTrue(vps.is_parser_only_path("packages/pulp-import-ir/test/anchors.test.ts"))
 
     def test_parser_test_files_match(self):
-        self.assertTrue(vps.is_parser_only_path("test/test_design_import.cpp"))
+        self.assertTrue(vps.is_parser_only_path("test/test_design_import_codegen.cpp"))
+        self.assertTrue(vps.is_parser_only_path("test/test_design_import_shared.hpp"))
         self.assertTrue(vps.is_parser_only_path("test/test_design_import_claude_bundle.cpp"))
         self.assertTrue(vps.is_parser_only_path("test/test_cli_import_design.cpp"))
         self.assertTrue(vps.is_parser_only_path("test/test_widget_promotion.cpp"))
@@ -76,7 +77,7 @@ class ClassifyTests(unittest.TestCase):
     def test_all_parser_only_returns_parser(self):
         result = vps.classify([
             "tools/import-design/pulp_import_design.cpp",
-            "test/test_design_import.cpp",
+            "test/test_design_import_codegen.cpp",
             "test/fixtures/imports/stitch/example.html",
         ])
         self.assertEqual(result.profile, "parser")
@@ -107,7 +108,7 @@ class ClassifyTests(unittest.TestCase):
 
 class CliTests(unittest.TestCase):
     def test_paths_from_stdin_plain_output(self):
-        stdin = io.StringIO("tools/import-design/foo.cpp\ntest/test_design_import.cpp\n")
+        stdin = io.StringIO("tools/import-design/foo.cpp\ntest/test_design_import_codegen.cpp\n")
         buf = io.StringIO()
         old_stdin, sys.stdin = sys.stdin, stdin
         try:
@@ -138,13 +139,13 @@ class CliTests(unittest.TestCase):
             path = Path(td) / "paths.txt"
             path.write_text(
                 "\n tools/import-design/foo.cpp \n\n"
-                "test/test_design_import.cpp\n",
+                "test/test_design_import_codegen.cpp\n",
                 encoding="utf-8",
             )
 
             self.assertEqual(
                 vps.paths_from_file(str(path)),
-                [" tools/import-design/foo.cpp ", "test/test_design_import.cpp"],
+                [" tools/import-design/foo.cpp ", "test/test_design_import_codegen.cpp"],
             )
 
     def test_mixed_paths_json_reports_both_sides(self):

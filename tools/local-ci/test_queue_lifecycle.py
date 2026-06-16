@@ -1,0 +1,1002 @@
+#!/usr/bin/env python3
+"""Tests for locked queue lifecycle helpers."""
+
+from __future__ import annotations
+
+from contextlib import contextmanager
+from pathlib import Path
+import unittest
+
+from module_test_utils import load_local_ci_module
+
+
+def load_module():
+    return load_local_ci_module("queue_lifecycle.py", module_name="pulp_queue_lifecycle", add_module_dir=True)
+
+
+def load_orchestrator_module():
+    return load_local_ci_module(
+        "queue_orchestrator.py",
+        module_name="pulp_queue_orchestrator_for_lifecycle_tests",
+        add_module_dir=True,
+    )
+
+
+@contextmanager
+def fake_lock(_path, *, blocking):
+    assert blocking is True
+    yield
+
+
+class QueueLifecycleTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.mod = load_module()
+
+    def test_reconcile_running_jobs_applies_supersede_and_requeue_actions(self) -> None:
+        superseded_job = {"id": "old", "status": "running"}
+        requeued_job = {"id": "retry", "status": "running"}
+        replacement = {"id": "new"}
+        queue = [superseded_job, requeued_job, replacement]
+        events: list[tuple[str, object]] = []
+
+        def stale_jobs(loaded_queue):
+            self.assertIs(loaded_queue, queue)
+            events.append(("stale", [job["id"] for job in loaded_queue]))
+            return [superseded_job, requeued_job]
+
+        def actions(loaded_queue, stale):
+            self.assertIs(loaded_queue, queue)
+            events.append(("actions", [job["id"] for job in stale]))
+            if stale == [superseded_job, requeued_job]:
+                return [
+                    {
+                        "action": "supersede",
+                        "job": superseded_job,
+                        "replacement": replacement,
+                        "reason": "newer_sha",
+                    },
+                    {"action": "requeue", "job": requeued_job},
+                ]
+            if stale == [requeued_job]:
+                return [{"action": "requeue", "job": requeued_job}]
+            self.fail(f"unexpected stale jobs: {stale}")
+
+        def supersede(job, replacement_id, reason):
+            events.append(("supersede", (job["id"], replacement_id, reason)))
+            job["status"] = "completed"
+
+        def requeue(job):
+            events.append(("requeue", job["id"]))
+            job["status"] = "pending"
+
+        result = self.mod.reconcile_running_jobs_unlocked(
+            queue,
+            stale_running_jobs_unlocked_fn=stale_jobs,
+            stale_running_reconciliation_actions_unlocked_fn=actions,
+            supersede_job_unlocked_fn=supersede,
+            requeue_stale_running_job_unlocked_fn=requeue,
+        )
+
+        self.assertEqual(result, (queue, True))
+        self.assertEqual(superseded_job["status"], "completed")
+        self.assertEqual(requeued_job["status"], "pending")
+        self.assertEqual(
+            events,
+            [
+                ("stale", ["old", "retry", "new"]),
+                ("actions", ["old", "retry"]),
+                ("supersede", ("old", "new", "newer_sha")),
+                ("actions", ["retry"]),
+                ("requeue", "retry"),
+            ],
+        )
+
+    def test_reconcile_running_jobs_recomputes_against_current_queue(self) -> None:
+        orchestrator = load_orchestrator_module()
+        older = {
+            "id": "older",
+            "branch": "feature/q",
+            "sha": "a" * 40,
+            "fingerprint": "older",
+            "targets": ["mac"],
+            "priority": "normal",
+            "validation": "full",
+            "queued_at": "2026-06-09T00:00:00+00:00",
+            "status": "running",
+        }
+        newer = dict(
+            older,
+            id="newer",
+            sha="b" * 40,
+            fingerprint="newer",
+            queued_at="2026-06-09T00:01:00+00:00",
+        )
+        queue = [older, newer]
+        events: list[tuple[str, object]] = []
+
+        def supersede(job, replacement_id, reason):
+            events.append(("supersede", (job["id"], replacement_id, reason)))
+            job["status"] = "completed"
+
+        def requeue(job):
+            events.append(("requeue", job["id"]))
+            job["status"] = "pending"
+
+        result = self.mod.reconcile_running_jobs_unlocked(
+            queue,
+            stale_running_jobs_unlocked_fn=lambda loaded_queue: list(loaded_queue),
+            stale_running_reconciliation_actions_unlocked_fn=orchestrator.stale_running_reconciliation_actions_unlocked,
+            supersede_job_unlocked_fn=supersede,
+            requeue_stale_running_job_unlocked_fn=requeue,
+        )
+
+        self.assertEqual(result, (queue, True))
+        self.assertEqual(older["status"], "completed")
+        self.assertEqual(newer["status"], "pending")
+        self.assertEqual(
+            events,
+            [
+                ("supersede", ("older", "newer", "newer_sha_queued")),
+                ("requeue", "newer"),
+            ],
+        )
+
+    def test_reconcile_running_jobs_returns_unchanged_without_actions(self) -> None:
+        queue = [{"id": "job1", "status": "pending"}]
+
+        result = self.mod.reconcile_running_jobs_unlocked(
+            queue,
+            stale_running_jobs_unlocked_fn=lambda loaded_queue: [],
+            stale_running_reconciliation_actions_unlocked_fn=lambda loaded_queue, stale_jobs: [],
+            supersede_job_unlocked_fn=lambda job, replacement_id, reason: self.fail("unexpected supersede"),
+            requeue_stale_running_job_unlocked_fn=lambda job: self.fail("unexpected requeue"),
+        )
+
+        self.assertEqual(result, (queue, False))
+
+    def test_complete_superseded_job_saves_result_and_marks_completed(self) -> None:
+        job = {"id": "old", "status": "running"}
+        events: list[tuple[str, object]] = []
+
+        def make_result(current_job, superseded_by, reason):
+            events.append(("result", (current_job["id"], superseded_by, reason)))
+            return {"job_id": current_job["id"], "overall": "superseded", "completed_at": "done"}
+
+        def save(result):
+            events.append(("save", dict(result)))
+            return Path("old-result.json")
+
+        def complete(current_job, result, result_path):
+            events.append(("complete", (current_job["id"], result["overall"], result_path)))
+            current_job["status"] = "completed"
+            current_job["result_file"] = str(result_path)
+
+        result_path = self.mod.complete_superseded_job_unlocked(
+            job,
+            "new",
+            "newer_sha_queued",
+            supersedence_result_fn=make_result,
+            save_result_fn=save,
+            complete_job_with_result_unlocked_fn=complete,
+        )
+
+        self.assertEqual(result_path, Path("old-result.json"))
+        self.assertEqual(job, {"id": "old", "status": "completed", "result_file": "old-result.json"})
+        self.assertEqual(
+            events,
+            [
+                ("result", ("old", "new", "newer_sha_queued")),
+                ("save", {"job_id": "old", "overall": "superseded", "completed_at": "done"}),
+                ("complete", ("old", "superseded", Path("old-result.json"))),
+            ],
+        )
+
+    def test_complete_canceled_job_saves_result_and_marks_completed(self) -> None:
+        job = {"id": "job1", "status": "pending"}
+        events: list[tuple[str, object]] = []
+
+        def make_result(current_job, reason):
+            events.append(("result", (current_job["id"], reason)))
+            return {"job_id": current_job["id"], "overall": "canceled", "completed_at": "done"}
+
+        def save(result):
+            events.append(("save", dict(result)))
+            return "job1-result.json"
+
+        def complete(current_job, result, result_path):
+            events.append(("complete", (current_job["id"], result["overall"], result_path)))
+            current_job["status"] = "completed"
+            current_job["result_file"] = result_path
+
+        result_path = self.mod.complete_canceled_job_unlocked(
+            job,
+            "operator_canceled",
+            cancellation_result_fn=make_result,
+            save_result_fn=save,
+            complete_job_with_result_unlocked_fn=complete,
+        )
+
+        self.assertEqual(result_path, "job1-result.json")
+        self.assertEqual(job, {"id": "job1", "status": "completed", "result_file": "job1-result.json"})
+        self.assertEqual(
+            events,
+            [
+                ("result", ("job1", "operator_canceled")),
+                ("save", {"job_id": "job1", "overall": "canceled", "completed_at": "done"}),
+                ("complete", ("job1", "canceled", "job1-result.json")),
+            ],
+        )
+
+    def test_enqueue_job_reconciles_saves_bumps_existing_and_normalizes(self) -> None:
+        queue = [
+            {
+                "id": "job1",
+                "fingerprint": "fp-feature-a",
+                "priority": "low",
+                "status": "running",
+            }
+        ]
+        saved: list[list[dict]] = []
+
+        def reconcile(loaded_queue):
+            loaded_queue[0]["status"] = "pending"
+            return loaded_queue, True
+
+        def find_active_job(loaded_queue, fingerprint):
+            self.assertEqual(fingerprint, "fp-feature/a")
+            return loaded_queue[0]
+
+        def bump(existing, requested_priority):
+            self.assertEqual(requested_priority, "high")
+            existing["priority"] = requested_priority
+            return True
+
+        result = self.mod.enqueue_job_locked(
+            "feature/a",
+            "1" * 40,
+            "HIGH",
+            ["mac"],
+            "enqueue",
+            "SMOKE",
+            queue_lock_path_fn=lambda: Path("queue.lock"),
+            file_lock_fn=fake_lock,
+            load_queue_unlocked_fn=lambda: queue,
+            reconcile_running_jobs_unlocked_fn=reconcile,
+            save_queue_unlocked_fn=lambda saved_queue: saved.append([dict(job) for job in saved_queue]),
+            normalize_priority_fn=lambda priority: priority.lower(),
+            normalize_validation_mode_fn=lambda validation: validation.lower(),
+            make_fingerprint_fn=lambda branch, sha, targets, validation: f"fp-{branch}",
+            find_active_job_by_fingerprint_unlocked_fn=find_active_job,
+            bump_pending_job_priority_unlocked_fn=bump,
+            make_job_fn=lambda *args, **kwargs: self.fail("unexpected make_job"),
+            pending_supersedence_candidates_unlocked_fn=lambda loaded_queue, job: self.fail(
+                "unexpected supersedence lookup"
+            ),
+            supersede_job_unlocked_fn=lambda existing, job_id, reason: self.fail("unexpected supersede"),
+            trim_completed_jobs_fn=lambda loaded_queue: self.fail("unexpected trim"),
+            normalize_job_fn=lambda job: {**job, "normalized": True},
+        )
+
+        self.assertEqual(
+            result,
+            (
+                {
+                    "id": "job1",
+                    "fingerprint": "fp-feature-a",
+                    "priority": "high",
+                    "status": "pending",
+                    "normalized": True,
+                },
+                False,
+            ),
+        )
+        self.assertEqual(
+            saved,
+            [
+                [{"id": "job1", "fingerprint": "fp-feature-a", "priority": "low", "status": "pending"}],
+                [{"id": "job1", "fingerprint": "fp-feature-a", "priority": "high", "status": "pending"}],
+            ],
+        )
+
+    def test_enqueue_job_returns_existing_without_save_when_priority_unchanged(self) -> None:
+        queue = [{"id": "job1", "fingerprint": "fp", "priority": "normal", "status": "pending"}]
+        saved: list[list[dict]] = []
+
+        result = self.mod.enqueue_job_locked(
+            "feature/a",
+            "1" * 40,
+            "normal",
+            ["mac"],
+            "enqueue",
+            "full",
+            queue_lock_path_fn=lambda: Path("queue.lock"),
+            file_lock_fn=fake_lock,
+            load_queue_unlocked_fn=lambda: queue,
+            reconcile_running_jobs_unlocked_fn=lambda loaded_queue: (loaded_queue, False),
+            save_queue_unlocked_fn=lambda saved_queue: saved.append(saved_queue),
+            normalize_priority_fn=lambda priority: priority,
+            normalize_validation_mode_fn=lambda validation: validation,
+            make_fingerprint_fn=lambda branch, sha, targets, validation: "fp",
+            find_active_job_by_fingerprint_unlocked_fn=lambda loaded_queue, fingerprint: loaded_queue[0],
+            bump_pending_job_priority_unlocked_fn=lambda existing, requested_priority: False,
+            make_job_fn=lambda *args, **kwargs: self.fail("unexpected make_job"),
+            pending_supersedence_candidates_unlocked_fn=lambda loaded_queue, job: self.fail(
+                "unexpected supersedence lookup"
+            ),
+            supersede_job_unlocked_fn=lambda existing, job_id, reason: self.fail("unexpected supersede"),
+            trim_completed_jobs_fn=lambda loaded_queue: self.fail("unexpected trim"),
+            normalize_job_fn=lambda job: {**job, "normalized": True},
+        )
+
+        self.assertEqual(
+            result,
+            (
+                {
+                    "id": "job1",
+                    "fingerprint": "fp",
+                    "priority": "normal",
+                    "status": "pending",
+                    "normalized": True,
+                },
+                False,
+            ),
+        )
+        self.assertEqual(saved, [])
+
+    def test_enqueue_job_appends_supersedes_trims_and_saves_new_job(self) -> None:
+        old_job = {
+            "id": "old",
+            "branch": "feature/a",
+            "status": "pending",
+            "priority": "normal",
+        }
+        new_job = {
+            "id": "new",
+            "branch": "feature/a",
+            "status": "pending",
+            "priority": "high",
+        }
+        queue = [old_job]
+        superseded: list[tuple[str, str, str]] = []
+        saved: list[list[dict]] = []
+
+        def make_job(branch, sha, priority, targets, mode, validation, *, submission):
+            self.assertEqual((branch, priority, mode, validation, submission), ("feature/a", "high", "ship", "full", None))
+            return new_job
+
+        def supersede(existing, job_id, reason):
+            superseded.append((existing["id"], job_id, reason))
+            existing["status"] = "completed"
+
+        result = self.mod.enqueue_job_locked(
+            "feature/a",
+            "2" * 40,
+            "HIGH",
+            ["mac"],
+            "ship",
+            "FULL",
+            queue_lock_path_fn=lambda: Path("queue.lock"),
+            file_lock_fn=fake_lock,
+            load_queue_unlocked_fn=lambda: queue,
+            reconcile_running_jobs_unlocked_fn=lambda loaded_queue: (loaded_queue, False),
+            save_queue_unlocked_fn=lambda saved_queue: saved.append([dict(job) for job in saved_queue]),
+            normalize_priority_fn=lambda priority: priority.lower(),
+            normalize_validation_mode_fn=lambda validation: validation.lower(),
+            make_fingerprint_fn=lambda branch, sha, targets, validation: "new-fp",
+            find_active_job_by_fingerprint_unlocked_fn=lambda loaded_queue, fingerprint: None,
+            bump_pending_job_priority_unlocked_fn=lambda existing, requested_priority: self.fail("unexpected bump"),
+            make_job_fn=make_job,
+            pending_supersedence_candidates_unlocked_fn=lambda loaded_queue, job: [(old_job, "newer_sha")],
+            supersede_job_unlocked_fn=supersede,
+            trim_completed_jobs_fn=lambda loaded_queue: [job for job in loaded_queue if job.get("id") == "new"],
+            normalize_job_fn=lambda job: self.fail("unexpected normalize"),
+        )
+
+        self.assertEqual(result, (new_job, True))
+        self.assertEqual(superseded, [("old", "new", "newer_sha")])
+        self.assertEqual(saved, [[new_job]])
+        self.assertEqual(queue, [{**old_job, "status": "completed"}, new_job])
+
+    def test_update_job_active_targets_saves_only_when_changed(self) -> None:
+        queue = [{"id": "job1", "active_targets": {}}]
+        saved: list[list[dict]] = []
+
+        def upsert(loaded_queue, job_id, active_targets):
+            self.assertEqual(job_id, "job1")
+            self.assertEqual(active_targets, {"mac": {"status": "running"}})
+            loaded_queue[0]["active_targets"] = active_targets
+            return True
+
+        self.mod.update_job_active_targets_locked(
+            "job1",
+            {"mac": {"status": "running"}},
+            queue_lock_path_fn=lambda: Path("queue.lock"),
+            file_lock_fn=fake_lock,
+            load_queue_unlocked_fn=lambda: queue,
+            upsert_job_active_targets_unlocked_fn=upsert,
+            save_queue_unlocked_fn=lambda saved_queue: saved.append([dict(job) for job in saved_queue]),
+        )
+
+        self.assertEqual(saved, [[{"id": "job1", "active_targets": {"mac": {"status": "running"}}}]])
+
+        self.mod.update_job_active_targets_locked(
+            "job1",
+            None,
+            queue_lock_path_fn=lambda: Path("queue.lock"),
+            file_lock_fn=fake_lock,
+            load_queue_unlocked_fn=lambda: queue,
+            upsert_job_active_targets_unlocked_fn=lambda loaded_queue, job_id, active_targets: False,
+            save_queue_unlocked_fn=lambda saved_queue: saved.append(saved_queue),
+        )
+
+        self.assertEqual(len(saved), 1)
+
+    def test_update_job_target_state_saves_only_when_changed(self) -> None:
+        queue = [{"id": "job1", "target_state": {}}]
+        saved: list[list[dict]] = []
+
+        def update(loaded_queue, job_id, target_name, fields):
+            self.assertEqual((job_id, target_name), ("job1", "windows"))
+            self.assertEqual(fields, {"status": "pass", "detail": "ok"})
+            loaded_queue[0]["target_state"] = {target_name: dict(fields)}
+            return True
+
+        self.mod.update_job_target_state_locked(
+            "job1",
+            "windows",
+            {"status": "pass", "detail": "ok"},
+            queue_lock_path_fn=lambda: Path("queue.lock"),
+            file_lock_fn=fake_lock,
+            load_queue_unlocked_fn=lambda: queue,
+            update_job_target_state_unlocked_fn=update,
+            save_queue_unlocked_fn=lambda saved_queue: saved.append([dict(job) for job in saved_queue]),
+        )
+
+        self.assertEqual(
+            saved,
+            [[{"id": "job1", "target_state": {"windows": {"status": "pass", "detail": "ok"}}}]],
+        )
+
+        self.mod.update_job_target_state_locked(
+            "job1",
+            "windows",
+            {"status": "pass"},
+            queue_lock_path_fn=lambda: Path("queue.lock"),
+            file_lock_fn=fake_lock,
+            load_queue_unlocked_fn=lambda: queue,
+            update_job_target_state_unlocked_fn=lambda loaded_queue, job_id, target_name, fields: False,
+            save_queue_unlocked_fn=lambda saved_queue: saved.append(saved_queue),
+        )
+
+        self.assertEqual(len(saved), 1)
+
+    def test_reclaim_stale_remote_validators_saves_candidates_then_reclaims_after_lock(self) -> None:
+        queue = [{"id": "job1", "status": "running"}]
+        events: list[tuple[str, bool]] = []
+        lock_active = False
+
+        @contextmanager
+        def tracked_lock(_path, *, blocking):
+            nonlocal lock_active
+            assert blocking is True
+            lock_active = True
+            try:
+                yield
+            finally:
+                lock_active = False
+
+        def collect(loaded_queue):
+            events.append(("collect", lock_active))
+            loaded_queue[0]["target_state"] = {"windows": {"stale_cleanup": "pending"}}
+            return [{"job_id": "job1", "target": "windows"}]
+
+        def save(saved_queue):
+            events.append(("save", lock_active))
+            self.assertEqual(
+                saved_queue,
+                [{"id": "job1", "status": "running", "target_state": {"windows": {"stale_cleanup": "pending"}}}],
+            )
+
+        def reclaim(candidates, *, cleanup_validator_fn, update_job_target_state_fn, now_fn, trim_line_fn):
+            events.append(("reclaim", lock_active))
+            self.assertEqual(candidates, [{"job_id": "job1", "target": "windows"}])
+            self.assertEqual(cleanup_validator_fn("host", 123, "started"), {"status": "cleaned"})
+            update_job_target_state_fn("job1", "windows", stale_cleanup="complete")
+            self.assertEqual(now_fn(), "now")
+            self.assertEqual(trim_line_fn(" done "), "done")
+            return 1
+
+        updates: list[tuple[str, str, dict]] = []
+        result = self.mod.reclaim_stale_remote_validators_locked(
+            queue_lock_path_fn=lambda: Path("queue.lock"),
+            file_lock_fn=tracked_lock,
+            load_queue_unlocked_fn=lambda: queue,
+            collect_stale_windows_cleanup_candidates_unlocked_fn=collect,
+            save_queue_unlocked_fn=save,
+            reclaim_stale_remote_validator_candidates_fn=reclaim,
+            cleanup_validator_fn=lambda host, pid, started_at: {"status": "cleaned"},
+            update_job_target_state_fn=lambda job_id, target, **fields: updates.append((job_id, target, fields)),
+            now_fn=lambda: "now",
+            trim_line_fn=lambda line: line.strip(),
+        )
+
+        self.assertEqual(result, 1)
+        self.assertEqual(events, [("collect", True), ("save", True), ("reclaim", False)])
+        self.assertEqual(updates, [("job1", "windows", {"stale_cleanup": "complete"})])
+
+    def test_reclaim_stale_remote_validators_skips_save_without_candidates(self) -> None:
+        events: list[str] = []
+
+        result = self.mod.reclaim_stale_remote_validators_locked(
+            queue_lock_path_fn=lambda: Path("queue.lock"),
+            file_lock_fn=fake_lock,
+            load_queue_unlocked_fn=lambda: [{"id": "job1"}],
+            collect_stale_windows_cleanup_candidates_unlocked_fn=lambda queue: events.append("collect") or [],
+            save_queue_unlocked_fn=lambda queue: self.fail("unexpected save"),
+            reclaim_stale_remote_validator_candidates_fn=lambda candidates, **kwargs: (
+                events.append(f"reclaim:{len(candidates)}") or 0
+            ),
+            cleanup_validator_fn=lambda host, pid, started_at: self.fail("unexpected cleanup"),
+            update_job_target_state_fn=lambda *args, **kwargs: self.fail("unexpected target update"),
+            now_fn=lambda: "now",
+            trim_line_fn=lambda line: line.strip(),
+        )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(events, ["collect", "reclaim:0"])
+
+    def test_drain_pending_jobs_runs_jobs_updates_runner_info_and_clears_after_lock(self) -> None:
+        jobs = [
+            {
+                "id": "job-pass",
+                "branch": "feature/pass",
+                "sha": "a" * 40,
+                "priority": "normal",
+                "queued_at": "queued-pass",
+            },
+            {
+                "id": "job-fail",
+                "branch": "feature/fail",
+                "sha": "b" * 40,
+                "priority": "high",
+                "validation": "smoke",
+                "targets": ["mac"],
+                "queued_at": "queued-fail",
+            },
+        ]
+        events: list[tuple[str, bool, object]] = []
+        lock_active = False
+
+        @contextmanager
+        def tracked_lock(_path, *, blocking):
+            nonlocal lock_active
+            self.assertFalse(blocking)
+            lock_active = True
+            try:
+                yield
+            finally:
+                lock_active = False
+
+        def write_runner_info(info):
+            events.append(("write", lock_active, dict(info)))
+
+        def reclaim(config):
+            events.append(("reclaim", lock_active, dict(config)))
+            return 0
+
+        def claim():
+            events.append(("claim", lock_active, None))
+            return jobs.pop(0) if jobs else None
+
+        def process(job, config):
+            events.append(("process", lock_active, job["id"]))
+            if job["id"] == "job-fail":
+                raise RuntimeError("explode")
+            return {
+                "job_id": job["id"],
+                "branch": job["branch"],
+                "sha": job["sha"],
+                "priority": job["priority"],
+                "results": [],
+                "overall": "pass",
+            }
+
+        saved_results: list[dict] = []
+
+        def save(result):
+            events.append(("save", lock_active, result["job_id"]))
+            saved_results.append(result)
+            return Path(f"{result['job_id']}.json")
+
+        def finalize(job_id, result, result_path):
+            events.append(("finalize", lock_active, (job_id, result["overall"], result_path)))
+
+        def print_result(result, result_path):
+            events.append(("print", lock_active, (result["job_id"], result_path)))
+
+        def clear_runner_info():
+            events.append(("clear", lock_active, None))
+
+        result = self.mod.drain_pending_jobs_locked(
+            {"targets": {"mac": {}}},
+            blocking=False,
+            root="/repo",
+            drain_lock_path_fn=lambda: Path("drain.lock"),
+            file_lock_fn=tracked_lock,
+            lock_busy_error_cls=RuntimeError,
+            write_runner_info_fn=write_runner_info,
+            clear_runner_info_fn=clear_runner_info,
+            reclaim_stale_remote_validators_fn=reclaim,
+            claim_next_job_fn=claim,
+            process_job_fn=process,
+            save_result_fn=save,
+            finalize_job_fn=finalize,
+            print_result_fn=print_result,
+            now_fn=lambda: "now",
+            pid_fn=lambda: 4321,
+        )
+
+        self.assertEqual(result, (True, True))
+        self.assertEqual(saved_results[0]["overall"], "pass")
+        self.assertEqual(saved_results[1]["overall"], "fail")
+        self.assertEqual(saved_results[1]["results"][0]["target"], "scheduler")
+        self.assertIn("explode", saved_results[1]["results"][0]["stderr_tail"])
+        self.assertEqual(
+            events[0],
+            (
+                "write",
+                True,
+                {
+                    "pid": 4321,
+                    "root": "/repo",
+                    "started_at": "now",
+                    "active_job_id": None,
+                    "active_branch": None,
+                },
+            ),
+        )
+        self.assertIn(
+            (
+                "write",
+                True,
+                {
+                    "pid": 4321,
+                    "root": "/repo",
+                    "started_at": "now",
+                    "active_job_id": "job-pass",
+                    "active_branch": "feature/pass",
+                    "updated_at": "now",
+                },
+            ),
+            events,
+        )
+        self.assertIn(
+            (
+                "write",
+                True,
+                {
+                    "pid": 4321,
+                    "root": "/repo",
+                    "started_at": "now",
+                    "active_job_id": "job-fail",
+                    "active_branch": "feature/fail",
+                    "updated_at": "now",
+                },
+            ),
+            events,
+        )
+        self.assertEqual(events[-1], ("clear", False, None))
+
+    def test_drain_pending_jobs_returns_not_acquired_when_lock_busy(self) -> None:
+        class Busy(Exception):
+            pass
+
+        def busy_lock(_path, *, blocking):
+            raise Busy("locked")
+
+        result = self.mod.drain_pending_jobs_locked(
+            {},
+            blocking=False,
+            root="/repo",
+            drain_lock_path_fn=lambda: Path("drain.lock"),
+            file_lock_fn=busy_lock,
+            lock_busy_error_cls=Busy,
+            write_runner_info_fn=lambda info: self.fail("unexpected write"),
+            clear_runner_info_fn=lambda: self.fail("unexpected clear"),
+            reclaim_stale_remote_validators_fn=lambda config: self.fail("unexpected reclaim"),
+            claim_next_job_fn=lambda: self.fail("unexpected claim"),
+            process_job_fn=lambda job, config: self.fail("unexpected process"),
+            save_result_fn=lambda result: self.fail("unexpected save"),
+            finalize_job_fn=lambda job_id, result, result_path: self.fail("unexpected finalize"),
+            print_result_fn=lambda result, result_path: self.fail("unexpected print"),
+            now_fn=lambda: "now",
+            pid_fn=lambda: 4321,
+        )
+
+        self.assertEqual(result, (False, False))
+
+    def test_load_job_reconciles_saves_and_normalizes_match(self) -> None:
+        queue = [{"id": "job1", "status": "running"}]
+        saved: list[list[dict]] = []
+
+        def reconcile(loaded_queue):
+            loaded_queue[0]["status"] = "pending"
+            return loaded_queue, True
+
+        result = self.mod.load_job_locked(
+            "job1",
+            queue_lock_path_fn=lambda: Path("queue.lock"),
+            file_lock_fn=fake_lock,
+            load_queue_unlocked_fn=lambda: queue,
+            reconcile_running_jobs_unlocked_fn=reconcile,
+            save_queue_unlocked_fn=lambda saved_queue: saved.append([dict(job) for job in saved_queue]),
+            find_job_unlocked_fn=lambda loaded_queue, job_id: next(
+                (job for job in loaded_queue if job["id"] == job_id),
+                None,
+            ),
+            normalize_job_fn=lambda job: {**job, "normalized": True},
+        )
+
+        self.assertEqual(result, {"id": "job1", "status": "pending", "normalized": True})
+        self.assertEqual(saved, [[{"id": "job1", "status": "pending"}]])
+
+    def test_load_job_returns_none_without_save_when_unchanged_missing(self) -> None:
+        saved: list[list[dict]] = []
+
+        result = self.mod.load_job_locked(
+            "missing",
+            queue_lock_path_fn=lambda: Path("queue.lock"),
+            file_lock_fn=fake_lock,
+            load_queue_unlocked_fn=lambda: [{"id": "job1"}],
+            reconcile_running_jobs_unlocked_fn=lambda queue: (queue, False),
+            save_queue_unlocked_fn=lambda queue: saved.append(queue),
+            find_job_unlocked_fn=lambda _queue, _job_id: None,
+            normalize_job_fn=lambda job: job,
+        )
+
+        self.assertIsNone(result)
+        self.assertEqual(saved, [])
+
+    def test_claim_next_job_saves_claimed_queue_and_normalizes(self) -> None:
+        queue = [{"id": "job1", "status": "pending"}]
+        saved: list[list[dict]] = []
+
+        def claim(loaded_queue, *, runner):
+            self.assertEqual(runner, {"pid": 4321, "root": "/repo"})
+            loaded_queue[0]["status"] = "running"
+            loaded_queue[0]["runner"] = runner
+            return loaded_queue[0]
+
+        result = self.mod.claim_next_job_locked(
+            root="/repo",
+            queue_lock_path_fn=lambda: Path("queue.lock"),
+            file_lock_fn=fake_lock,
+            load_queue_unlocked_fn=lambda: queue,
+            reconcile_running_jobs_unlocked_fn=lambda loaded_queue: (loaded_queue, False),
+            save_queue_unlocked_fn=lambda saved_queue: saved.append([dict(job) for job in saved_queue]),
+            claim_next_job_unlocked_fn=claim,
+            normalize_job_fn=lambda job: {**job, "normalized": True},
+            pid_fn=lambda: 4321,
+        )
+
+        self.assertEqual(
+            result,
+            {
+                "id": "job1",
+                "status": "running",
+                "runner": {"pid": 4321, "root": "/repo"},
+                "normalized": True,
+            },
+        )
+        self.assertEqual(
+            saved,
+            [[{"id": "job1", "status": "running", "runner": {"pid": 4321, "root": "/repo"}}]],
+        )
+
+    def test_claim_next_job_preserves_reconcile_save_when_no_job_claimed(self) -> None:
+        queue = [{"id": "stale", "status": "pending"}]
+        saved: list[list[dict]] = []
+
+        def reconcile(loaded_queue):
+            loaded_queue[0]["requeued_at"] = "now"
+            return loaded_queue, True
+
+        result = self.mod.claim_next_job_locked(
+            root="/repo",
+            queue_lock_path_fn=lambda: Path("queue.lock"),
+            file_lock_fn=fake_lock,
+            load_queue_unlocked_fn=lambda: queue,
+            reconcile_running_jobs_unlocked_fn=reconcile,
+            save_queue_unlocked_fn=lambda saved_queue: saved.append([dict(job) for job in saved_queue]),
+            claim_next_job_unlocked_fn=lambda _queue, *, runner: None,
+            normalize_job_fn=lambda job: job,
+            pid_fn=lambda: 4321,
+        )
+
+        self.assertIsNone(result)
+        self.assertEqual(saved, [[{"id": "stale", "status": "pending", "requeued_at": "now"}]])
+
+    def test_finalize_job_completes_trims_saves_then_cleans_after_lock(self) -> None:
+        queue = [{"id": "job1", "status": "running"}, {"id": "old", "status": "completed"}]
+        events: list[tuple[str, bool]] = []
+        lock_active = False
+
+        @contextmanager
+        def tracked_lock(_path, *, blocking):
+            nonlocal lock_active
+            assert blocking is True
+            lock_active = True
+            try:
+                yield
+            finally:
+                lock_active = False
+
+        def complete(loaded_queue, job_id, result, result_path):
+            events.append(("complete", lock_active))
+            self.assertEqual(job_id, "job1")
+            self.assertEqual(result, {"overall": "pass"})
+            self.assertEqual(result_path, Path("result.json"))
+            loaded_queue[0]["status"] = "completed"
+            loaded_queue[0]["overall"] = "pass"
+
+        def trim(loaded_queue):
+            events.append(("trim", lock_active))
+            return [loaded_queue[0]], {"old"}
+
+        def save(retained_queue):
+            events.append(("save", lock_active))
+            self.assertEqual(retained_queue, [{"id": "job1", "status": "completed", "overall": "pass"}])
+
+        def collect(retained_queue, *, keep_results, keep_logs, keep_bundles, include_prepared):
+            events.append(("collect", lock_active))
+            self.assertEqual(retained_queue, [{"id": "job1", "status": "completed", "overall": "pass"}])
+            self.assertEqual((keep_results, keep_logs, keep_bundles, include_prepared), (5, 6, 0, False))
+            return {"cleanup": True}
+
+        def apply(plan):
+            events.append(("apply", lock_active))
+            self.assertEqual(plan, {"cleanup": True})
+            return {"deleted": []}
+
+        self.mod.finalize_job_locked(
+            "job1",
+            {"overall": "pass"},
+            Path("result.json"),
+            queue_lock_path_fn=lambda: Path("queue.lock"),
+            file_lock_fn=tracked_lock,
+            load_queue_unlocked_fn=lambda: queue,
+            complete_job_unlocked_fn=complete,
+            trim_completed_jobs_with_removed_ids_fn=trim,
+            save_queue_unlocked_fn=save,
+            collect_local_ci_cleanup_plan_fn=collect,
+            apply_local_ci_cleanup_plan_fn=apply,
+            keep_results=5,
+            keep_logs=6,
+        )
+
+        self.assertEqual(
+            events,
+            [
+                ("complete", True),
+                ("trim", True),
+                ("save", True),
+                ("collect", False),
+                ("apply", False),
+            ],
+        )
+
+    def test_wait_for_job_returns_error_when_job_missing(self) -> None:
+        messages: list[str] = []
+
+        result = self.mod.wait_for_job_completion(
+            "missing",
+            {},
+            load_job_fn=lambda job_id: None,
+            load_result_fn=lambda path: self.fail(f"unexpected load_result({path})"),
+            drain_pending_jobs_fn=lambda config, *, blocking: self.fail("unexpected drain"),
+            current_runner_info_fn=lambda: self.fail("unexpected runner lookup"),
+            sleep_fn=lambda seconds: self.fail(f"unexpected sleep({seconds})"),
+            poll_secs=0.25,
+            print_fn=messages.append,
+        )
+
+        self.assertEqual(result, (None, 1))
+        self.assertEqual(messages, ["Job not found: missing"])
+
+    def test_wait_for_job_loads_completed_result_and_exit_status(self) -> None:
+        loaded_paths: list[Path] = []
+
+        result = self.mod.wait_for_job_completion(
+            "job1",
+            {"targets": ["macos"]},
+            load_job_fn=lambda job_id: {
+                "id": job_id,
+                "status": "completed",
+                "result_file": "result.json",
+            },
+            load_result_fn=lambda path: (loaded_paths.append(path) or {"overall": "pass"}),
+            drain_pending_jobs_fn=lambda config, *, blocking: self.fail("unexpected drain"),
+            current_runner_info_fn=lambda: self.fail("unexpected runner lookup"),
+            sleep_fn=lambda seconds: self.fail(f"unexpected sleep({seconds})"),
+            poll_secs=0.25,
+            print_fn=lambda message: self.fail(f"unexpected print({message})"),
+        )
+
+        self.assertEqual(result, ({"overall": "pass"}, 0))
+        self.assertEqual(loaded_paths, [Path("result.json")])
+
+    def test_wait_for_job_reports_completed_job_without_result_file(self) -> None:
+        messages: list[str] = []
+
+        result = self.mod.wait_for_job_completion(
+            "job1",
+            {},
+            load_job_fn=lambda job_id: {"id": job_id, "status": "completed"},
+            load_result_fn=lambda path: self.fail(f"unexpected load_result({path})"),
+            drain_pending_jobs_fn=lambda config, *, blocking: self.fail("unexpected drain"),
+            current_runner_info_fn=lambda: self.fail("unexpected runner lookup"),
+            sleep_fn=lambda seconds: self.fail(f"unexpected sleep({seconds})"),
+            poll_secs=0.25,
+            print_fn=messages.append,
+        )
+
+        self.assertEqual(result, (None, 1))
+        self.assertEqual(messages, ["Job completed without a result file: job1"])
+
+    def test_wait_for_job_continues_immediately_when_drain_acquired(self) -> None:
+        jobs = [
+            {"id": "job1", "status": "pending"},
+            {"id": "job1", "status": "completed", "result_file": "result.json"},
+        ]
+        drain_calls: list[tuple[dict, bool]] = []
+
+        result = self.mod.wait_for_job_completion(
+            "job1",
+            {"config": True},
+            load_job_fn=lambda job_id: jobs.pop(0),
+            load_result_fn=lambda path: {"overall": "fail"},
+            drain_pending_jobs_fn=lambda config, *, blocking: drain_calls.append((config, blocking))
+            or (True, False),
+            current_runner_info_fn=lambda: self.fail("unexpected runner lookup"),
+            sleep_fn=lambda seconds: self.fail(f"unexpected sleep({seconds})"),
+            poll_secs=0.25,
+            print_fn=lambda message: self.fail(f"unexpected print({message})"),
+        )
+
+        self.assertEqual(result, ({"overall": "fail"}, 1))
+        self.assertEqual(drain_calls, [({"config": True}, False)])
+
+    def test_wait_for_job_waits_with_active_runner_message_once(self) -> None:
+        jobs = [
+            {"id": "job1", "status": "pending"},
+            {"id": "job1", "status": "pending"},
+            {"id": "job1", "status": "completed", "result_file": "result.json"},
+        ]
+        messages: list[str] = []
+        sleeps: list[float] = []
+
+        result = self.mod.wait_for_job_completion(
+            "job1",
+            {},
+            load_job_fn=lambda job_id: jobs.pop(0),
+            load_result_fn=lambda path: {"overall": "pass"},
+            drain_pending_jobs_fn=lambda config, *, blocking: (False, False),
+            current_runner_info_fn=lambda: {
+                "active_job_id": "runner-job",
+                "active_branch": "feature/queue",
+            },
+            sleep_fn=sleeps.append,
+            poll_secs=0.25,
+            print_fn=messages.append,
+        )
+
+        self.assertEqual(result, ({"overall": "pass"}, 0))
+        self.assertEqual(sleeps, [0.25, 0.25])
+        self.assertEqual(
+            messages,
+            ["Another local CI runner is active [runner-job] feature/queue; waiting for job1..."],
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
