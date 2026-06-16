@@ -121,6 +121,14 @@ public:
             cfg.max_pitch_semitones = 0.0f; // pitch is fixed in time_stretch mode
             cfg.transient_preservation = true;
             cfg.noise_morphing = sizing.route_noise_stn; // STN noise path (plan §4 routing)
+            // P1.1 from plan v4 (2026-06-16-offline-stretch-beat-r3-plan.md):
+            // enable sinc resampling — kills cubic-interpolation aliasing in
+            // the spectral path with no algorithm change. 32-tap Kaiser-windowed
+            // sinc lives in realtime_pitch_time_processor.hpp:81 + :180+. The
+            // one-line opt-in. Local apply ahead of upstream Track A landing
+            // so Dreamer's A/B against Rubber Band gets the obvious quality
+            // fix without waiting for the full P0→P4 sequence.
+            cfg.sinc_resampling = true;
             engine_.prepare(sample_rate, cfg);
             latency_anchor_ = calibrate_anchor();
 
@@ -137,6 +145,7 @@ public:
             pcfg.true_envelope_iterations = 3;
             pcfg.transient_preservation = true;
             pcfg.noise_morphing = sizing.route_noise_stn;
+            pcfg.sinc_resampling = true;  // P1.1 — see above
             pitch_engine_.prepare(sample_rate, pcfg);
         }
     }
