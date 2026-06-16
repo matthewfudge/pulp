@@ -16,10 +16,14 @@ class DesktopReviewCommandBindingsTests(unittest.TestCase):
         self.mod = load_module()
 
     def test_exports_and_installer(self):
-        self.assertEqual(self.mod.DESKTOP_REVIEW_COMMAND_EXPORTS, ("cmd_desktop_verdict",))
+        self.assertEqual(
+            self.mod.DESKTOP_REVIEW_COMMAND_EXPORTS,
+            ("cmd_desktop_verdict", "cmd_desktop_review_issue", "cmd_desktop_review_status", "cmd_desktop_review_watch"),
+        )
         bindings: dict = {}
         self.mod.install_desktop_review_command_helpers(bindings)
-        self.assertTrue(callable(bindings["cmd_desktop_verdict"]))
+        for name in self.mod.DESKTOP_REVIEW_COMMAND_EXPORTS:
+            self.assertTrue(callable(bindings[name]), name)
 
     def test_verdict_binding_threads_dependencies(self):
         captured = {}

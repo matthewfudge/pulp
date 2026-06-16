@@ -12,6 +12,9 @@ from binding_utils import install_local_helpers
 
 DESKTOP_REVIEW_COMMAND_EXPORTS = (
     "cmd_desktop_verdict",
+    "cmd_desktop_review_issue",
+    "cmd_desktop_review_status",
+    "cmd_desktop_review_watch",
 )
 
 
@@ -21,6 +24,36 @@ def cmd_desktop_verdict(bindings: Mapping[str, Any], args: Any) -> int:
         now_iso_fn=_binding(bindings, "now_iso"),
         atomic_write_text_fn=_binding(bindings, "atomic_write_text"),
         run_fn=_binding_attr(bindings, "subprocess", "run"),
+    )
+
+
+def _desktop_review_issue_draft(bindings: Mapping[str, Any], review_package: dict, **kwargs) -> dict:
+    return _binding(bindings, "_reporting_review").desktop_review_issue_draft(review_package, **kwargs)
+
+
+def cmd_desktop_review_issue(bindings: Mapping[str, Any], args: Any) -> int:
+    return _binding(bindings, "_desktop_review_commands_cli").cmd_desktop_review_issue(
+        args,
+        desktop_review_issue_draft_fn=lambda review_package, **kwargs: _desktop_review_issue_draft(
+            bindings, review_package, **kwargs
+        ),
+        atomic_write_text_fn=_binding(bindings, "atomic_write_text"),
+        run_fn=_binding_attr(bindings, "subprocess", "run"),
+    )
+
+
+def cmd_desktop_review_status(bindings: Mapping[str, Any], args: Any) -> int:
+    return _binding(bindings, "_desktop_review_commands_cli").cmd_desktop_review_status(
+        args,
+        run_fn=_binding_attr(bindings, "subprocess", "run"),
+    )
+
+
+def cmd_desktop_review_watch(bindings: Mapping[str, Any], args: Any) -> int:
+    return _binding(bindings, "_desktop_review_commands_cli").cmd_desktop_review_watch(
+        args,
+        run_fn=_binding_attr(bindings, "subprocess", "run"),
+        sleep_fn=_binding_attr(bindings, "time", "sleep"),
     )
 
 

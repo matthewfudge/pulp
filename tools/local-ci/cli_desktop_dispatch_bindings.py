@@ -41,6 +41,9 @@ def cmd_desktop(bindings: Mapping[str, Any], args: Any) -> int:
             "click": _binding(bindings, "cmd_desktop_click"),
             "inspect": _binding(bindings, "cmd_desktop_inspect"),
             "verdict": _binding(bindings, "cmd_desktop_verdict"),
+            "review-issue": _binding(bindings, "cmd_desktop_review_issue"),
+            "review-status": _binding(bindings, "cmd_desktop_review_status"),
+            "review-watch": _binding(bindings, "cmd_desktop_review_watch"),
         },
     )
 
