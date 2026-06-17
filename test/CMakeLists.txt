@@ -9,6 +9,34 @@ target_link_libraries(pulp-test-build-check PRIVATE pulp::platform pulp::runtime
 add_test(NAME build-check COMMAND pulp-test-build-check)
 
 if(Python3_Interpreter_FOUND)
+    # Reskinnability ratchet (Phase 2): fail on a NEW hardcoded theme colour.
+    add_test(NAME token-coverage-ratchet COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_SOURCE_DIR}/tools/scripts/token_coverage_check.py")
+
+    # Token-key correctness: fail on resolve_color("typo.key", …) that isn't a
+    # real theme token (silently renders the hardcoded fallback, breaks reskin).
+    add_test(NAME token-key-correctness COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_SOURCE_DIR}/tools/scripts/token_key_check.py")
+
+    # Phase 6 fidelity harness: pure-Python diff-core self-test (always runs) +
+    # the end-to-end gallery visual regression (skips=77 without binary/Pillow).
+    add_test(NAME gallery-diff-selftest
+        COMMAND ${Python3_EXECUTABLE} -m unittest test_gallery_visual_diff
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/tools/scripts")
+    add_test(NAME gallery-visual-regression COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_SOURCE_DIR}/tools/scripts/gallery_regression.py"
+        --binary "${CMAKE_BINARY_DIR}/examples/widget-gallery/pulp-widget-gallery"
+        --golden-dir "${CMAKE_SOURCE_DIR}/assets/design-system/ink-signal/reference/gallery")
+    set_tests_properties(gallery-visual-regression PROPERTIES SKIP_RETURN_CODE 77)
+
+    # Per-primitive visual regression — catches widget-fidelity drift vs the
+    # Figma-converged native renders (skips=77 without binary/Pillow/backend).
+    add_test(NAME component-visual-regression COMMAND ${Python3_EXECUTABLE}
+        "${CMAKE_SOURCE_DIR}/tools/scripts/component_regression.py"
+        --binary "${CMAKE_BINARY_DIR}/examples/component-shots/pulp-component-shots"
+        --golden-dir "${CMAKE_SOURCE_DIR}/assets/design-system/ink-signal/reference/components")
+    set_tests_properties(component-visual-regression PROPERTIES SKIP_RETURN_CODE 77)
+
     if(PULP_ENABLE_SCENE3D)
         set(PULP_SCENE3D_CMAKE_EXPECT on)
     else()
@@ -1282,6 +1310,9 @@ pulp_add_test_suite(pulp-test-modulation-matrix LIBRARIES pulp::view)
 pulp_add_test_suite(pulp-test-modulation-matrix-widget LIBRARIES pulp::view)
 # Lasso selection overlay
 pulp_add_test_suite(pulp-test-lasso LIBRARIES pulp::view)
+# WaveformRecorder three-state recorder widget (Ink & Signal design system)
+pulp_add_test_suite(pulp-test-waveform-recorder LIBRARIES pulp::view)
+pulp_add_test_suite(pulp-test-design-frame-momentary LIBRARIES pulp::view)
 # Split pane layout widget
 pulp_add_test_suite(pulp-test-split-view LIBRARIES pulp::view)
 # CommandRegistry + KeyMappingEditor (Pulp-native names — planning slice 6.4)
@@ -5287,6 +5318,31 @@ target_link_libraries(pulp-test-design-frame-view
 catch_discover_tests(pulp-test-design-frame-view
     PROPERTIES LABELS "view")
 
+# MusicalTypingKeyboard — Ink & Signal catalog component (faithful Figma SVG
+# via DesignFrameView). Pins SVG load, headless render, catalog registration.
+add_executable(pulp-test-musical-typing-keyboard
+    test_musical_typing_keyboard.cpp)
+target_link_libraries(pulp-test-musical-typing-keyboard
+    PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-musical-typing-keyboard
+    PROPERTIES LABELS "view")
+
+# ChannelStripView — faithful Figma-vector catalog component.
+add_executable(pulp-test-channel-strip-view
+    test_channel_strip_view.cpp)
+target_link_libraries(pulp-test-channel-strip-view
+    PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-channel-strip-view
+    PROPERTIES LABELS "view")
+
+# Faithful Figma-vector specimen catalog components (generated).
+add_executable(pulp-test-faithful-specimens
+    test_faithful_specimens.cpp)
+target_link_libraries(pulp-test-faithful-specimens
+    PRIVATE pulp::view Catch2::Catch2WithMain)
+catch_discover_tests(pulp-test-faithful-specimens
+    PROPERTIES LABELS "view")
+
 # P5-3 follow-up — W3C Design Tokens cluster extracted from
 # test_design_import.cpp. Covers parse_w3c_tokens, export_w3c_tokens,
 # composite typography/shadow shapes, alias resolution, math
@@ -5959,6 +6015,24 @@ pulp_add_test_suite(pulp-test-theme-contrast LIBRARIES pulp::view)
 
 # Theme preset library (38 tweakcn + derivation)
 pulp_add_test_suite(pulp-test-theme-presets LIBRARIES pulp::view)
+
+# Button widgets — theme-token wiring + rgba()-clamp bug-fix regression guard
+pulp_add_test_suite(pulp-test-buttons LIBRARIES pulp::view)
+
+# Gap widgets (Phase 4) — Badge/Banner/Toast/EmptyState/Stepper/Pan/Popover/Dialog/ChannelStrip
+pulp_add_test_suite(pulp-test-gap-widgets LIBRARIES pulp::view)
+
+# Widget gallery (Phase 5) — themed board of every primitive; builds + renders
+pulp_add_test_suite(pulp-test-widget-gallery LIBRARIES pulp::view)
+
+# Design system (Phase 8a) — pulp::design umbrella module + component catalog
+pulp_add_test_suite(pulp-test-design-system LIBRARIES pulp::view)
+
+# Sampler starter (Phase 8d) — real sampler UI built from the design catalog
+pulp_add_test_suite(pulp-test-sampler-starter LIBRARIES pulp::view)
+
+# Design-system interaction — verifies the widgets are wired (knob moves, etc.)
+pulp_add_test_suite(pulp-test-design-system-interaction LIBRARIES pulp::view)
 
 # OS appearance tracking
 pulp_add_test_suite(pulp-test-appearance SOURCES test_appearance_tracker.cpp LIBRARIES pulp::view)

@@ -29,11 +29,16 @@ add_subdirectory(pulp-effect)
 # Phase 5: PulpCompressor (sidechain compressor validating multi-bus)
 add_subdirectory(pulp-compressor)
 
-# Phase 6: UI Preview (validates rendering pipeline). Depends on the
-# design-import authoring cluster, so it is skipped in stripped
-# (PULP_ENABLE_DESIGN_IMPORT=OFF) builds.
+# Phase 6: UI Preview (validates rendering pipeline) + the Ink & Signal
+# design-system examples. These depend on the design-import authoring
+# cluster, so they are skipped in stripped (PULP_ENABLE_DESIGN_IMPORT=OFF)
+# builds.
 if(PULP_ENABLE_DESIGN_IMPORT)
     add_subdirectory(ui-preview)
+    add_subdirectory(widget-gallery)
+    add_subdirectory(ink-signal-sampler)
+    add_subdirectory(component-shots)
+    add_subdirectory(ink-signal-showcase)
 endif()
 
 # Phase 6: PulpDrums (generative drum sequencer MIDI effect)
