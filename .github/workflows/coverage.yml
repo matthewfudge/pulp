@@ -363,6 +363,17 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.matrix-config.outputs.matrix) }}
     runs-on: ${{ fromJSON(matrix.runs_on_json) }}
+    # Windows coverage is best-effort and MUST NOT block a successful main
+    # coverage run. The instrumented MSVC build + ~9k instrumented tests +
+    # llvm-cov over 1000+ objects genuinely exceeds the 150-min cap on
+    # GitHub-hosted windows-latest (it is ~1h on Linux/macOS), so the
+    # os-windows leg times out. Its C++ coverage adds little unique signal
+    # over the Linux/macOS legs (same sources via llvm-cov), and the
+    # coverage-staleness watchdog (#3947) keys off a *successful run*, not
+    # per-OS flags — so letting Windows fail non-fatally lets a healthy
+    # full run conclude success and upload the other OS flags. If Windows
+    # ever fits the cap (faster runner / lighter report) it still uploads.
+    continue-on-error: ${{ matrix.os == 'windows' }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -516,7 +527,40 @@ jobs:
           # avoids macOS-runner ring-crate build failure (#785) without
           # losing C++ coverage data.
           PULP_SKIP_RUST_CLI: '1'
-        run: scripts/run_coverage.sh
+        # Bound the run with an INTERNAL budget below the job's
+        # `timeout-minutes: 150`. The os-windows instrumented build + ~9k tests
+        # + llvm-cov over 1000+ objects legitimately can't finish in the cap on
+        # windows-latest. A job-level *timeout* CANCELS the whole job, and a
+        # cancellation is NOT neutralised by `continue-on-error` (verified by a
+        # canary) — so the run would conclude `cancelled` and never clear the
+        # coverage-staleness watchdog. By killing the work ourselves before the
+        # cap, the step exits non-zero (a normal failure), which the job-level
+        # `continue-on-error: matrix.os=='windows'` DOES neutralise → the run
+        # concludes success and the other OS flags still upload. Linux/macOS
+        # finish in ~1h, far under the budget, so they are never affected.
+        run: |
+          budget=$(( 135 * 60 ))   # 135 min < 150-min job cap
+          budget_hit="${RUNNER_TEMP:-/tmp}/coverage-budget-hit"
+          rm -f "${budget_hit}"
+          scripts/run_coverage.sh & cov=$!
+          ( sleep "${budget}" \
+              && echo "::warning::coverage suite hit the ${budget}s best-effort budget (expected on os-windows); terminating — leg is non-fatal." \
+              && : > "${budget_hit}" \
+              && kill -TERM "${cov}" 2>/dev/null \
+              && sleep 15 && kill -KILL "${cov}" 2>/dev/null ) & watch=$!
+          set +e; wait "${cov}"; rc=$?; set -e
+          kill -TERM "${watch}" 2>/dev/null || true
+          wait "${watch}" 2>/dev/null || true
+          if [ -f "${budget_hit}" ]; then
+            # Best-effort timeout: drop any PARTIAL Cobertura/LCOV that the
+            # interrupted llvm-cov export may have left behind, so the verify +
+            # Codecov upload steps publish NOTHING for os-windows rather than a
+            # truncated, valid-looking number. A clean miss beats a wrong number.
+            rm -f build-coverage/coverage.cobertura.xml \
+                  build-coverage/coverage/coverage.lcov 2>/dev/null || true
+            rm -f "${budget_hit}"
+          fi
+          exit "${rc}"
 
       - name: Install Python coverage tooling
         # tools/scripts/** is a blind spot in the current dashboard:

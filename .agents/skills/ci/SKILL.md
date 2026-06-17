@@ -248,6 +248,23 @@ on a busy `main` is *designed* to be superseded while queued — the
 supersession-immune **scheduled** run, cron `17 */8 * * *`, is the one that
 produces the green full-matrix upload that clears the coverage-stale watchdog.)
 
+The **os-windows** coverage leg is best-effort. The instrumented MSVC build +
+~9k instrumented tests + `llvm-cov` over 1000+ objects exceeds the 150-min job
+cap on GitHub-hosted `windows-latest` (it is ~1h on Linux/macOS), and the
+staleness watchdog keys off a *successful run*, not per-OS Codecov flags — so a
+red Windows leg would otherwise keep a healthy full run red forever. **The
+subtle trap (verified by canary):** job-level `continue-on-error` does NOT
+neutralize a `timeout-minutes` *cancellation* — a cancelled job still makes the
+run conclude `cancelled`. It DOES neutralize a normal job *failure*. So the
+coverage suite step self-terminates at an **internal budget (135 min) below the
+job cap**, turning the would-be cancellation into a normal non-zero exit that
+the job-level `continue-on-error: matrix.os=='windows'` then absorbs → the run
+concludes `success`. Don't "simplify" this to bare `continue-on-error`; it will
+silently stop closing the watchdog. Real os-windows *correctness* bugs are
+still worth fixing (the ARG_MAX response-file + vanished-`-object`
+existence-filter + mass-drop guard in `run_coverage.sh` were real); only the
+runtime/timeout is accepted as best-effort.
+
 ### Advisory cross-lane workflow: `macos-cross-advisory.yml`
 
 `.github/workflows/macos-cross-advisory.yml` is a path-scoped advisory
