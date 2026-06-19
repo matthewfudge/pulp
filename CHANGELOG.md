@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v04590"></a>
+## [0.459.0] - 2026-06-19
+
+- feat(design-import): faithful-import kinds end-to-end (P0–P7) — fader/toggle/swap/action/xy_pad/value_label/custom + import-report + placement-verify ([#4235](https://github.com/danielraffel/pulp/pull/4235))
+- docs(ara): remove workflow archaeology ([#4231](https://github.com/danielraffel/pulp/pull/4231))
+
 <a id="v04580"></a>
 ## [0.458.0] - 2026-06-19
 
@@ -4637,6 +4643,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.459.0]: https://github.com/danielraffel/pulp/releases/tag/v0.459.0
 [0.458.0]: https://github.com/danielraffel/pulp/releases/tag/v0.458.0
 [0.457.0]: https://github.com/danielraffel/pulp/releases/tag/v0.457.0
 [0.456.2]: https://github.com/danielraffel/pulp/releases/tag/v0.456.2
