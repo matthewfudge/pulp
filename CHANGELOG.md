@@ -8,6 +8,20 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v04591"></a>
+## [0.459.1] - 2026-06-20
+
+- fix(view): repaint secondary GPU windows + fill MusicalTypingKeyboard pad highlight ([#4375](https://github.com/danielraffel/pulp/pull/4375))
+- docs: clean canvas comment archaeology ([#4242](https://github.com/danielraffel/pulp/pull/4242))
+- docs: clean android shell comment archaeology ([#4249](https://github.com/danielraffel/pulp/pull/4249))
+- docs: clean android motion comment archaeology ([#4250](https://github.com/danielraffel/pulp/pull/4250))
+- docs: clean android audio comment archaeology ([#4248](https://github.com/danielraffel/pulp/pull/4248))
+- docs: clean apple audio comment archaeology ([#4247](https://github.com/danielraffel/pulp/pull/4247))
+- build(view): PULP_ENABLE_JS — native-only build hygiene (no JS engine when off) ([#4236](https://github.com/danielraffel/pulp/pull/4236))
+- feat(packages): P8 — custom-control package category for design import ([#4240](https://github.com/danielraffel/pulp/pull/4240))
+- refactor(import-design): P2 — decompose walk() into node_tree_to_ir (no globals) ([#4237](https://github.com/danielraffel/pulp/pull/4237))
+- docs: clean compat reference archaeology ([#4238](https://github.com/danielraffel/pulp/pull/4238))
+
 <a id="v04590"></a>
 ## [0.459.0] - 2026-06-19
 
@@ -4643,6 +4657,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.459.1]: https://github.com/danielraffel/pulp/releases/tag/v0.459.1
 [0.459.0]: https://github.com/danielraffel/pulp/releases/tag/v0.459.0
 [0.458.0]: https://github.com/danielraffel/pulp/releases/tag/v0.458.0
 [0.457.0]: https://github.com/danielraffel/pulp/releases/tag/v0.457.0
