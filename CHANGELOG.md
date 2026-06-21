@@ -8,6 +8,15 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v04592"></a>
+## [0.459.2] - 2026-06-21
+
+- docs(skill): clean import-design comment breadcrumbs ([#4429](https://github.com/danielraffel/pulp/pull/4429))
+- fix(ci): route release signing to macos-15 ([#4427](https://github.com/danielraffel/pulp/pull/4427))
+- fix/release unblock 20260620 ([#4426](https://github.com/danielraffel/pulp/pull/4426))
+- feature/comment hygiene batch open 20260620 ([#4425](https://github.com/danielraffel/pulp/pull/4425))
+- docs(ci): prefer Shipyard for GitHub work; gh 'invalid token' is usually a rate limit ([#4097](https://github.com/danielraffel/pulp/pull/4097))
+
 <a id="v04591"></a>
 ## [0.459.1] - 2026-06-20
 
@@ -4657,6 +4666,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.459.2]: https://github.com/danielraffel/pulp/releases/tag/v0.459.2
 [0.459.1]: https://github.com/danielraffel/pulp/releases/tag/v0.459.1
 [0.459.0]: https://github.com/danielraffel/pulp/releases/tag/v0.459.0
 [0.458.0]: https://github.com/danielraffel/pulp/releases/tag/v0.458.0
