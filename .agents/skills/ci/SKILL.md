@@ -3033,3 +3033,15 @@ report and exits 0 — it does **not** open issues (no false-positive spam).
 Promoting it to auto-open tracking issues is a future opt-in. Detection
 lives in the pure `stale_entries()` fn (unit-tested in
 `tools/scripts/test_host_quirks_staleness.py`), so it needs no clock/network.
+
+## Gotcha: sign-and-release fallback must be macOS 15
+
+`sign-and-release.yml` once fell back to GitHub-hosted `macos-14`, whose default
+Xcode 15.4 Apple clang lacked C++20 P0960 (parenthesized aggregate init). The
+self-hosted PR `macos` lane used a newer clang, so CLI/import translation units
+compiled on every PR but failed only in the tagged release path; tags kept
+advancing while no Release/binaries published. Fix: route the GitHub-hosted
+fallback to `macos-15` and keep selecting the newest installed Xcode 16.x
+(`release-cli.yml` and the Build/Test gate already use macOS 15). If the
+GitHub-hosted macOS image changes again, verify the fallback runner still has
+C++20 parity with the PR lane before changing release routing.
