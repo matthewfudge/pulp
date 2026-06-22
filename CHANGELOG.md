@@ -8,6 +8,38 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v04594"></a>
+## [0.459.4] - 2026-06-22
+
+- fix(state): make PropertiesFile save atomic (temp + rename) ([#4489](https://github.com/danielraffel/pulp/pull/4489))
+- docs(test): refresh view harness comments ([#4490](https://github.com/danielraffel/pulp/pull/4490))
+- docs(cmake): document LV2 and AUv3 plugin targets ([#4491](https://github.com/danielraffel/pulp/pull/4491))
+- docs: use Release in source build snippets ([#4488](https://github.com/danielraffel/pulp/pull/4488))
+- docs(test): refresh misc regression comments ([#4486](https://github.com/danielraffel/pulp/pull/4486))
+- docs(cli): document coverage command ([#4485](https://github.com/danielraffel/pulp/pull/4485))
+- docs(cli): remove duplicate config manifest entry ([#4483](https://github.com/danielraffel/pulp/pull/4483))
+- fix(ci): coordinate the two release workflows to publish a complete release ([#4481](https://github.com/danielraffel/pulp/pull/4481))
+- ci: add release-health escalation watchdog (Layer 4) ([#4431](https://github.com/danielraffel/pulp/pull/4431))
+- docs(format,cli): refresh host quirk and CLI comments ([#4484](https://github.com/danielraffel/pulp/pull/4484))
+- docs(test): refresh motion inspector comments ([#4482](https://github.com/danielraffel/pulp/pull/4482))
+- docs(audio): refresh observability comments ([#4480](https://github.com/danielraffel/pulp/pull/4480))
+- docs(test): refresh legacy workstream comments ([#4479](https://github.com/danielraffel/pulp/pull/4479))
+- docs(font): refresh rendering test comments ([#4478](https://github.com/danielraffel/pulp/pull/4478))
+- docs(test): refresh CMake test comments ([#4477](https://github.com/danielraffel/pulp/pull/4477))
+- docs(font): refresh text test comments ([#4476](https://github.com/danielraffel/pulp/pull/4476))
+- fix(harness): read split Canvas2D bridge surface ([#4475](https://github.com/danielraffel/pulp/pull/4475))
+- docs(canvas): refresh shim comment status ([#4474](https://github.com/danielraffel/pulp/pull/4474))
+- docs(view): clean bridge provenance comments ([#4473](https://github.com/danielraffel/pulp/pull/4473))
+- docs(source): clean remaining provenance comment labels ([#4472](https://github.com/danielraffel/pulp/pull/4472))
+- docs(native): clean Rust fixture provenance comments ([#4471](https://github.com/danielraffel/pulp/pull/4471))
+- docs(signal,rust): clean offline stretch comment breadcrumbs ([#4470](https://github.com/danielraffel/pulp/pull/4470))
+- docs(widget-bridge): clean web-compat provenance comments ([#4469](https://github.com/danielraffel/pulp/pull/4469))
+- docs(inspect): clean inspector provenance comments ([#4468](https://github.com/danielraffel/pulp/pull/4468))
+- docs(import): clean design import provenance comments ([#4467](https://github.com/danielraffel/pulp/pull/4467))
+- docs(view): clean observability comment breadcrumbs ([#4466](https://github.com/danielraffel/pulp/pull/4466))
+- docs(tools): clean version gate provenance comments ([#4465](https://github.com/danielraffel/pulp/pull/4465))
+- docs(test): clean extracted test comment breadcrumbs ([#4464](https://github.com/danielraffel/pulp/pull/4464))
+
 <a id="v04593"></a>
 ## [0.459.3] - 2026-06-22
 
@@ -4702,6 +4734,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.459.4]: https://github.com/danielraffel/pulp/releases/tag/v0.459.4
 [0.459.3]: https://github.com/danielraffel/pulp/releases/tag/v0.459.3
 [0.459.2]: https://github.com/danielraffel/pulp/releases/tag/v0.459.2
 [0.459.1]: https://github.com/danielraffel/pulp/releases/tag/v0.459.1
