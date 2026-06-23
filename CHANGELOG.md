@@ -8,6 +8,16 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v04632"></a>
+## [0.463.2] - 2026-06-23
+
+- fix(cli): restore rust status workflow parity ([#4607](https://github.com/danielraffel/pulp/pull/4607))
+- docs(cli): trim CLI test provenance comments ([#4611](https://github.com/danielraffel/pulp/pull/4611))
+- feature/source comment hygiene batch 20260623 cd ([#4610](https://github.com/danielraffel/pulp/pull/4610))
+- feature/source comment hygiene batch 20260623 cc ([#4609](https://github.com/danielraffel/pulp/pull/4609))
+- docs(cli): align validate command surface ([#4599](https://github.com/danielraffel/pulp/pull/4599))
+- fix/ios auv3 example bundle id ([#4603](https://github.com/danielraffel/pulp/pull/4603))
+
 <a id="v04631"></a>
 ## [0.463.1] - 2026-06-23
 
@@ -4853,6 +4863,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.463.2]: https://github.com/danielraffel/pulp/releases/tag/v0.463.2
 [0.463.1]: https://github.com/danielraffel/pulp/releases/tag/v0.463.1
 [0.463.0]: https://github.com/danielraffel/pulp/releases/tag/v0.463.0
 [0.462.1]: https://github.com/danielraffel/pulp/releases/tag/v0.462.1
