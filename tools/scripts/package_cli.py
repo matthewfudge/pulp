@@ -85,7 +85,7 @@ def find_wgpu_lib(build_dir: Path, platform: str) -> Path | None:
     # Source cache roots must match what setup.sh /
     # tools/cmake/PulpFetchContent.cmake actually use across platforms,
     # otherwise the packager silently misses the runtime library and
-    # ships a tarball that crashes on clean machines (#438 P1 / #397).
+    # ships a tarball that crashes on clean machines.
     roots: list[Path] = [build_dir]
     home = Path.home()
     # macOS Pulp cache (Title-Case matches setup.sh)
@@ -261,7 +261,7 @@ def main() -> int:
     p.add_argument("--binary", required=True, type=Path,
                    help="Primary user-facing pulp binary (Rust post-swap, C++ pre-swap).")
     p.add_argument("--cpp-binary", required=False, type=Path, default=None,
-                   help="Optional pulp-cpp delegate binary (Phase 8 dual-binary tarball).")
+                   help="Optional pulp-cpp delegate binary (dual-binary tarball).")
     p.add_argument("--mcp-binary", required=False, type=Path, default=None,
                    help="Optional pulp-mcp server binary (#2067 — Claude plugin MCP).")
     p.add_argument("--build-dir", required=True, type=Path)
@@ -328,8 +328,8 @@ def main() -> int:
             # which lets release-cli.yml treat script success as a pass
             # and publish an artifact without its required runtime
             # library — crashing every user machine on startup.
-            # See #438 / #397 and the v0.15/0.16/0.17 release-pipeline
-            # history.
+            # The v0.15/0.16/0.17 release-pipeline history showed this
+            # must fail before publication.
             print("ERROR: wgpu native library not found — refusing to "
                   "package an unportable tarball. Searched cache roots "
                   "(see find_wgpu_lib). Verify setup.sh ran and the "

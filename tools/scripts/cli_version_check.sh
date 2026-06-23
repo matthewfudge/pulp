@@ -146,7 +146,7 @@ pulp_cli_version_check() {
         # Stable banner copy — mirrored in:
         #   - .agents/skills/upgrade/SKILL.md (references this helper)
         #   - .agents/skills/cli-maintenance/SKILL.md
-        #   - docs/guides/versioning.md (future Slice 6 addendum)
+        #   - docs/guides/versioning.md
         # If you change this text, update test/test_cli_skew_banner.cpp
         # ("Stable banner copy") in the same PR.
         printf '[pulp] Claude plugin requires CLI >= v%s but installed CLI is v%s. Run `pulp upgrade` or `/upgrade` in Claude Code.\n' \

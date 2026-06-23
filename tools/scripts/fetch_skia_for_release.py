@@ -239,7 +239,7 @@ def main(argv: list[str]) -> int:
     # naive "is libskia.a present?" guard is *wrong*: when
     # tools/deps/manifest.json bumps the pinned Skia asset, a stale local
     # library would silently shadow the new pin and CI would build against
-    # the wrong Skia (pulp #2458 follow-up). The stamp records the sha256
+    # the wrong Skia. The stamp records the sha256
     # actually unpacked here, so the download is skipped only when that
     # sha matches the current pin — a pin bump changes expected_sha, the
     # stamp no longer matches, and the asset is re-fetched.
