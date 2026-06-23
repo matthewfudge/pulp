@@ -8,6 +8,20 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v04630"></a>
+## [0.463.0] - 2026-06-23
+
+- fix(audio): make AudioFormatReaderSource compile + allocation-free, with tests ([#4598](https://github.com/danielraffel/pulp/pull/4598))
+- docs(cli): route test slash command through pulp ([#4597](https://github.com/danielraffel/pulp/pull/4597))
+- docs(status): align accessibility feature evidence ([#4595](https://github.com/danielraffel/pulp/pull/4595))
+- feature/source comment hygiene batch 20260623 cb ([#4594](https://github.com/danielraffel/pulp/pull/4594))
+- feat(ios): enforce AUv3 .appex bundle-id containment at configure time ([#4592](https://github.com/danielraffel/pulp/pull/4592))
+- docs(examples): align overview guide feature bullets ([#4591](https://github.com/danielraffel/pulp/pull/4591))
+- docs(examples): clarify pending platform validation ([#4590](https://github.com/danielraffel/pulp/pull/4590))
+- feature/source comment hygiene batch 20260623 ca ([#4589](https://github.com/danielraffel/pulp/pull/4589))
+- docs(plugin): align Claude install path with public repo ([#4586](https://github.com/danielraffel/pulp/pull/4586))
+- feature/source comment hygiene batch 20260623 bz ([#4584](https://github.com/danielraffel/pulp/pull/4584))
+
 <a id="v04621"></a>
 ## [0.462.1] - 2026-06-23
 
@@ -4834,6 +4848,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.463.0]: https://github.com/danielraffel/pulp/releases/tag/v0.463.0
 [0.462.1]: https://github.com/danielraffel/pulp/releases/tag/v0.462.1
 [0.462.0]: https://github.com/danielraffel/pulp/releases/tag/v0.462.0
 [0.461.0]: https://github.com/danielraffel/pulp/releases/tag/v0.461.0
