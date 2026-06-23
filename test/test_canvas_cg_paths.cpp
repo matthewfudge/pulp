@@ -1,11 +1,11 @@
 // CoreGraphicsCanvas — Canvas2D path + transform + gradient + blend +
 // save/restore tests. Apple-only TU (`#ifdef __APPLE__`). Covers:
 //
-//   * pulp #943 / #933 concat_transform (translates + scales)
-//   * pulp #1322 Canvas2D path API (fill + quad/cubic + stroke + gradients)
-//   * pulp #1322 fill_rect / fill_path honoring linear gradient state
-//   * pulp #1368 save_count / restore_to_count
-//   * pulp #1322 set_blend_mode (BlendMode enum every value round-trip
+//   * concat_transform (translates + scales)
+//   * Canvas2D path API (fill + quad/cubic + stroke + gradients)
+//   * fill_rect / fill_path honoring linear gradient state
+//   * save_count / restore_to_count
+//   * set_blend_mode (BlendMode enum every value round-trip
 //     through to_cg_blend)
 //
 // Companion to test_canvas_cg_gradients.cpp, which covers the other
@@ -33,8 +33,8 @@ using namespace pulp::canvas;
 
 #ifdef __APPLE__
 
-// pulp #943 (#933 P1) — CoreGraphicsCanvas::concat_transform must compose the
-// supplied affine onto the current CTM rather than no-op (the default in the
+// CoreGraphicsCanvas::concat_transform must compose the supplied affine onto
+// the current CTM rather than no-op (the default in the
 // base Canvas virtual). Without the override, View::paint_all() routes
 // JS-supplied setTransform(...) through Canvas::concat_transform and the
 // transform silently disappears on Apple CPU paint paths.
@@ -108,10 +108,9 @@ TEST_CASE("CoreGraphicsCanvas::concat_transform translates draw position",
     REQUIRE(red_pixels >= 16);  // at least the 4x4 footprint
 }
 
-// pulp #943 (#933 P1) — verify a non-translation affine (scale + translate)
-// composes correctly, not just pure translations. This catches a regression
-// where someone implements concat_transform as CGContextTranslateCTM(e, f)
-// and ignores a/b/c/d.
+// Verify a non-translation affine (scale + translate) composes correctly, not
+// just pure translations. This catches a regression where someone implements
+// concat_transform as CGContextTranslateCTM(e, f) and ignores a/b/c/d.
 TEST_CASE("CoreGraphicsCanvas::concat_transform scales + translates",
           "[canvas][cg][issue-943-933]") {
     constexpr int W = 64;
@@ -161,8 +160,8 @@ TEST_CASE("CoreGraphicsCanvas::concat_transform scales + translates",
     REQUIRE(reference == via_concat);
 }
 
-// pulp #1322 — CoreGraphicsCanvas must implement Canvas2D-style path
-// building. The base Canvas defaults are no-ops, so a JS bundle that drives
+// CoreGraphicsCanvas must implement Canvas2D-style path building. The base
+// Canvas defaults are no-ops, so a JS bundle that drives
 // draw via beginPath/moveTo/lineTo/closePath/fillPath silently produced
 // nothing on the CPU paint path used by Pulp's standalone host
 // (run_with_editor(use_gpu=false)), even though the bridge dutifully
@@ -214,8 +213,8 @@ TEST_CASE("CoreGraphicsCanvas Canvas2D path API fills (issue 1322)",
     REQUIRE(red_pixels >= 16);  // diamond covers ~64 pixels at this size
 }
 
-// pulp #1322 — beziers (quadTo, cubicTo) must also accumulate into the
-// Canvas2D path. Same shape coverage check as the diamond test.
+// Beziers (quadTo, cubicTo) must also accumulate into the Canvas2D path. Same
+// shape coverage check as the diamond test.
 TEST_CASE("CoreGraphicsCanvas Canvas2D path quad/cubic curves fill (issue 1322)",
           "[canvas][cg][issue-1322]") {
     constexpr int W = 32;
@@ -254,9 +253,9 @@ TEST_CASE("CoreGraphicsCanvas Canvas2D path quad/cubic curves fill (issue 1322)"
     REQUIRE(blue_pixels >= 16);
 }
 
-// pulp #1322 — Canvas2D path stroke must hit the destination too. Spectr
-// also draws spectrum traces via beginPath/moveTo/lineTo*N/strokePath, and
-// stroke_current_path was a no-op on CG before this fix.
+// Canvas2D path stroke must hit the destination too. Spectr also draws spectrum
+// traces via beginPath/moveTo/lineTo*N/strokePath, and stroke_current_path was
+// a no-op on CG before this fix.
 TEST_CASE("CoreGraphicsCanvas Canvas2D path stroke draws (issue 1322)",
           "[canvas][cg][issue-1322]") {
     constexpr int W = 32;
@@ -294,10 +293,10 @@ TEST_CASE("CoreGraphicsCanvas Canvas2D path stroke draws (issue 1322)",
     REQUIRE(green_pixels >= 24);  // a 28-pixel-wide line at width=2
 }
 
-// pulp #1322 — set_fill_gradient_linear must paint a real gradient on CG;
-// the base Canvas fallback collapses to "set fill color = colors[0]" which
-// produces a single colour fill (Spectr's spectrum bg is gradient-driven).
-// Verify that two different colors actually appear in the output bitmap.
+// set_fill_gradient_linear must paint a real gradient on CG; the base Canvas
+// fallback collapses to "set fill color = colors[0]" which produces a single
+// colour fill (Spectr's spectrum bg is gradient-driven). Verify that two
+// different colors actually appear in the output bitmap.
 TEST_CASE("CoreGraphicsCanvas linear gradient paints multiple colors (issue 1322)",
           "[canvas][cg][issue-1322]") {
     constexpr int W = 64;
@@ -336,12 +335,12 @@ TEST_CASE("CoreGraphicsCanvas linear gradient paints multiple colors (issue 1322
     REQUIRE(saw_blue_dominant);
 }
 
-// pulp #1359 — fill_rect already routes the active gradient through
-// fill_with_active_paint(), but fill_path / fill_circle / fill_rounded_rect
+// fill_rect already routes the active gradient through fill_with_active_paint(),
+// but fill_path / fill_circle / fill_rounded_rect
 // silently dropped the gradient and fell back to apply_fill_color(). This
-// is the direct CG parallel of pulp #1350/#1353 on the Skia side. Spectr's
-// CPU-mode FilterBank backplate is the canonical repro — it paints solid
-// white instead of the dark-gradient backplate without this fix.
+// is the direct CG parallel of the Skia-side gradient fixes for #1350/#1353.
+// Spectr's CPU-mode FilterBank backplate is the canonical repro — it paints
+// solid white instead of the dark-gradient backplate without this fix.
 //
 // Verify a 64x8 rect filled with a red→green linear gradient produces a
 // red-dominant left endpoint and a green-dominant right endpoint.
@@ -391,9 +390,9 @@ TEST_CASE("CoreGraphicsCanvas::fill_rect honors active linear gradient",
     REQUIRE(rg > rr);
 }
 
-// pulp #1359 — same test for fill_path. Build a triangle path and verify
-// at least two pixels inside the rendered triangle differ in color, proving
-// the gradient was actually painted (not a single solid colour).
+// Same test for fill_path. Build a triangle path and verify at least two pixels
+// inside the rendered triangle differ in color, proving the gradient was
+// actually painted (not a single solid colour).
 TEST_CASE("CoreGraphicsCanvas::fill_path honors active linear gradient",
           "[canvas][cg][gradient][issue-1359]") {
     constexpr int W = 64;
@@ -451,8 +450,8 @@ TEST_CASE("CoreGraphicsCanvas::fill_path honors active linear gradient",
     REQUIRE(green_dominant > 0);
 }
 
-// pulp #1368 — CoreGraphicsCanvas tracks save_count() and supports
-// restore_to_count() for the CanvasWidget::paint defensive bracket.
+// CoreGraphicsCanvas tracks save_count() and supports restore_to_count() for
+// the CanvasWidget::paint defensive bracket.
 TEST_CASE("CoreGraphicsCanvas tracks save_count and restore_to_count",
           "[canvas][cg][issue-1368]") {
     constexpr int W = 16;
@@ -493,8 +492,8 @@ TEST_CASE("CoreGraphicsCanvas tracks save_count and restore_to_count",
     CGContextRelease(ctx);
 }
 
-// pulp #1371 — CoreGraphicsCanvas::set_blend_mode was a silent no-op (the
-// base Canvas virtual default `(void)mode;`). Skia honored every CSS
+// CoreGraphicsCanvas::set_blend_mode was a silent no-op (the base Canvas
+// virtual default `(void)mode;`). Skia honored every CSS
 // globalCompositeOperation; CG dropped them all and forced SrcOver. The
 // canonical repro is Spectr's filterbank: `ctx.globalCompositeOperation =
 // 'lighter'` paints a vivid blue→green→red rainbow gradient additively over
@@ -672,10 +671,9 @@ TEST_CASE("CoreGraphicsCanvas::set_blend_mode honors all BlendMode values",
     }
 }
 
-// pulp #1371 — exhaustively exercise every BlendMode enum case in the new
-// switch so the diff-cover gate sees each branch run. The earlier test
-// proves end-to-end pixel correctness on a handful of representative ops;
-// this one is structural — every enum value must round-trip through
+// Exhaustively exercise every BlendMode enum case in the switch. The earlier
+// test proves end-to-end pixel correctness on a handful of representative ops;
+// this one is structural: every enum value must round-trip through
 // `CoreGraphicsCanvas::set_blend_mode → to_cg_blend(...)` and reach CG.
 //
 // We don't assert per-channel pixel formulas for every mode (CG's edge
@@ -759,11 +757,11 @@ TEST_CASE("CoreGraphicsCanvas::set_blend_mode every enum value round-trips throu
 
 #endif  // __APPLE__
 
-// pulp #1368 — Canvas's default save_count() / restore_to_count() impls
-// are no-op fallbacks for backends that don't implement an introspectable
-// save stack. CanvasWidget's defensive bracket relies on the contract that
-// these are safe to call on any Canvas. Exercise the defaults via a
-// minimal Canvas subclass that doesn't override either method.
+// Canvas's default save_count() / restore_to_count() impls are no-op fallbacks
+// for backends that don't implement an introspectable save stack. CanvasWidget's
+// defensive bracket relies on the contract that these are safe to call on any
+// Canvas. Exercise the defaults via a minimal Canvas subclass that doesn't
+// override either method.
 namespace {
 
 class MinimalCanvas final : public pulp::canvas::Canvas {
