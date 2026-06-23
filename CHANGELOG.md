@@ -8,6 +8,31 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v04597"></a>
+## [0.459.7] - 2026-06-23
+
+- docs(import): clarify design import surfaces ([#4535](https://github.com/danielraffel/pulp/pull/4535))
+- docs(test): trim regression provenance comments ([#4534](https://github.com/danielraffel/pulp/pull/4534))
+- docs(packages): clarify remove cleanup ownership ([#4533](https://github.com/danielraffel/pulp/pull/4533))
+- docs(test): trim WidgetBridge provenance comments ([#4532](https://github.com/danielraffel/pulp/pull/4532))
+- docs(packages): align search and suggest options ([#4531](https://github.com/danielraffel/pulp/pull/4531))
+- feature/source comment hygiene batch 20260623 bj ([#4529](https://github.com/danielraffel/pulp/pull/4529))
+- docs(format): align AUv3 sidechain status ([#4530](https://github.com/danielraffel/pulp/pull/4530))
+- docs(readme): align MIDI backend limitations ([#4528](https://github.com/danielraffel/pulp/pull/4528))
+- docs(examples): trim demo provenance comments ([#4526](https://github.com/danielraffel/pulp/pull/4526))
+- docs: align ALSA MIDI status limitation ([#4527](https://github.com/danielraffel/pulp/pull/4527))
+- docs: align format limitation status ([#4525](https://github.com/danielraffel/pulp/pull/4525))
+- docs(examples): align PulpSynth format docs ([#4523](https://github.com/danielraffel/pulp/pull/4523))
+- docs(readme): clarify audio file codec support ([#4522](https://github.com/danielraffel/pulp/pull/4522))
+- docs(view): trim web-compat provenance comments ([#4521](https://github.com/danielraffel/pulp/pull/4521))
+- docs(formats): align adapter capability guide ([#4520](https://github.com/danielraffel/pulp/pull/4520))
+- docs(packages): clarify commercial license override ([#4518](https://github.com/danielraffel/pulp/pull/4518))
+- feature/source comment hygiene batch 20260623 bg ([#4516](https://github.com/danielraffel/pulp/pull/4516))
+- test(examples): add direct PulpPluck coverage ([#4494](https://github.com/danielraffel/pulp/pull/4494))
+- docs(packages): refresh package manager status ([#4504](https://github.com/danielraffel/pulp/pull/4504))
+- test(state): keep preset escape test portable ([#4508](https://github.com/danielraffel/pulp/pull/4508))
+- fix(view): decode screenshot comparisons with Skia ([#4514](https://github.com/danielraffel/pulp/pull/4514))
+
 <a id="v04596"></a>
 ## [0.459.6] - 2026-06-22
 
@@ -4755,6 +4780,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.459.7]: https://github.com/danielraffel/pulp/releases/tag/v0.459.7
 [0.459.6]: https://github.com/danielraffel/pulp/releases/tag/v0.459.6
 [0.459.5]: https://github.com/danielraffel/pulp/releases/tag/v0.459.5
 [0.459.4]: https://github.com/danielraffel/pulp/releases/tag/v0.459.4
