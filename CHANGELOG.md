@@ -8,6 +8,22 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v04620"></a>
+## [0.462.0] - 2026-06-23
+
+- feat(view): standalone outbound file drag — Windows (OLE) + SDL native handles ([#4092](https://github.com/danielraffel/pulp/pull/4092))
+- test(midi): pin realtime SysEx pool recycling (no silent drop across blocks) ([#4581](https://github.com/danielraffel/pulp/pull/4581))
+- docs(ci): trim workflow provenance comments ([#4580](https://github.com/danielraffel/pulp/pull/4580))
+- docs(tools,test): trim stale provenance comments ([#4578](https://github.com/danielraffel/pulp/pull/4578))
+- docs(run): align slash screenshot example with CLI ([#4577](https://github.com/danielraffel/pulp/pull/4577))
+- docs(cli): trim extraction provenance comments ([#4576](https://github.com/danielraffel/pulp/pull/4576))
+- docs(create): align scaffold wording with CLI ([#4573](https://github.com/danielraffel/pulp/pull/4573))
+- docs(local-ci): trim extraction provenance comments ([#4571](https://github.com/danielraffel/pulp/pull/4571))
+- docs(render): align GPU validation checklist ([#4572](https://github.com/danielraffel/pulp/pull/4572))
+- docs(ship): align command inventory ([#4570](https://github.com/danielraffel/pulp/pull/4570))
+- docs(render): align surface status with implementation ([#4569](https://github.com/danielraffel/pulp/pull/4569))
+- docs(view): trim source roadmap comments ([#4566](https://github.com/danielraffel/pulp/pull/4566))
+
 <a id="v04610"></a>
 ## [0.461.0] - 2026-06-23
 
@@ -4810,6 +4826,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.462.0]: https://github.com/danielraffel/pulp/releases/tag/v0.462.0
 [0.461.0]: https://github.com/danielraffel/pulp/releases/tag/v0.461.0
 [0.460.0]: https://github.com/danielraffel/pulp/releases/tag/v0.460.0
 [0.459.7]: https://github.com/danielraffel/pulp/releases/tag/v0.459.7
