@@ -79,8 +79,8 @@ TEST_CASE("RecordingCanvas text", "[canvas]") {
     REQUIRE(w > 0);
 }
 
-// Regression test for #75: text draws inside nested clip/translate
-// contexts should still emit exactly one fill_text command per call.
+// Text drawn inside nested clip/translate contexts should still emit exactly
+// one fill_text command per call.
 // The Skia path uses SkTextBlob with explicit per-glyph advances
 // instead of SkShaper::shape(), which prevented ghost/double rendering
 // in the widget paint pipeline. This test guards against a regression
@@ -117,13 +117,10 @@ TEST_CASE("Canvas text in nested clip contexts -- no duplication (#75)",
     REQUIRE(canvas.count(DrawCommand::Type::clip_rect) == 3);
 }
 
-// pulp #1737 — direct unit tests for the new draw_image_*_rect overrides.
-// The integration test [issue-1737] in test_widget_bridge.cpp exercises
-// draw_image_from_file_rect end-to-end via the JS bridge, but codecov's
-// patch-coverage measurement reported 0% on the new lines anyway (the
-// widget-bridge test goes through too many dispatch layers for the
-// per-line attribution). Direct calls on RecordingCanvas pin the new
-// behavior to specific test cases that codecov measures unambiguously.
+// Direct unit tests for the draw_image_*_rect overrides. The integration test
+// in test_widget_bridge.cpp exercises draw_image_from_file_rect end-to-end via
+// the JS bridge; direct calls on RecordingCanvas pin the source/destination
+// rectangle behavior without the bridge dispatch layers.
 TEST_CASE("RecordingCanvas::draw_image_from_file_rect captures src + dst rect",
           "[canvas][issue-1737][issue-916]") {
     RecordingCanvas canvas;
@@ -899,10 +896,10 @@ TEST_CASE("Canvas base fallbacks delegate through recording backend",
 }
 
 #ifdef PULP_HAS_SKIA
-// Issue-897 P1 follow-up: ctx.setTransform must compose onto the parent
-// View's transform, not overwrite it. Without this, a CanvasWidget at
-// non-zero offset would have its translation wiped the moment JS calls
-// ctx.setTransform(scale, 0, 0, scale, 0, 0) for devicePixelRatio scaling.
+// ctx.setTransform must compose onto the parent View's transform, not overwrite
+// it. Without this, a CanvasWidget at non-zero offset would have its translation
+// wiped the moment JS calls ctx.setTransform(scale, 0, 0, scale, 0, 0) for
+// devicePixelRatio scaling.
 TEST_CASE("SkiaCanvas::set_transform composes onto captured paint baseline",
           "[canvas][skia][issue-897]") {
     SkImageInfo info = SkImageInfo::Make(200, 200, kN32_SkColorType,
@@ -1058,7 +1055,7 @@ TEST_CASE("SkiaCanvas::set_line_dash applies an SkDashPathEffect on stroke",
 #endif  // PULP_HAS_SKIA
 
 
-// ── pulp #929 — Canvas::clear_rect default + CoreGraphics override ──────────
+// ── Canvas::clear_rect default + CoreGraphics override ─────────────────────
 
 namespace {
 
@@ -1171,7 +1168,7 @@ TEST_CASE("CoreGraphicsCanvas::clear_rect zeroes destination pixels",
 }
 #endif  // __APPLE__
 
-// ── pulp #1737 — CSS font-variant → SkShaper Feature plumbing ─────────────
+// ── CSS font-variant → SkShaper Feature plumbing ──────────────────────────
 // Regression coverage for the SkShaper 8-arg shape() overload that the
 // fontVariant slice routes through. The legacy 6-arg shape() ignores the
 // caller's feature array entirely (HarfBuzz applies only the on-by-default
@@ -1258,7 +1255,7 @@ TEST_CASE("Canvas::make_font_feature_tag packs OpenType four-char tags",
 }
 #endif // PULP_HAS_SKIA
 
-// ── pulp #1806 — fill_current_path / stroke_current_path preserve the scratch path ──
+// ── fill_current_path / stroke_current_path preserve the scratch path ──────
 // Canvas2D spec: ctx.fill() and ctx.stroke() do NOT consume the path. A
 // subsequent stroke() after fill() must paint the outlined version of
 // the filled shape. Previously path_builder_->detach() emptied the
@@ -1316,13 +1313,12 @@ TEST_CASE("pulp #1806 — begin_path resets between fill+stroke pairs",
 }
 
 #ifdef PULP_HAS_SKIA
-// pulp #1899 (gap #3) — SkiaCanvas tracks every currently-open
-// save_layer whose layer-paint alpha is < 1. Text paint paths
-// (fill_text / stroke_text) consult `inside_non_opaque_layer()` at
-// paint time and select greyscale AA over LCD subpixel AA, so glyphs
-// stay legible inside CSS-opacity layers (browser parity). This test
-// asserts the stack state transitions across the four save_layer
-// entry points + plain save + restore + restore_to_count.
+// SkiaCanvas tracks every currently-open save_layer whose layer-paint alpha is
+// < 1. Text paint paths (fill_text / stroke_text) consult
+// `inside_non_opaque_layer()` at paint time and select greyscale AA over LCD
+// subpixel AA, so glyphs stay legible inside CSS-opacity layers (browser
+// parity). This test asserts the stack state transitions across the four
+// save_layer entry points + plain save + restore + restore_to_count.
 TEST_CASE("SkiaCanvas tracks non-opaque layers for text edging "
           "(pulp #1899 gap #3)", "[canvas][skia][issue-1899]") {
     SkImageInfo info = SkImageInfo::Make(64, 64, kN32_SkColorType,
@@ -1397,13 +1393,13 @@ TEST_CASE("SkiaCanvas tracks non-opaque layers for text edging "
     }
 }
 
-// pulp #1899 (gap #3) — end-to-end: render the same glyph twice into
-// the same surface, once inside save_layer(opacity = 0.5) and once
-// outside, and verify the inside-layer pixels show no LCD subpixel
-// pattern. LCD AA produces unequal R / G / B coverage at glyph edges;
-// greyscale AA writes equal R / G / B. Scanning a few rows where the
-// glyph should have an edge and asserting "max channel difference == 0"
-// for the inside-layer block is the simplest cross-platform probe.
+// End-to-end: render the same glyph twice into the same surface, once inside
+// save_layer(opacity = 0.5) and once outside, and verify the inside-layer
+// pixels show no LCD subpixel pattern. LCD AA produces unequal R / G / B
+// coverage at glyph edges; greyscale AA writes equal R / G / B. Scanning a few
+// rows where the glyph should have an edge and asserting
+// "max channel difference == 0" for the inside-layer block is the simplest
+// cross-platform probe.
 TEST_CASE("SkiaCanvas text inside opacity layer uses greyscale AA "
           "(pulp #1899 gap #3)", "[canvas][skia][issue-1899]") {
     // Two side-by-side surfaces — one painted with an opacity layer,

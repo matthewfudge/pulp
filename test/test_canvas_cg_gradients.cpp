@@ -1,10 +1,9 @@
-// Canvas — CoreGraphics gradient + pattern fixtures (pulp #1524 cluster).
+// Canvas — CoreGraphics gradient + pattern fixtures.
 //
-// Extracted from test/test_canvas.cpp as part of P5-2 to keep individual
-// fixture TUs under the maintainability threshold. The cluster is
-// Apple-only because every test path drives CoreGraphics directly to
-// prove the CoreGraphicsCanvas fallback honours the canvas2d gradient
-// + pattern spec (no degradations).
+// Extracted from test/test_canvas.cpp to keep individual fixture TUs under the
+// maintainability threshold. The cluster is Apple-only because every test path
+// drives CoreGraphics directly to prove the CoreGraphicsCanvas fallback honours
+// the canvas2d gradient + pattern spec (no degradations).
 
 #ifdef __APPLE__
 
@@ -22,7 +21,7 @@
 
 using namespace pulp::canvas;
 
-// ── pulp #1524 — CG-degraded gradient/pattern cluster ────────────────────────
+// ── CG-degraded gradient/pattern cluster ────────────────────────────────────
 //
 // Promotes 3 DIVERGE entries → PASS on the CoreGraphics fallback path:
 //   * canvas2d/createConicGradient     — software-rasterised CGImage sweep
@@ -61,7 +60,7 @@ CGContextRef cg_make_bitmap(int w, int h, std::vector<uint8_t>& pixels) {
 }
 } // namespace
 
-// pulp #1524 — `createConicGradient` on CG must produce angle-varying colour
+// `createConicGradient` on CG must produce angle-varying colour
 // instead of the pre-#1524 first-stop solid fallback. We fill a 64x64 square
 // with a 4-stop conic spanning red / green / blue / red and sample the four
 // cardinal directions from the centre. Each cardinal must hit a different
@@ -108,7 +107,7 @@ TEST_CASE("CoreGraphicsCanvas createConicGradient sweeps angle through stops",
     REQUIRE(west[3]  == 255);
 }
 
-// pulp #1524 — `createRadialGradient` two-circle form must honour the inner
+// `createRadialGradient` two-circle form must honour the inner
 // circle. Pre-#1524 the JS shim dropped (x0,y0,r0) and forwarded only the
 // outer circle, so a gradient with an *offset* inner circle painted as if
 // inner_centre==outer_centre — visually the same as a single-circle radial.
@@ -159,7 +158,7 @@ TEST_CASE("CoreGraphicsCanvas radial two-circle form honours inner circle",
     REQUIRE(near_inner[3] == 255);
 }
 
-// pulp #1524 — `createPattern` on CG must install a real CGPattern instead
+// `createPattern` on CG must install a real CGPattern instead
 // of falling back to the active solid colour. A 1x2 image (red top half,
 // blue bottom half) tiled with `repeat` should produce alternating red/blue
 // horizontal bands when filled across a tall rectangle. Pre-#1524 the
@@ -262,7 +261,7 @@ TEST_CASE("CoreGraphicsCanvas set_fill_pattern installs a real CGPattern",
     REQUIRE(green_count == 0);
 }
 
-// pulp #1524 — `set_fill_pattern("")` clears any active pattern back to the
+// `set_fill_pattern("")` clears any active pattern back to the
 // solid fill colour. Mirrors clear_fill_gradient's reset semantics so a JS
 // fillStyle string assignment after a pattern fillStyle reverts cleanly.
 TEST_CASE("CoreGraphicsCanvas set_fill_pattern clears on empty src",
@@ -289,8 +288,8 @@ TEST_CASE("CoreGraphicsCanvas set_fill_pattern clears on empty src",
     REQUIRE(pixels[2] == 0);    // B
 }
 
-// pulp #1666 — CoreGraphicsCanvas::fill_text must honour an active fill
-// gradient. Pre-fix, fill_text used kCGTextFill with apply_fill_color()
+// CoreGraphicsCanvas::fill_text must honour an active fill gradient. Pre-fix,
+// fill_text used kCGTextFill with apply_fill_color()
 // which routed solid `fill_color_` into the glyphs and silently dropped
 // the gradient set via set_fill_gradient_linear. Post-fix, fill_text
 // switches to kCGTextClip on the glyph fills then paints the active
@@ -354,8 +353,8 @@ TEST_CASE("CoreGraphicsCanvas::fill_text honours active fill gradient",
     REQUIRE(any_glyph_with_dominant_channel(W - 16, W, /*b*/2, /*r*/0));
 }
 
-// pulp #1666 — CoreGraphicsCanvas stroke ops must honour an active
-// stroke gradient set via set_stroke_gradient_linear. Pre-fix, every
+// CoreGraphicsCanvas stroke ops must honour an active stroke gradient set via
+// set_stroke_gradient_linear. Pre-fix, every
 // stroke_* method called apply_stroke_color() which routed solid
 // `stroke_color_` and silently dropped the gradient. Post-fix, stroke
 // methods short-circuit to stroke_with_active_paint() which clips to
@@ -415,8 +414,8 @@ TEST_CASE("CoreGraphicsCanvas::stroke_rect honours active stroke gradient",
     REQUIRE(any_stroked_with_channel(W - 16, W - 4, /*b*/2, /*r*/0));
 }
 
-// pulp #1747 (P1 Codex review on #1736) — stroke_text gradient endpoints
-// must be evaluated in canvas space, NOT in text-local space. Pre-fix
+// stroke_text gradient endpoints must be evaluated in canvas space, NOT in
+// text-local space. Pre-fix
 // stroke_text mutated the CTM (translate(draw_x, y) + scale(1, -1)) and
 // then called stroke_with_active_paint(), so the gradient was sampled
 // in text-local coords: same createLinearGradient stops produced
@@ -518,7 +517,7 @@ TEST_CASE("CoreGraphicsCanvas::stroke_text gradient is canvas-space anchored",
     REQUIRE(br > 30); REQUIRE(bb > 30);
 }
 
-// pulp #1898 — CoreGraphicsCanvas::set_line_dash must produce visible gaps.
+// CoreGraphicsCanvas::set_line_dash must produce visible gaps.
 //
 // Background. The base Canvas virtual is a no-op `(void)`, so before this
 // override Spectr's 0 dB rail (and ~5 other dashed-stroke callsites) drew
@@ -601,9 +600,8 @@ TEST_CASE("CoreGraphicsCanvas::set_line_dash produces gaps in stroke",
     REQUIRE(first_gap_empty >= 3);
 }
 
-// pulp #1898 — clearing the dash (empty intervals) must restore solid strokes
-// on subsequent draws. Mirrors the JS bridge contract: ctx.setLineDash([])
-// reverts to solid.
+// Clearing the dash (empty intervals) must restore solid strokes on subsequent
+// draws. Mirrors the JS bridge contract: ctx.setLineDash([]) reverts to solid.
 TEST_CASE("CoreGraphicsCanvas::set_line_dash clears back to solid",
           "[canvas][cg][issue-1898]") {
     constexpr int W = 32;
