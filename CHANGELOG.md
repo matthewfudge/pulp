@@ -8,6 +8,26 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v04610"></a>
+## [0.461.0] - 2026-06-23
+
+- perf(format): reuse reserved MIDI buffers in VST3 process() (no per-block alloc) ([#4564](https://github.com/danielraffel/pulp/pull/4564))
+- docs(signal): align convolver module example ([#4567](https://github.com/danielraffel/pulp/pull/4567))
+- docs(events): align module reference with current APIs ([#4565](https://github.com/danielraffel/pulp/pull/4565))
+- docs(runtime): align module examples with API ([#4563](https://github.com/danielraffel/pulp/pull/4563))
+- docs(runtime): trim source provenance comments ([#4561](https://github.com/danielraffel/pulp/pull/4561))
+- docs(reference): align state examples with public API ([#4562](https://github.com/danielraffel/pulp/pull/4562))
+- docs(canvas): align examples with public API ([#4560](https://github.com/danielraffel/pulp/pull/4560))
+- docs(osc): align examples with public API ([#4559](https://github.com/danielraffel/pulp/pull/4559))
+- docs(view): correct plugin host capability matrix ([#4556](https://github.com/danielraffel/pulp/pull/4556))
+- docs(view): correct style props theme bridge signatures ([#4555](https://github.com/danielraffel/pulp/pull/4555))
+- docs(view): clarify JS bridge reference scope ([#4554](https://github.com/danielraffel/pulp/pull/4554))
+- docs: update hosting loader status ([#4551](https://github.com/danielraffel/pulp/pull/4551))
+- docs: fix stale sync strategy references ([#4549](https://github.com/danielraffel/pulp/pull/4549))
+- docs: fix versioning guide CI link ([#4547](https://github.com/danielraffel/pulp/pull/4547))
+- docs: fix widget support matrix evidence ([#4545](https://github.com/danielraffel/pulp/pull/4545))
+- docs(view): clarify CodeEditor native scope ([#4543](https://github.com/danielraffel/pulp/pull/4543))
+
 <a id="v04600"></a>
 ## [0.460.0] - 2026-06-23
 
@@ -4790,6 +4810,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.461.0]: https://github.com/danielraffel/pulp/releases/tag/v0.461.0
 [0.460.0]: https://github.com/danielraffel/pulp/releases/tag/v0.460.0
 [0.459.7]: https://github.com/danielraffel/pulp/releases/tag/v0.459.7
 [0.459.6]: https://github.com/danielraffel/pulp/releases/tag/v0.459.6
