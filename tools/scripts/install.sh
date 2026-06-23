@@ -135,8 +135,8 @@ info "Installing matching SDK v${SDK_VERSION_FROM_CLI}..."
 # Capture pulp sdk install's exit code via PIPESTATUS, not the pipeline's
 # overall status. set -e doesn't help here: a successful `sed` would mask
 # a failed `pulp sdk install`, and we'd print "Installed SDK" even when no
-# SDK landed. Codex P2 review on PR #2091 caught this — pre-fix users
-# saw a confident success message while sitting on a broken CLI+SDK pair.
+# SDK landed, leaving users with a confident success message while sitting
+# on a broken CLI+SDK pair.
 PATH="${INSTALL_DIR}:$PATH" "${INSTALL_DIR}/pulp" sdk install 2>&1 \
     | sed 's/^/  /'
 sdk_install_rc=${PIPESTATUS[0]}
