@@ -130,7 +130,7 @@ jobs:
           # 1. `event.before` — this push's immediate ancestor. What the
           #    original auto-release.yml used. Breaks when multiple PRs
           #    squash-merge in quick succession and a queued run is
-          #    cancelled (see 2026-04-19 cascade: v0.23.0 lost).
+          #    cancelled, leaving an intermediate version untagged.
           #
           # 2. Latest existing tag. This fixed the self-heal case but
           #    broke TWO other cases:
@@ -500,8 +500,8 @@ jobs:
                   if not old_ver:
                       continue
                   # Never cancel anything ≥ latest published. That tag
-                  # might be the next release; cancelling it is what
-                  # caused the v0.111..v0.115 starvation.
+                  # might be the next release; cancelling it can strand
+                  # consecutive unpublished versions.
                   if old_ver >= latest_published:
                       continue
                   print(f"  superseding {wf_label} run {run['id']} (tag {tag} < latest published {latest_published}, status={run.get('status')})")
@@ -512,8 +512,8 @@ jobs:
 
           # Delete drafts strictly older than the latest PUBLISHED release.
           # Never touch published. Never delete drafts ≥ latest published
-          # (those drafts might still publish — deleting them recreates
-          # the 2026-05-18 starvation).
+          # (those drafts might still publish — deleting them can strand
+          # consecutive unpublished versions).
           raw = gh([
               f"/repos/{REPO}/releases?per_page=50",
               "--jq", ".[] | select(.draft) | {id, tag: .tag_name}",
@@ -536,7 +536,7 @@ jobs:
       # tag push instead of inline in auto-release decouples the docs
       # sync from the binary build — if builds fail, CHANGELOG still
       # regens; if regen fails, builds aren't blocked. See shipyard
-      # issue #53 + PR #73 for the full design.
+      # issue #53 + PR #73 for the design.
 
       # ── Stranded fix/feat detector (issue #1009) ─────────────────────
       #
