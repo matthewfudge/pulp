@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v04639"></a>
+## [0.463.9] - 2026-06-23
+
+- fix: reject extra rust cache args ([#4658](https://github.com/danielraffel/pulp/pull/4658))
+- fix(host): pre-reserve CLAP slot scratch so process() doesn't allocate ([#4657](https://github.com/danielraffel/pulp/pull/4657))
+
 <a id="v04638"></a>
 ## [0.463.8] - 2026-06-23
 
@@ -4919,6 +4925,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.463.9]: https://github.com/danielraffel/pulp/releases/tag/v0.463.9
 [0.463.8]: https://github.com/danielraffel/pulp/releases/tag/v0.463.8
 [0.463.7]: https://github.com/danielraffel/pulp/releases/tag/v0.463.7
 [0.463.6]: https://github.com/danielraffel/pulp/releases/tag/v0.463.6
