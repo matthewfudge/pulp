@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v04691"></a>
+## [0.469.1] - 2026-06-24
+
+- fix(design-import): P8 package custom-controls were a no-op (wrong registry path) ([#4717](https://github.com/danielraffel/pulp/pull/4717))
+- docs(ship): align notarization examples with packaged artifacts ([#4716](https://github.com/danielraffel/pulp/pull/4716))
+
 <a id="v04690"></a>
 ## [0.469.0] - 2026-06-24
 
@@ -4980,6 +4986,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.469.1]: https://github.com/danielraffel/pulp/releases/tag/v0.469.1
 [0.469.0]: https://github.com/danielraffel/pulp/releases/tag/v0.469.0
 [0.468.0]: https://github.com/danielraffel/pulp/releases/tag/v0.468.0
 [0.467.0]: https://github.com/danielraffel/pulp/releases/tag/v0.467.0
