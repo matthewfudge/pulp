@@ -8,6 +8,17 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v04740"></a>
+## [0.474.0] - 2026-06-25
+
+- feat(host): execute Plugin nodes on the canonical executor routing path ([#4769](https://github.com/danielraffel/pulp/pull/4769))
+- tools: add clean_build_cov.sh to reclaim orphaned coverage build dirs ([#4768](https://github.com/danielraffel/pulp/pull/4768))
+- docs: align ViewBridge remote-view docs ([#4763](https://github.com/danielraffel/pulp/pull/4763))
+- docs(examples): clarify plugin host demo format wording ([#4762](https://github.com/danielraffel/pulp/pull/4762))
+- docs(ci): clarify PR example test coverage ([#4760](https://github.com/danielraffel/pulp/pull/4760))
+- fix(examples): align TempoSampler package version metadata ([#4758](https://github.com/danielraffel/pulp/pull/4758))
+- fix(examples): make stream demo complete cleanly ([#4755](https://github.com/danielraffel/pulp/pull/4755))
+
 <a id="v04730"></a>
 ## [0.473.0] - 2026-06-25
 
@@ -5035,6 +5046,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.474.0]: https://github.com/danielraffel/pulp/releases/tag/v0.474.0
 [0.473.0]: https://github.com/danielraffel/pulp/releases/tag/v0.473.0
 [0.472.2]: https://github.com/danielraffel/pulp/releases/tag/v0.472.2
 [0.472.1]: https://github.com/danielraffel/pulp/releases/tag/v0.472.1
