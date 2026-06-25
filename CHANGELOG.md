@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v04820"></a>
+## [0.482.0] - 2026-06-25
+
+- feat(format): persistent fork-join worker pool for the levelized parallel executor ([#4801](https://github.com/danielraffel/pulp/pull/4801))
+- docs(examples): correct PulpSynth screenshot controls ([#4799](https://github.com/danielraffel/pulp/pull/4799))
+
 <a id="v04810"></a>
 ## [0.481.0] - 2026-06-25
 
@@ -5090,6 +5096,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.482.0]: https://github.com/danielraffel/pulp/releases/tag/v0.482.0
 [0.481.0]: https://github.com/danielraffel/pulp/releases/tag/v0.481.0
 [0.480.0]: https://github.com/danielraffel/pulp/releases/tag/v0.480.0
 [0.479.0]: https://github.com/danielraffel/pulp/releases/tag/v0.479.0
