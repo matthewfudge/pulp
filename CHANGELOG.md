@@ -8,6 +8,11 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v04810"></a>
+## [0.481.0] - 2026-06-25
+
+- feat(graph): off-RT plan levelization for static multicore scheduling ([#4798](https://github.com/danielraffel/pulp/pull/4798))
+
 <a id="v04800"></a>
 ## [0.480.0] - 2026-06-25
 
@@ -5085,6 +5090,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.481.0]: https://github.com/danielraffel/pulp/releases/tag/v0.481.0
 [0.480.0]: https://github.com/danielraffel/pulp/releases/tag/v0.480.0
 [0.479.0]: https://github.com/danielraffel/pulp/releases/tag/v0.479.0
 [0.478.0]: https://github.com/danielraffel/pulp/releases/tag/v0.478.0
