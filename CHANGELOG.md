@@ -8,6 +8,14 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v04850"></a>
+## [0.485.0] - 2026-06-25
+
+- feat(graph): coarse static cost threshold for the parallel graph executor ([#4818](https://github.com/danielraffel/pulp/pull/4818))
+- docs: align FAUST guide build type ([#4816](https://github.com/danielraffel/pulp/pull/4816))
+- test(host): run-to-run determinism golden for the parallel graph executor ([#4815](https://github.com/danielraffel/pulp/pull/4815))
+- refactor(view): remove widget gallery dead height state ([#4813](https://github.com/danielraffel/pulp/pull/4813))
+
 <a id="v04840"></a>
 ## [0.484.0] - 2026-06-25
 
@@ -5108,6 +5116,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.485.0]: https://github.com/danielraffel/pulp/releases/tag/v0.485.0
 [0.484.0]: https://github.com/danielraffel/pulp/releases/tag/v0.484.0
 [0.483.0]: https://github.com/danielraffel/pulp/releases/tag/v0.483.0
 [0.482.0]: https://github.com/danielraffel/pulp/releases/tag/v0.482.0
