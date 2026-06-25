@@ -9,6 +9,7 @@
 // See signal_graph.hpp for the mutation protocol details.
 
 #include <pulp/host/signal_graph.hpp>
+#include <pulp/host/signal_graph_executor_routing.hpp>
 #include <pulp/runtime/log.hpp>
 #include <algorithm>
 #include <array>
@@ -867,7 +868,7 @@ void SignalGraph::invalidate_live_() {
     // Drop the live snapshot; process() will return silence until prepare()
     // is called again. This is the simple, safe semantic: UI-thread edits
     // always require a re-prepare before audio resumes.
-    live_raw_.store(nullptr, std::memory_order_release);
+    live_raw_.store(nullptr, std::memory_order_seq_cst);
     retire_snapshot_(std::move(live_));
     total_latency_samples_.store(0, std::memory_order_relaxed);
     clear_prepared_stats_();
@@ -930,13 +931,15 @@ void SignalGraph::retire_snapshot_(std::shared_ptr<CompiledGraph> snapshot) {
 }
 
 void SignalGraph::prune_retired_snapshots_() {
-    if (active_process_readers_.load(std::memory_order_acquire) == 0) {
+    // Seq-cst pairs with ProcessReadGuard and live_raw_ publication so a
+    // writer cannot miss a reader that is about to load the retired snapshot.
+    if (active_process_readers_.load(std::memory_order_seq_cst) == 0) {
         retired_snapshots_.clear();
     }
 }
 
 void SignalGraph::wait_for_retired_snapshots_() {
-    while (active_process_readers_.load(std::memory_order_acquire) != 0) {
+    while (active_process_readers_.load(std::memory_order_seq_cst) != 0) {
         std::this_thread::yield();
     }
     retired_snapshots_.clear();
@@ -1139,11 +1142,33 @@ SignalGraph::compile_(double sample_rate, int max_block_size) {
     }
 
     compute_latencies_for_(*cg, connections_);
+
+    // Build the canonical-executor routing for this snapshot when the topology
+    // is eligible. The Gain bindings resolve to THIS snapshot's own gain atomics
+    // (valid for cg's whole lifetime), so the embedded snapshot needs no
+    // keepalive. Ineligible graphs leave routing_valid false and use the walk.
+    {
+        CompiledGraph& cgr = *cg;
+        cg->routing_valid = build_executor_snapshot(
+            nodes_, connections_,
+            [&cgr](NodeId id) -> std::atomic<float>* {
+                auto it = cgr.runtime.find(id);
+                return it == cgr.runtime.end() ? nullptr : it->second.gain.get();
+            },
+            cg->routing_snapshot);
+        // Size THIS snapshot's own scratch pool (per-snapshot, retired with the
+        // snapshot via RCU — never resized under an in-flight reader).
+        if (cg->routing_valid && max_block_size > 0) {
+            cg->routing_valid = cg->exec_pool.reset(
+                cg->routing_snapshot.buffer_slot_count(),
+                static_cast<std::uint32_t>(max_block_size));
+        }
+    }
     return cg;
 }
 
 bool SignalGraph::prepare(double sample_rate, int max_block_size) {
-    live_raw_.store(nullptr, std::memory_order_release);
+    live_raw_.store(nullptr, std::memory_order_seq_cst);
     retire_snapshot_(std::move(live_));
     total_latency_samples_.store(0, std::memory_order_relaxed);
     clear_prepared_stats_();
@@ -1258,7 +1283,7 @@ bool SignalGraph::prepare(double sample_rate, int max_block_size) {
     total_latency_samples_.store(cg->total_latency_samples, std::memory_order_relaxed);
     publish_prepared_stats_(*cg);
     live_ = std::move(cg);
-    live_raw_.store(live_.get(), std::memory_order_release);
+    live_raw_.store(live_.get(), std::memory_order_seq_cst);
     prune_retired_snapshots_();
     return true;
 }
@@ -1358,7 +1383,7 @@ SignalGraph::validate_generated_graph(int max_block_size) const {
 }
 
 void SignalGraph::release() {
-    live_raw_.store(nullptr, std::memory_order_release);
+    live_raw_.store(nullptr, std::memory_order_seq_cst);
     retire_snapshot_(std::move(live_));
     wait_for_retired_snapshots_();
 
@@ -1417,15 +1442,17 @@ void SignalGraph::process(audio::BufferView<float>& output,
                           int num_samples) {
     struct ProcessReadGuard {
         explicit ProcessReadGuard(SignalGraph& owner) noexcept : owner_(owner) {
-            owner_.active_process_readers_.fetch_add(1, std::memory_order_acq_rel);
+            // See prune_retired_snapshots_(): this reader count and the raw
+            // snapshot pointer form one RCU-style lifetime handshake.
+            owner_.active_process_readers_.fetch_add(1, std::memory_order_seq_cst);
         }
         ~ProcessReadGuard() noexcept {
-            owner_.active_process_readers_.fetch_sub(1, std::memory_order_acq_rel);
+            owner_.active_process_readers_.fetch_sub(1, std::memory_order_seq_cst);
         }
         SignalGraph& owner_;
     } read_guard{*this};
 
-    auto* cg = live_raw_.load(std::memory_order_acquire);
+    auto* cg = live_raw_.load(std::memory_order_seq_cst);
     // Negative or zero block sizes mean "nothing to do" — return without
     // touching output (a memset with size_t(negative) wraps to a huge size).
     if (num_samples <= 0) return;
@@ -1434,6 +1461,30 @@ void SignalGraph::process(audio::BufferView<float>& output,
             std::memset(output.channel_ptr(c), 0,
                         sizeof(float) * static_cast<size_t>(num_samples));
         return;
+    }
+
+    // Canonical-executor path (opt-in): for an eligible snapshot, route the
+    // block through GraphRuntimeExecutor instead of the legacy walk. The
+    // executor zeroes the output bus and accumulates AudioOutput itself, so this
+    // returns before the legacy zero+walk below. The dispatch stays inside the
+    // ProcessReadGuard, so `cg` (and its routing snapshot + gain atomics) is
+    // pinned for the whole routed call.
+    if (canonical_executor_routing_enabled_.load(std::memory_order_relaxed) &&
+        cg->routing_valid &&
+        cg->exec_pool.fits(cg->routing_snapshot, static_cast<std::uint32_t>(num_samples))) {
+        pulp::format::BusBufferSet buses;
+        if (buses.add_input("main", input, pulp::format::BusRole::Main) &&
+            buses.add_output("main", output, pulp::format::BusRole::Main)) {
+            pulp::format::ProcessBlock block;
+            block.sample_rate = cg->sample_rate;
+            block.frame_count = static_cast<std::uint32_t>(num_samples);
+            block.buses = &buses;
+            if (block.validate() &&
+                executor_.process_routed(block, cg->routing_snapshot, cg->exec_pool).ok()) {
+                return;
+            }
+        }
+        // Any setup failure falls through to the legacy walk (safe).
     }
 
     // Clear the final destination; AudioOutput nodes accumulate into it.
