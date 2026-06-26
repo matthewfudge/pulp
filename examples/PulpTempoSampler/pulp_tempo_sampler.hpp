@@ -567,6 +567,7 @@ public:
         resample_raw_to_host_locked();
         analyze_locked();
         raw_generation_.fetch_add(1, std::memory_order_acq_rel);
+        load_generation_.fetch_add(1, std::memory_order_acq_rel);  // NEW sample → tempo poller re-detects BPM
         request_render(pending_host_bpm_.load(std::memory_order_relaxed));
         return true;
     }
@@ -677,23 +678,15 @@ public:
     // self-captures keys (set_input_capture(true)) and routes them here too. Host MIDI
     // arrives on the audio thread and is not reflected here (no UI-thread hook).
     // Map a chromatic TYPING note to a slice-consecutive trigger note, so the
-    // natural home row (a,s,d,f,g,h,j,k) plays slices 0,1,2,3,4,5,6,7 in order
-    // instead of the piano layout's white-key gaps — those map a,s,d,f,g to notes
-    // 0,2,4,5,7 and SKIP the black-key slices (1,3,6), so with N slices you run out
-    // every few keys (the "first 4 keys work then it stops" report). Host MIDI is
-    // unaffected (it triggers chromatically via process()). The key-down trigger
-    // note is remembered per held physical key so note-off releases the same voice
-    // even if ROOT changes mid-hold. Black keys collapse to the white key below
-    // (harmless for the home-row slice-pad use). Only the typing path remaps —
-    // waveform clicks and host MIDI map a slice per semitone directly.
-    int slice_trigger_note(int note) const {
-        const int root = static_cast<int>(state().get_value(kRootNote));
-        static const int white_below[12] = {0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6};
-        int oct = (note - root) / 12;
-        int rem = (note - root) % 12;
-        if (rem < 0) { rem += 12; --oct; }
-        return root + oct * 7 + white_below[rem];
-    }
+    // The typing keyboard is a chromatic piano (Logic-style Musical Typing): the
+    // home row a,s,d,f,g,h,j,k plays the WHITE notes and the upper row w,e,t,y,u,o,p
+    // plays the SHARPS above them (with the natural gaps at E/F and B/C). Each key is
+    // a distinct semitone, so a slice-per-semitone mapping gives every key a UNIQUE
+    // consecutive slice (a=slice0, w=slice1, s=slice2, e=slice3, ...) — identical to
+    // host MIDI and waveform clicks, no remap. The physical note IS the trigger note,
+    // so note-off always releases the voice it started even if ROOT changes mid-hold;
+    // the held set still records each (physical, trigger) pair to keep that contract
+    // explicit and to light the physical key.
     bool is_keyboard_note_held(int physical_note) const {
         return std::any_of(held_keyboard_triggers_ui_.begin(), held_keyboard_triggers_ui_.end(),
                            [physical_note](const HeldKeyboardTrigger& held) {
@@ -703,7 +696,7 @@ public:
     int held_trigger_note_for(int physical_note) const {
         for (const auto& held : held_keyboard_triggers_ui_)
             if (held.physical_note == physical_note) return held.trigger_note;
-        return slice_trigger_note(physical_note);
+        return physical_note;  // chromatic 1:1 — the physical note is the trigger note
     }
     void forget_held_keyboard_trigger(int physical_note) {
         held_keyboard_triggers_ui_.erase(
@@ -721,10 +714,9 @@ public:
         return notes;
     }
     void keyboard_play_on(int note, float velocity) {
-        const int trigger = slice_trigger_note(note);
-        ui_note_on(trigger, velocity);                   // consecutive-slice trigger
+        ui_note_on(note, velocity);                      // slice per semitone, unique per key
         if (!is_keyboard_note_held(note))
-            held_keyboard_triggers_ui_.push_back({note, trigger});
+            held_keyboard_triggers_ui_.push_back({note, note});
         push_keyboard_lights();
     }
     void keyboard_play_off(int note) {
@@ -742,6 +734,15 @@ public:
     }
     /// Test-only: the held-note set currently lit on the on-screen keyboard.
     std::vector<int> held_notes_for_test() const { return held_physical_notes(); }
+    /// Test-only: the TRIGGER note each currently-held key fires (the value passed to
+    /// ui_note_on, i.e. the slice). Distinct from held_notes_for_test (physical keys)
+    /// so a test can prove each key triggers a unique slice (no doubling).
+    std::vector<int> held_trigger_notes_for_test() const {
+        std::vector<int> notes;
+        notes.reserve(held_keyboard_triggers_ui_.size());
+        for (const auto& held : held_keyboard_triggers_ui_) notes.push_back(held.trigger_note);
+        return notes;
+    }
     /// Test-only: inject the SDK keyboard so the held-note → set_active_notes wiring
     /// can be exercised headlessly (the live path creates it in toggle_keyboard_window).
     void set_keyboard_for_test(std::unique_ptr<view::MusicalTypingKeyboard> kb) {
@@ -910,6 +911,11 @@ public:
     /// The editor view polls this to know when to refresh (cheap dirty-check).
     std::uint64_t raw_generation() const {
         return raw_generation_.load(std::memory_order_acquire);
+    }
+    /// Advances ONLY on a new sample load (not on a re-slice). The footer TEMPO
+    /// poller watches this so changing the slice count preserves the user's tempo.
+    std::uint64_t load_generation() const {
+        return load_generation_.load(std::memory_order_acquire);
     }
     /// UI-thread snapshot of the raw mono waveform + slice boundaries for the
     /// editor. Returns false when no sample is loaded. Copies under raw_mutex_.
@@ -1215,7 +1221,9 @@ public:
             auto tick = std::make_unique<FrameTick>();
             SamplerEditorRoot* rp = root.get();
             tick->on_tick = [this, rp, bpm_to_norm] {
-                const std::uint64_t g = raw_generation();
+                // Watch load_generation (new-sample only), NOT raw_generation — a
+                // re-slice bumps raw_generation but must keep the user's tempo.
+                const std::uint64_t g = load_generation();
                 if (g == rp->tempo_seen_gen_) return;
                 rp->tempo_seen_gen_ = g;
                 const double b = detected_bpm();
@@ -1339,8 +1347,35 @@ public:
             cursor = offset;
         }
         if (cursor < block_frames) render_active_voices(output, cursor, block_frames - cursor, params);
+
+        // Master soft-limit on the summed voice mix. Voices add into the output with
+        // no per-voice headroom, so overlapping slices can sum past full-scale and
+        // clip the device — most audible at slower tempos, where each slice is
+        // stretched LONGER and successive triggers overlap more. The limiter is
+        // transparent below the knee (the un-stretched / lightly-played sound is
+        // unchanged) and smoothly bounds peaks to +/-1.0 above it, replacing hard
+        // digital clipping with a gentle ceiling.
+        const auto mix_ch = std::min<std::uint32_t>(
+            static_cast<std::uint32_t>(output.num_channels()), prepared_output_channels_);
+        for (std::uint32_t ch = 0; ch < mix_ch; ++ch) {
+            float* d = output.channel_ptr(ch);
+            for (std::uint32_t i = 0; i < block_frames; ++i) d[i] = soft_limit(d[i]);
+        }
+
         publish_playhead();
         publish_audio_acknowledgement(published);
+    }
+
+    // Transparent below +/-kLimitKnee, smoothly compressing to a hard +/-1.0 ceiling
+    // above it (tanh shoulder, C1-continuous at the knee). Cheap: the tanh only runs
+    // on the rare samples that exceed the knee.
+    static float soft_limit(float x) noexcept {
+        constexpr float kLimitKnee = 0.9f;
+        const float a = std::fabs(x);
+        if (a <= kLimitKnee) return x;
+        const float s = x < 0.0f ? -1.0f : 1.0f;
+        return s * (kLimitKnee + (1.0f - kLimitKnee) *
+                                     std::tanh((a - kLimitKnee) / (1.0f - kLimitKnee)));
     }
 
 private:
@@ -1816,6 +1851,13 @@ private:
     std::atomic<bool> analysis_flag_{false};
     std::atomic<bool> drop_flag_{false};
     std::atomic<std::uint64_t> raw_generation_{0};
+    // Bumped ONLY when a genuinely new sample is loaded (load_loop), NOT on a
+    // same-sample re-slice (reanalyze). The footer TEMPO poller watches this so a
+    // slice-count change preserves the user's tempo override; raw_generation_ still
+    // advances on re-slice so the waveform/slice display repaints. (Before this
+    // split both shared raw_generation_, so changing slices snapped the tempo back
+    // to the loop's detected BPM — the "slices reset my tempo" report.)
+    std::atomic<std::uint64_t> load_generation_{0};
     std::atomic<double> pending_host_bpm_{120.0};
     // UI target-tempo override: 0 = follow host, else the BPM to stretch TO.
     std::atomic<double> tempo_override_{0.0};
