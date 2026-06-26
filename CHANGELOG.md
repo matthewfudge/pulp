@@ -8,6 +8,18 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v05060"></a>
+## [0.506.0] - 2026-06-26
+
+- feat(signal): restore the phase-vocoder energy loss (RMS make-up + soft-clip) ([#4985](https://github.com/danielraffel/pulp/pull/4985))
+- docs(test): clean format adapter hygiene breadcrumbs ([#4984](https://github.com/danielraffel/pulp/pull/4984))
+- chore(harness): refresh compatibility coverage report ([#4979](https://github.com/danielraffel/pulp/pull/4979))
+- fix(sampler): footer layout — green SLICES by SENS, aligned labels ([#4976](https://github.com/danielraffel/pulp/pull/4976))
+- fix(sampler): minimum slice length + zero-crossing slice boundaries ([#4974](https://github.com/danielraffel/pulp/pull/4974))
+- docs(stretch): add ears-led tuning methodology to the skill ([#4972](https://github.com/danielraffel/pulp/pull/4972))
+- docs(test): consolidate source comment hygiene follow-up ([#4971](https://github.com/danielraffel/pulp/pull/4971))
+- docs(ship): fix dev-signing notarize recipe ([#4970](https://github.com/danielraffel/pulp/pull/4970))
+
 <a id="v05050"></a>
 ## [0.505.0] - 2026-06-26
 
@@ -5289,6 +5301,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.506.0]: https://github.com/danielraffel/pulp/releases/tag/v0.506.0
 [0.505.0]: https://github.com/danielraffel/pulp/releases/tag/v0.505.0
 [0.504.0]: https://github.com/danielraffel/pulp/releases/tag/v0.504.0
 [0.503.0]: https://github.com/danielraffel/pulp/releases/tag/v0.503.0
