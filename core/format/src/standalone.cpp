@@ -117,6 +117,12 @@ bool StandaloneApp::start() {
     config_.supports_audio_input = config_.supports_audio_input && processor_has_audio_input;
     if (!config_.supports_audio_input) {
         config_.input_channels = 0;
+        // An instrument has no input bus to inject the test tone into, so the
+        // audio-settings test signal must go straight to the OUTPUT — otherwise it
+        // feeds a non-existent input and the user sees the meter LED but hears
+        // nothing. (Effects keep the default input-injection so the tone is
+        // processed by the effect.)
+        config_.route_test_signal_to_output = true;
     }
     constrain_audio_config(config_);
 
@@ -140,7 +146,13 @@ bool StandaloneApp::start() {
         return false;
     }
 
-    config_.audio_device_id = audio_device_->info().id;
+    // Only remember a CONCRETE device id when the user explicitly pinned one. For
+    // the default-following case keep audio_device_id empty so the next launch (and
+    // the live default-device listener) keep tracking the system default output —
+    // overwriting it with the resolved id here would pin the app to whatever was
+    // default at launch and it would only "follow" on relaunch.
+    if (!config_.audio_device_id.empty())
+        config_.audio_device_id = audio_device_->info().id;
     config_.sample_rate = audio_device_->sample_rate();
     config_.buffer_size = audio_device_->buffer_size();
 

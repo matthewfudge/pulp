@@ -448,6 +448,45 @@ TEST_CASE("render while playing is finite + stable (race)", "[tempo-sampler]") {
     SUCCEED();
 }
 
+// #race-2: changing tempo/slices while voices are sounding must NOT leave the
+// trigger mapping pointing past the live buffer. The re-render publishes
+// generation-safely and may SKIP the publish while a held voice still occupies a
+// store slot; the slice map is now refreshed only AFTER a successful publish, so a
+// skipped publish keeps the OLD (still-consistent) slices instead of stranding
+// every note on silence until the next render. Sweep tempo under sustained voices,
+// then a fresh trigger must still produce audio.
+TEST_CASE("tempo sweep under held voices keeps fresh triggers audible",
+          "[tempo-sampler][issue-race]") {
+    Fixture f;
+    auto loop = percussive_loop(48000, 4);
+    const float* ch[1] = {loop.data()};
+    REQUIRE(f.proc->load_loop(ch, 1, 48000, 48000.0));
+    f.proc->set_loop_bpm_for_test(120.0);
+    std::vector<float> l(512), r(512);
+    process_block(*f.proc, 120.0, false, 0, l, r);
+    REQUIRE(wait_for([&] { return f.proc->has_sample(); }));
+    REQUIRE(wait_for([&] { return f.proc->num_slices() >= 2; }));
+
+    const int root = 60;
+    // Hold two distinct slice notes (different store generations as renders land),
+    // and sweep host tempo so the worker keeps re-rendering / re-publishing.
+    process_block(*f.proc, 100.0, true, root, l, r);       // voice A on
+    for (int b = 0; b < 30; ++b) {
+        const double tempo = 70.0 + (b % 12) * 10.0;        // re-renders fire
+        const bool on = (b == 4);                           // voice B on mid-sweep
+        process_block(*f.proc, tempo, on, root + 1, l, r);
+        for (float v : l) REQUIRE(std::isfinite(v));
+    }
+
+    // A fresh trigger after all that churn must still map to a slice and sound.
+    double energy = 0.0;
+    for (int b = 0; b < 12; ++b) {
+        process_block(*f.proc, 120.0, b == 0, root + 2, l, r);
+        for (int i = 0; i < 512; ++i) energy += l[static_cast<size_t>(i)] * l[static_cast<size_t>(i)];
+    }
+    CHECK(energy > 1e-6);  // not stranded on silence by a skipped-publish slice update
+}
+
 TEST_CASE("drop replaces the loaded sample", "[tempo-sampler]") {
     Fixture f;
     auto a = sine(440.0, 48000.0, 24000); // 0.5 s
@@ -703,6 +742,62 @@ TEST_CASE("empty drop area click triggers browse", "[tempo-sampler]") {
     press.is_down = true;
     v.on_mouse_event(press);
     REQUIRE(browsed);  // a click in the empty area opens the file picker
+}
+
+// #race-2 (end-to-end): the literal M1 scenario — playing the sampler from the
+// QWERTY musical-typing keyboard must KEEP producing audio across tempo and slice
+// (sensitivity) changes, not go silent until you adjust again. Drives the real
+// keyboard path: KeyEvent -> on_note_on -> Processor::keyboard_play_on ->
+// ui_note_on -> process() drains the queue -> trigger_note -> voice.
+TEST_CASE("QWERTY typing keeps triggering audio across tempo + slice changes",
+          "[tempo-sampler][issue-race]") {
+    Fixture f;
+    auto loop = percussive_loop(48000, 4);
+    const float* ch[1] = {loop.data()};
+    REQUIRE(f.proc->load_loop(ch, 1, 48000, 48000.0));
+    f.proc->set_loop_bpm_for_test(120.0);
+
+    // Wire the editor's QWERTY typing to the processor exactly like the running app.
+    SamplerEditorRoot root;
+    root.current_root_note = [] { return 60; };          // 'a' = root note 60 = slice 0
+    root.keyboard_window_visible = [] { return true; };  // typing only plays when shown
+    root.typing.on_note_on  = [&](int n, float v) { f.proc->keyboard_play_on(n, v); };
+    root.typing.on_note_off = [&](int n) { f.proc->keyboard_play_off(n); };
+    auto key = [](view::KeyCode k, bool down) {
+        view::KeyEvent e; e.key = k; e.is_down = down; return e;
+    };
+
+    std::vector<float> l(512), r(512);
+    { midi::MidiBuffer m; process_midi(*f.proc, 120.0, m, l, r); }   // kick the first render
+    REQUIRE(wait_for([&] { return f.proc->has_sample(); }));
+    REQUIRE(wait_for([&] { return f.proc->num_slices() >= 2; }));
+
+    // Press a QWERTY key, then run blocks at `tempo` (drains the ui-note queue +
+    // re-renders on a tempo change) and sum the output energy of the keyed note.
+    auto qwerty_energy = [&](view::KeyCode k, double tempo) {
+        REQUIRE(root.on_key_event(key(k, true)));   // down -> keyboard_play_on
+        double e = 0.0;
+        for (int b = 0; b < 12; ++b) {
+            midi::MidiBuffer m;
+            process_midi(*f.proc, tempo, m, l, r);
+            for (float v : l) e += static_cast<double>(v) * v;
+        }
+        root.on_key_event(key(k, false));            // up -> keyboard_play_off
+        return e;
+    };
+
+    // Baseline: typing 'a' at the loaded tempo plays.
+    CHECK(qwerty_energy(view::KeyCode::a, 120.0) > 1e-6);
+
+    // Change tempo (host 90 -> R != 1, worker re-renders): typing 's' still plays.
+    CHECK(qwerty_energy(view::KeyCode::s, 90.0) > 1e-6);
+    // And again at a third tempo, typing 'd'.
+    CHECK(qwerty_energy(view::KeyCode::d, 150.0) > 1e-6);
+
+    // Change slice sensitivity (re-slice + re-render): typing 'a' still plays.
+    f.store.set_value(kOnsetSens, 0.8f);
+    REQUIRE(wait_for([&] { return f.proc->num_slices() >= 2; }));
+    CHECK(qwerty_energy(view::KeyCode::a, 90.0) > 1e-6);
 }
 
 TEST_CASE("musical typing maps QWERTY keys to slice notes (root-based)", "[tempo-sampler]") {
