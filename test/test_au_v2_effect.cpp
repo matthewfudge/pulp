@@ -212,6 +212,113 @@ TEST_CASE("AU v2 effect: sysex routing lands in MidiBuffer's sysex sidecar",
     REQUIRE(buf.sysex()[0].sample_offset == 0);
 }
 
+// The AU v2 and AU v3 render blocks reuse bridge-owned MidiBuffer members
+// (reserve() + set_realtime_capacity_limit(true) at Initialize /
+// allocateRenderResources, clear()+clear_sysex() per block) instead of
+// constructing a fresh MidiBuffer every render call. This guards that the
+// shared contract those adapters depend on stays allocation-free across blocks:
+// once reserved + capacity-limited, repeated clear → add → add_sysex_copy must
+// never grow the underlying event / sysex / payload vectors (a vector that does
+// not reallocate keeps the same capacity()), and overflow must drop rather than
+// allocate.
+TEST_CASE("AU adapters: reserved MidiBuffer reuse stays capacity-stable across "
+          "blocks (no per-block realloc)",
+          "[au][midi][au-v2][au-v3][realtime][capacity]")
+{
+    // Same capacities the AU v2/v3 adapters reserve (kMaxEventsPerBlock etc).
+    constexpr std::size_t kEvents = 2048;
+    constexpr std::size_t kSysex = 64;
+    constexpr std::size_t kSysexBytes = 512;
+
+    midi::MidiBuffer midi_in;
+    midi_in.reserve(kEvents, kSysex, kSysexBytes);
+    midi_in.set_realtime_capacity_limit(true);
+
+    const std::size_t event_cap = midi_in.event_capacity();
+    const std::size_t sysex_cap = midi_in.sysex_capacity();
+    const std::size_t payload_cap = midi_in.sysex_copy_payload_capacity();
+    REQUIRE(event_cap >= kEvents);
+    REQUIRE(sysex_cap >= kSysex);
+    REQUIRE(payload_cap >= kSysexBytes);
+
+    const std::vector<uint8_t> sysex_payload{0xF0, 0x7E, 0x7F, 0x06, 0x01, 0xF7};
+
+    // Drive several "render blocks" — clear + clear_sysex + ingest — exactly as
+    // the adapters do. Stay within reserved capacity so nothing is expected to
+    // drop on a well-behaved block.
+    for (int block = 0; block < 64; ++block) {
+        midi_in.clear();
+        midi_in.clear_sysex();
+
+        for (int i = 0; i < 16; ++i) {
+            auto ev = midi::MidiEvent::cc(0, 7, static_cast<uint8_t>(i & 0x7F));
+            ev.sample_offset = i;
+            REQUIRE(midi_in.add(ev));
+        }
+        REQUIRE(midi_in.add_sysex_copy(sysex_payload.data(),
+                                       sysex_payload.size(),
+                                       /*sample_offset=*/0));
+
+        REQUIRE(midi_in.size() == 16);
+        REQUIRE(midi_in.sysex_size() == 1);
+        // The bytes round-trip through the pooled payload.
+        REQUIRE(midi_in.sysex()[0].data == sysex_payload);
+
+        // The load-bearing assertion: no reallocation happened, so the audio
+        // thread did not allocate.
+        REQUIRE(midi_in.event_capacity() == event_cap);
+        REQUIRE(midi_in.sysex_capacity() == sysex_cap);
+        REQUIRE(midi_in.sysex_copy_payload_capacity() == payload_cap);
+        REQUIRE(midi_in.dropped_event_count() == 0);
+        REQUIRE(midi_in.dropped_sysex_count() == 0);
+    }
+}
+
+// Overflow within a capacity-limited buffer must DROP (record a drop count),
+// never grow the vector — otherwise the "no allocation on the audio thread"
+// guarantee the AU render path relies on would silently regress under a MIDI /
+// SysEx flood.
+TEST_CASE("AU adapters: capacity-limited MidiBuffer drops past reserve without "
+          "growing",
+          "[au][midi][au-v2][au-v3][realtime][capacity]")
+{
+    constexpr std::size_t kEvents = 8;
+    constexpr std::size_t kSysex = 2;
+    constexpr std::size_t kSysexBytes = 8;
+
+    midi::MidiBuffer midi_in;
+    midi_in.reserve(kEvents, kSysex, kSysexBytes);
+    midi_in.set_realtime_capacity_limit(true);
+    const std::size_t event_cap = midi_in.event_capacity();
+    const std::size_t sysex_cap = midi_in.sysex_capacity();
+
+    // Push more events than reserved.
+    for (std::size_t i = 0; i < kEvents + 4; ++i) {
+        midi_in.add(midi::MidiEvent::cc(0, 7, static_cast<uint8_t>(i & 0x7F)));
+    }
+    REQUIRE(midi_in.size() == kEvents);
+    REQUIRE(midi_in.dropped_event_count() == 4);
+    REQUIRE(midi_in.event_capacity() == event_cap);  // never grew
+
+    // Push more sysex than reserved.
+    const std::vector<uint8_t> payload{0xF0, 0x01, 0x02, 0xF7};
+    for (std::size_t i = 0; i < kSysex + 2; ++i) {
+        midi_in.add_sysex_copy(payload.data(), payload.size());
+    }
+    REQUIRE(midi_in.sysex_size() == kSysex);
+    REQUIRE(midi_in.dropped_sysex_count() == 2);
+    REQUIRE(midi_in.sysex_capacity() == sysex_cap);  // never grew
+
+    // A payload larger than the reserved per-event bound drops too (the AU v3
+    // UMP sysex path copies into this same pool).
+    std::vector<uint8_t> oversize(kSysexBytes + 4, 0x00);
+    oversize.front() = 0xF0;
+    oversize.back() = 0xF7;
+    const auto sysex_before = midi_in.sysex_size();
+    REQUIRE_FALSE(midi_in.add_sysex_copy(oversize.data(), oversize.size()));
+    REQUIRE(midi_in.sysex_size() == sysex_before);
+}
+
 TEST_CASE("AU v2 render context is explicit realtime for effects and instruments",
           "[au][au-v2][runtime-mode]")
 {

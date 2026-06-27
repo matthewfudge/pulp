@@ -63,8 +63,10 @@
 #include <pulp/format/ara.hpp>
 #include <pulp/signal/scoped_flush_denormals.hpp>
 #include <pulp/format/detail/playhead_diff.hpp>
+#include <pulp/midi/buffer.hpp>
 #include <pulp/midi/ump_sysex7_reassembler.hpp>
 #include <pulp/runtime/log.hpp>
+#include <pulp/runtime/scoped_no_alloc.hpp>
 #include <pulp/state/parameter_event_queue.hpp>
 #include <cmath>
 #include <memory>
@@ -132,6 +134,24 @@ struct AUBridge {
     // (sized to max_frames * kMaxChannels during render-resource allocation).
     std::vector<float> sidechain_storage;
     state::ParameterEventQueue param_events;
+
+    // Per-block MIDI I/O. Hoisted to the bridge (not constructed per render
+    // call) and given reserved, realtime-capacity-limited storage in
+    // allocateRenderResources so add()/add_sysex_copy() never grow a vector on
+    // the audio thread. Reset with clear()+clear_sysex() each block (clear()
+    // empties only the event list; clear_sysex() recycles the pooled sysex
+    // payloads). Matches the VST3/CLAP adapters. Capacities below are shared
+    // with VST3 (vst3_adapter.cpp) so behaviour matches across formats.
+    static constexpr std::size_t kMaxEventsPerBlock = 2048;
+    static constexpr std::size_t kMaxSysexPerBlock = 64;
+    static constexpr std::size_t kMaxSysexPayloadBytes = 512;
+    midi::MidiBuffer midi_in;
+    midi::MidiBuffer midi_out;
+    // Reusable reassembler for UMP sysex7 reassembly. Hoisted + reserved so
+    // feed_packet() doesn't grow its accumulator/scratch vectors on the audio
+    // thread. A single instance is fine: the render block feeds packets in
+    // arrival order and the reassembler tracks one in-progress stream.
+    midi::UmpSysex7Reassembler sysex_reassembler;
 
     // Previous-block transport snapshot used to derive the change flags on
     // `ProcessContext`. Default-constructed (no previous block) so the first
@@ -569,6 +589,20 @@ static thread_local bool g_au_v3_host_writing = false;
     _bridge.input_storage.assign(storage_samples, 0.0f);
     _bridge.sidechain_storage.assign(storage_samples, 0.0f);
 
+    // Pre-size the per-block MIDI buffers + UMP reassembler so the render block
+    // appends without heap allocation. Capacity-limited: add()/add_sysex_copy()
+    // drop past the reserved bound instead of growing (matches VST3/CLAP).
+    _bridge.midi_in.reserve(pulp::format::au::AUBridge::kMaxEventsPerBlock,
+                            pulp::format::au::AUBridge::kMaxSysexPerBlock,
+                            pulp::format::au::AUBridge::kMaxSysexPayloadBytes);
+    _bridge.midi_out.reserve(pulp::format::au::AUBridge::kMaxEventsPerBlock,
+                             pulp::format::au::AUBridge::kMaxSysexPerBlock,
+                             pulp::format::au::AUBridge::kMaxSysexPayloadBytes);
+    _bridge.midi_in.set_realtime_capacity_limit(true);
+    _bridge.midi_out.set_realtime_capacity_limit(true);
+    _bridge.sysex_reassembler.reserve(
+        pulp::format::au::AUBridge::kMaxSysexPayloadBytes);
+
     if (_bridge.processor) {
         pulp::format::PrepareContext ctx;
         ctx.sample_rate = _bridge.sample_rate;
@@ -754,7 +788,16 @@ static thread_local bool g_au_v3_host_writing = false;
         // long MIDI 2.0 UMP groups from AU v3.1+) arrive as
         // AURenderEventMIDIEventList. Long packets are routed into
         // MidiBuffer's variable-length sysex sidecar.
-        pulp::midi::MidiBuffer midi_in, midi_out;
+        // Reuse the bridge-owned, pre-reserved MIDI buffers (no per-block
+        // construction / allocation). clear() empties the event list;
+        // clear_sysex() recycles the pooled sysex payloads so the sidecar does
+        // not leak last block's sysex into this one.
+        pulp::midi::MidiBuffer& midi_in = bridge->midi_in;
+        pulp::midi::MidiBuffer& midi_out = bridge->midi_out;
+        midi_in.clear();
+        midi_in.clear_sysex();
+        midi_out.clear();
+        midi_out.clear_sysex();
         const AURenderEvent* event = realtimeEventListHead;
         while (event) {
             if (event->head.eventType == AURenderEventParameter ||
@@ -773,7 +816,19 @@ static thread_local bool g_au_v3_host_writing = false;
                         ? static_cast<int32_t>(p.rampDurationSampleFrames)
                         : 0,
                 });
+                // This is the host playing back automation, so it must NOT echo
+                // back to the host: guard the inline UI→host automation listener
+                // exactly like implementorValueObserver does. `set_value_rt` →
+                // notify_rt fires _automationListener SYNCHRONOUSLY on this
+                // render thread; g_au_v3_host_writing is thread_local, so setting
+                // it true here short-circuits that same-thread listener (its
+                // `if (g_au_v3_host_writing) return;` guard) — no -setValue:
+                // (lock-taking / allocating Foundation ObjC) on the audio thread,
+                // and no value echoed straight back into the pass the host is
+                // already recording.
+                pulp::format::au::g_au_v3_host_writing = true;
                 bridge->store.set_value_rt(param_id, static_cast<float>(p.value));
+                pulp::format::au::g_au_v3_host_writing = false;
             } else if (event->head.eventType == AURenderEventMIDI) {
                 const AUMIDIEvent& m = event->MIDI;
                 // A well-formed short MIDI message has a status byte
@@ -808,13 +863,25 @@ static thread_local bool g_au_v3_host_writing = false;
                         &midi_in,
                         static_cast<int32_t>(event->head.eventSampleTime),
                     };
+                    // add_sysex_copy (not add_sysex(vector)) so the payload is
+                    // copied into the buffer's pre-reserved realtime payload
+                    // pool — add_sysex(std::vector) takes the vector by value and
+                    // would allocate a fresh heap vector per sysex on the audio
+                    // thread.
                     auto emit = [](const std::vector<uint8_t>& payload,
                                    void* user) {
                         auto* c = static_cast<EmitCtx*>(user);
-                        c->sink->add_sysex(payload, c->sample_offset, 0.0);
+                        c->sink->add_sysex_copy(payload.data(), payload.size(),
+                                                c->sample_offset, 0.0);
                     };
 
-                    pulp::midi::UmpSysex7Reassembler reassembler;
+                    // Reuse the bridge's pre-reserved reassembler rather than
+                    // constructing one per event (its accumulator/scratch are
+                    // already sized). reset() clears any partial stream left by
+                    // a previous event/block so an orphaned continue/end can't
+                    // bleed across logical sysex boundaries.
+                    auto& reassembler = bridge->sysex_reassembler;
+                    reassembler.reset();
                     const MIDIEventPacket* pkt = &packets->packet[0];
 
                     for (UInt32 i = 0; i < packets->numPackets; ++i) {
@@ -1012,7 +1079,15 @@ static thread_local bool g_au_v3_host_writing = false;
         };
 
         bridge->processor->set_param_events(&bridge->param_events);
-        bridge->processor->process(process_buffers, midi_in, midi_out, ctx);
+        {
+            // The render path is allocation-free from here: MIDI buffers are
+            // pre-reserved + capacity-limited, param events are bounded, and the
+            // Processor honours the no-alloc contract. Mark the scope so the
+            // RT-safety tripwire (test builds / sanitizers) traps any stray
+            // allocation. Matches VST3/CLAP/AU v2.
+            pulp::runtime::ScopedNoAlloc no_alloc_guard;
+            bridge->processor->process(process_buffers, midi_in, midi_out, ctx);
+        }
 
         // Drain RT-safe pending flags the processor may have set during
         // process() and publish them via KVO. AUAudioUnit exposes `latency`
