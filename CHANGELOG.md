@@ -8,6 +8,17 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v05092"></a>
+## [0.509.2] - 2026-06-26
+
+- docs(ship): align share option docs ([#5018](https://github.com/danielraffel/pulp/pull/5018))
+- docs(ship): document appcast CLI surface ([#5013](https://github.com/danielraffel/pulp/pull/5013))
+- docs(ship): align Windows package docs ([#5012](https://github.com/danielraffel/pulp/pull/5012))
+- docs(ship): document Linux package outputs ([#5010](https://github.com/danielraffel/pulp/pull/5010))
+- docs(test): clean stale MIDI coverage tags ([#5006](https://github.com/danielraffel/pulp/pull/5006))
+- docs(view): fix hot reload API snippet ([#5008](https://github.com/danielraffel/pulp/pull/5008))
+- docs: include design-debug contract tests ([#5007](https://github.com/danielraffel/pulp/pull/5007))
+
 <a id="v05091"></a>
 ## [0.509.1] - 2026-06-26
 
@@ -5328,6 +5339,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.509.2]: https://github.com/danielraffel/pulp/releases/tag/v0.509.2
 [0.509.1]: https://github.com/danielraffel/pulp/releases/tag/v0.509.1
 [0.509.0]: https://github.com/danielraffel/pulp/releases/tag/v0.509.0
 [0.508.1]: https://github.com/danielraffel/pulp/releases/tag/v0.508.1
