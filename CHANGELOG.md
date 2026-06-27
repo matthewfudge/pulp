@@ -8,6 +8,13 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v05100"></a>
+## [0.510.0] - 2026-06-27
+
+- refactor(graph): replace connection bool-soup with a ConnectionKind discriminator ([#5033](https://github.com/danielraffel/pulp/pull/5033))
+- feat(quality-lab): P0a audio quality lab — transient detector + real-PV evidence ([#5028](https://github.com/danielraffel/pulp/pull/5028))
+- test(cli): cover pulp fmt shellout behavior ([#5029](https://github.com/danielraffel/pulp/pull/5029))
+
 <a id="v05093"></a>
 ## [0.509.3] - 2026-06-27
 
@@ -5345,6 +5352,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.510.0]: https://github.com/danielraffel/pulp/releases/tag/v0.510.0
 [0.509.3]: https://github.com/danielraffel/pulp/releases/tag/v0.509.3
 [0.509.2]: https://github.com/danielraffel/pulp/releases/tag/v0.509.2
 [0.509.1]: https://github.com/danielraffel/pulp/releases/tag/v0.509.1
