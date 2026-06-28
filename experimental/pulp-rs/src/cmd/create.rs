@@ -26,6 +26,7 @@
 //! | `ensure_sdk()` / network fetch                  | **Skipped** |
 //! | Post-scaffold build / ctest                     | **Skipped** |
 //! | `--pin` / `--debug` effects                     | **Skipped** |
+//! | AAX SDK default-format gating                   | Ported      |
 //! | AAX/AU SDK availability warnings                | **Skipped** |
 //! | Android template tree copy                      | Ported      |
 //! | `~/.pulp/projects.json` registry add            | **Skipped** |
@@ -52,6 +53,7 @@ use std::path::{Path, PathBuf};
 
 use rand::RngCore;
 
+use super::create_formats::default_formats;
 use crate::error::{CliError, Result};
 
 mod create_output;
@@ -363,20 +365,6 @@ pub fn expand_template(body: &str, vars: &[(&str, &str)]) -> String {
         s = s.replace(&pat, v);
     }
     s
-}
-
-/// Pick the default formats string for a given project kind.
-///
-/// Mirrors `default_create_formats` behaviour where the SDK is fully
-/// available — the Rust port doesn't probe the checkout, so we just
-/// emit the canonical default per kind and let `cmake_template_dir`
-/// pick up whatever templates are actually present.
-#[must_use]
-pub fn default_formats(kind: &str) -> String {
-    match kind {
-        "app" | "bare" => "Standalone".to_owned(),
-        _ => "VST3 CLAP LV2 AU AAX Standalone".to_owned(),
-    }
 }
 
 // ── Scaffolding ──────────────────────────────────────────────────────
@@ -962,6 +950,67 @@ mod tests {
     }
 
     #[test]
+    fn resolve_out_dir_rejects_in_tree_without_root() {
+        let td = tempfile::tempdir().unwrap();
+        let args = CreateArgs {
+            name: "demo".to_owned(),
+            in_tree: true,
+            ci_mode: true,
+            ..CreateArgs::default()
+        };
+        let err = resolve_out_dir(&args, None, td.path()).unwrap_err();
+        assert!(err.to_string().contains("--in-tree"));
+    }
+
+    #[test]
+    fn resolve_out_dir_rejects_existing_dir() {
+        let td = tempfile::tempdir().unwrap();
+        let existing = td.path().join("parent").join("demo");
+        fs::create_dir_all(&existing).unwrap();
+        let args = CreateArgs {
+            name: "demo".to_owned(),
+            output: Some(existing),
+            ci_mode: true,
+            ..CreateArgs::default()
+        };
+        let err = resolve_out_dir(&args, None, td.path()).unwrap_err();
+        assert!(err.to_string().contains("already exists"));
+    }
+
+    #[test]
+    fn resolve_out_dir_rejects_standalone_inside_checkout() {
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path().join("pulp");
+        fs::create_dir_all(&root).unwrap();
+        let args = CreateArgs {
+            name: "Inside".to_owned(),
+            output: Some(root.join("build/generated")),
+            ci_mode: true,
+            ..CreateArgs::default()
+        };
+        let err = resolve_out_dir(&args, Some(&root), td.path()).unwrap_err();
+        assert!(err.to_string().contains("standalone product projects"));
+    }
+
+    #[test]
+    fn resolve_out_dir_rejects_in_tree_output_outside_examples() {
+        let td = tempfile::tempdir().unwrap();
+        let root = td.path().join("pulp");
+        fs::create_dir_all(root.join("examples")).unwrap();
+        let args = CreateArgs {
+            name: "Outside".to_owned(),
+            output: Some(td.path().join("outside")),
+            in_tree: true,
+            ci_mode: true,
+            ..CreateArgs::default()
+        };
+        let err = resolve_out_dir(&args, Some(&root), td.path()).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("--in-tree projects must live under"));
+    }
+
+    #[test]
     fn run_errors_when_name_missing() {
         let td = tempfile::tempdir().unwrap();
         let mut buf = Vec::new();
@@ -1129,17 +1178,6 @@ mod tests {
         assert_eq!(split_targets("a b c"), vec!["a", "b", "c"]);
         assert_eq!(split_targets("a, b , c"), vec!["a", "b", "c"]);
         assert!(split_targets("").is_empty());
-    }
-
-    #[test]
-    fn default_formats_picks_per_kind() {
-        // "effect" / unknown kind → full plugin matrix.
-        let s = default_formats("effect");
-        assert!(s.contains("VST3"));
-        assert!(s.contains("CLAP"));
-        // app / bare → Standalone only.
-        assert_eq!(default_formats("app"), "Standalone");
-        assert_eq!(default_formats("bare"), "Standalone");
     }
 
     #[test]
