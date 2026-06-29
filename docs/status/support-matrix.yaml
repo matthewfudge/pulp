@@ -390,12 +390,16 @@ css_parity:
     status: partial
     notes: CSS text-shadow parsed and routed through setTextShadow / setTextShadow* storage; Label paint shadow rendering remains planned.
   font_family:
-    status: usable
+    status: partial
     notes: >
-      CSS font-family property parsed and routed through setFontFamily. Labels honor
-      own and inherited font-family during measurement and paint; Skia/TextShaper
-      resolve comma-separated fallback lists, with registerFont for bundled faces.
-      Validated by pulp-test-widget-bridge-wave5-css and pulp-test-canvas-fonts.
+      CSS font-family parsed and routed through setFontFamily; Skia/TextShaper
+      resolve comma-separated fallback lists, with registerFont for bundled
+      faces. Most Label paint paths honor own and inherited font-family, but one
+      path (label.cpp soft-wrap default) still falls back to "Inter" without
+      consulting inheritable_font_family(), so a container View -> child Label
+      font-family cascade does not paint in that case. Kept partial until that
+      paint path reads the inherited family. Validated by
+      pulp-test-widget-bridge-wave5-css and pulp-test-canvas-fonts.
 
 widgets:
   image_view:
@@ -753,7 +757,7 @@ runtime_apis:
     notes: registerDrop(id, callback) + View::on_drop. Receives type/data/x/y on file or text drop.
   font_loading:
     status: partial
-    notes: loadFont(path) bridge validates existence. Full Skia font registration planned.
+    notes: loadFont(path) validates existence only. registerFont(family, path) registers bundled .ttf/.otf files with the canvas font registry; FontFace and document.fonts remain unsupported.
   webgpu_shaders:
     status: usable
     notes: >
