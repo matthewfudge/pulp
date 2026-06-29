@@ -157,3 +157,10 @@ endif()
 if(NOT ANDROID AND NOT IOS)
     add_subdirectory(ara-pitch-tracker)
 endif()
+
+# Knob Playground — the DDFX editor as a native Pulp UI (DesignFrameView over a
+# captured SVG). Reference target for the native-UI-to-web port
+# (docs/guides/web-ui-wasm-port.md). Desktop only.
+if(NOT ANDROID AND NOT IOS)
+    add_subdirectory(knob-playground)
+endif()
