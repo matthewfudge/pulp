@@ -1169,6 +1169,9 @@ pulp_add_test_suite(pulp-test-json-rpc LIBRARIES pulp::runtime)
 # Validation harness tests
 pulp_add_test_suite(pulp-test-validation-harness LIBRARIES pulp::format)
 
+# Reusable validation assertion helpers (validation_assertions.hpp)
+pulp_add_test_suite(pulp-test-validation-assertions LIBRARIES pulp::format)
+
 # Plugin-contributed settings sections (MM-PR5) — SettingsPanel lives in pulp::standalone
 pulp_add_test_suite(pulp-test-settings-sections LIBRARIES pulp::standalone)
 
@@ -1177,6 +1180,9 @@ pulp_add_test_suite(pulp-test-plugin-state-restore-diagnostics LIBRARIES pulp::f
 
 # AAX metadata/model tests
 pulp_add_test_suite(pulp-test-aax-model LIBRARIES pulp::format)
+
+# AAX MIDI/SysEx packet reassembly + fragmentation (SDK-free pure logic)
+pulp_add_test_suite(pulp-test-aax-midi LIBRARIES pulp::format)
 
 # Appcast/auto-update tests
 pulp_add_test_suite(pulp-test-appcast LIBRARIES pulp::ship)
