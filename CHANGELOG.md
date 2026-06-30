@@ -8,6 +8,46 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v05480"></a>
+## [0.548.0] - 2026-06-30
+
+- refactor(reload): extract gate_logic_image as the single source of truth ([#5380](https://github.com/danielraffel/pulp/pull/5380))
+
+<a id="v05470"></a>
+## [0.547.0] - 2026-06-30
+
+- fix/inventory rust motion identity ([#5342](https://github.com/danielraffel/pulp/pull/5342))
+
+<a id="v05460"></a>
+## [0.546.0] - 2026-06-30
+
+- fix/rust aax create status parity ([#5337](https://github.com/danielraffel/pulp/pull/5337))
+- fix/compat sync require populated ([#5338](https://github.com/danielraffel/pulp/pull/5338))
+- fix(scan-worker): set install rpath ([#5341](https://github.com/danielraffel/pulp/pull/5341))
+- test(examples): cover audio inspector render proof helper ([#5343](https://github.com/danielraffel/pulp/pull/5343))
+
+<a id="v05450"></a>
+## [0.545.0] - 2026-06-30
+
+- feat(reload): live UI+DSP morph — shell create_view forwarding + thin logic ([#5377](https://github.com/danielraffel/pulp/pull/5377))
+- feat(reload): pulp_add_reload_logic helper + DSP hot-reload guide ([#5369](https://github.com/danielraffel/pulp/pull/5369))
+
+<a id="v05440"></a>
+## [0.544.0] - 2026-06-29
+
+- feat(reload): click-free crossfade on hot-swap + lock-free reclaim ([#5363](https://github.com/danielraffel/pulp/pull/5363))
+- feat(reload): DAW-integration hot-reload shell + live REAPER demo (Phase 1b) ([#5358](https://github.com/danielraffel/pulp/pull/5358))
+
+<a id="v05430"></a>
+## [0.543.0] - 2026-06-29
+
+- fix(view): snap Toggle thumb on initial seed so it paints the real state ([#5355](https://github.com/danielraffel/pulp/pull/5355))
+
+<a id="v05420"></a>
+## [0.542.0] - 2026-06-29
+
+- feat(reload): file-watch ReloadController for the standalone dev loop (Phase 1) ([#5347](https://github.com/danielraffel/pulp/pull/5347))
+
 <a id="v05410"></a>
 ## [0.541.0] - 2026-06-29
 
@@ -5679,6 +5719,13 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.548.0]: https://github.com/danielraffel/pulp/releases/tag/v0.548.0
+[0.547.0]: https://github.com/danielraffel/pulp/releases/tag/v0.547.0
+[0.546.0]: https://github.com/danielraffel/pulp/releases/tag/v0.546.0
+[0.545.0]: https://github.com/danielraffel/pulp/releases/tag/v0.545.0
+[0.544.0]: https://github.com/danielraffel/pulp/releases/tag/v0.544.0
+[0.543.0]: https://github.com/danielraffel/pulp/releases/tag/v0.543.0
+[0.542.0]: https://github.com/danielraffel/pulp/releases/tag/v0.542.0
 [0.541.0]: https://github.com/danielraffel/pulp/releases/tag/v0.541.0
 [0.540.0]: https://github.com/danielraffel/pulp/releases/tag/v0.540.0
 [0.539.0]: https://github.com/danielraffel/pulp/releases/tag/v0.539.0
