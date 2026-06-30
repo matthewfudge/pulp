@@ -8,6 +8,12 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v05490"></a>
+## [0.549.0] - 2026-06-30
+
+- feature/design frame param key ([#5388](https://github.com/danielraffel/pulp/pull/5388))
+- feature/moonbase licensing ([#5387](https://github.com/danielraffel/pulp/pull/5387))
+
 <a id="v05480"></a>
 ## [0.548.0] - 2026-06-30
 
@@ -5719,6 +5725,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.549.0]: https://github.com/danielraffel/pulp/releases/tag/v0.549.0
 [0.548.0]: https://github.com/danielraffel/pulp/releases/tag/v0.548.0
 [0.547.0]: https://github.com/danielraffel/pulp/releases/tag/v0.547.0
 [0.546.0]: https://github.com/danielraffel/pulp/releases/tag/v0.546.0
