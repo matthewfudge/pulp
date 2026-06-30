@@ -244,6 +244,11 @@
         "examples/mpe-*/**"
       ]
     },
+    "moonbase": {
+      "paths": [
+        "examples/moonbase-activation/**"
+      ]
+    },
     "packages": {
       "paths": [
         "tools/packages/**",
