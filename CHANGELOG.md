@@ -8,6 +8,14 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v05492"></a>
+## [0.549.2] - 2026-07-01
+
+- fix/hosted editor hover ([#5400](https://github.com/danielraffel/pulp/pull/5400))
+- feat/moonbase activation parity ([#5397](https://github.com/danielraffel/pulp/pull/5397))
+- feature/shipyard pin 0.70.0 ([#5395](https://github.com/danielraffel/pulp/pull/5395))
+- feature/ci skill automerge policy ([#5393](https://github.com/danielraffel/pulp/pull/5393))
+
 <a id="v05491"></a>
 ## [0.549.1] - 2026-06-30
 
@@ -5730,6 +5738,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.549.2]: https://github.com/danielraffel/pulp/releases/tag/v0.549.2
 [0.549.1]: https://github.com/danielraffel/pulp/releases/tag/v0.549.1
 [0.549.0]: https://github.com/danielraffel/pulp/releases/tag/v0.549.0
 [0.548.0]: https://github.com/danielraffel/pulp/releases/tag/v0.548.0
