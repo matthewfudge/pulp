@@ -39,9 +39,9 @@ def _resolve(env_var: str) -> tuple[str | None, str]:
 
 
 def count_onsets(text: str) -> int:
-    """Count onset events in aubio's stdout. aubio prints one event time (a float,
-    seconds) per line; be robust to a leading label column by taking the first float on
-    each line. Blank/non-numeric lines are ignored."""
+    """Count onset events in aubio's stdout. aubio prints one event time (seconds) per
+    line; a line counts as an onset if it contains a number. Blank/non-numeric lines are
+    ignored. This is a coarse, advisory signal — exact per-onset times are not needed."""
     n = 0
     for line in text.splitlines():
         if re.search(r"-?\d+\.\d+|\b\d+\b", line):
