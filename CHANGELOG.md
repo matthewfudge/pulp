@@ -8,6 +8,13 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
      next regen as long as they land in the right release's bullet block. See
      docs/guides/versioning.md § Release pipeline for the full end-to-end flow. -->
 
+<a id="v05493"></a>
+## [0.549.3] - 2026-07-01
+
+- fix/ausdk header leak private ([#5403](https://github.com/danielraffel/pulp/pull/5403))
+- feature/audio quality lab aubio eval ([#5404](https://github.com/danielraffel/pulp/pull/5404))
+- docs/rust cli sync anchor repair ([#5402](https://github.com/danielraffel/pulp/pull/5402))
+
 <a id="v05492"></a>
 ## [0.549.2] - 2026-07-01
 
@@ -5738,6 +5745,7 @@ to its [GitHub Release](https://github.com/danielraffel/pulp/releases).
 - Phase 1 follow-up: glTF textures, NSIS fixes, issue #3 crash/mirror/run ([#4](https://github.com/danielraffel/pulp/pull/4))
 - Phase 1: Commercial readiness — convolver, image rendering, packaging, MSVC fix ([#2](https://github.com/danielraffel/pulp/pull/2))
 
+[0.549.3]: https://github.com/danielraffel/pulp/releases/tag/v0.549.3
 [0.549.2]: https://github.com/danielraffel/pulp/releases/tag/v0.549.2
 [0.549.1]: https://github.com/danielraffel/pulp/releases/tag/v0.549.1
 [0.549.0]: https://github.com/danielraffel/pulp/releases/tag/v0.549.0
