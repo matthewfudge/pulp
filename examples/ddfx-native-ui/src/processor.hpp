@@ -9,6 +9,7 @@
 
 #include <pulp/format/processor.hpp>
 #include <pulp/state/store.hpp>
+#include "ddfx_editor_view.hpp"   // knobpg::make_ddfx_editor_view()
 #include <algorithm>
 #include <memory>
 
@@ -44,8 +45,9 @@ public:
     void prepare(const pulp::format::PrepareContext&) override {}
     void release() override {}
 
-    // Native GPU UI (out-of-line in view.cpp).
-    std::unique_ptr<pulp::view::View> create_view() override;
+    // Native GPU UI — the shared, processor-independent DDFX editor factory
+    // (defined in view.cpp; also mounted by the DreamDateFX JUCE plugin).
+    std::unique_ptr<pulp::view::View> create_view() override { return make_ddfx_editor_view(); }
 
     pulp::format::ViewSize view_size() const override {
         // DDFX editor frame is 1300x697 (aspect 1.865). Window opens proportional.

@@ -3,7 +3,8 @@
 // rendered pixel-faithfully by DesignFrameView. Interactive controls are
 // declared as DesignFrameElements pointing at named SVG sub-elements and wired
 // ONE AT A TIME (the macro knobs first). No custom Canvas paint, no JUCE embed.
-#include "processor.hpp"
+#include "ddfx_editor_view.hpp"
+#include "ddfx_host.hpp"
 #include <pulp/view/design_frame_view.hpp>
 #include <pulp/view/frame_clock.hpp>
 #include <pulp/canvas/canvas.hpp>
@@ -430,6 +431,8 @@ struct FxControl {
     float modDep = 0.0f;                            // Saturn-ring default mod depth (.modulatable arg)
     int rowSpan = 1;                                // radio spanning 2 rows (.span) → centred over both
     int colSpan = 1;                                // meter spanning 2 cols (.span)
+    const char* paramId = "";                       // engine param id ("time","feedback",…) for host
+                                                    // binding; "" = not bound to the engine yet
     bool assignable() const { return kind != Meter; }   // Meter can't be a slot control
 };
 
@@ -440,18 +443,19 @@ struct FxControl {
 // Mode is a vertical radio group. Defaults are the .range(...) third arg.
 inline const std::vector<FxControl>& delay_controls() {
     static const std::vector<FxControl> c = {
-        {1, 1, FxControl::Toggle, "Unit",     0.0f,    {"Free", "Sync"}},
-        {1, 2, FxControl::Knob,   "Time",     0.4286f, {}},
-        {1, 3, FxControl::Knob,   "Feedback", 0.5f,    {}},
-        {1, 4, FxControl::Knob,   "Mod",      0.1f,    {}},
-        {1, 5, FxControl::Toggle, "Reverse",  0.0f,    {"Off", "On"}},
-        {1, 6, FxControl::Toggle, "Quality",  0.0f,    {"Lo-Fi", "Modern"}},
-        {2, 1, FxControl::Knob,   "Drive",    0.33f,   {}},
-        {2, 2, FxControl::Knob,   "Offset",   0.5f,    {}},
-        {2, 3, FxControl::Knob,   "Low Cut",  0.4f,    {}},
-        {2, 4, FxControl::Knob,   "High Cut", 0.7f,    {}},
-        {2, 5, FxControl::Knob,   "Mix",      0.0f,    {}, 1.0f},   // .modulatable(1.0)
-        {2, 6, FxControl::Radio,  "Mode",     0.0f,    {"Mono", "Stereo", "Ping-Pong"}},
+        //  row col  kind             label       def      options                        modDep rs cs  paramId (engine id, DELAY_PARAMS)
+        {1, 1, FxControl::Toggle, "Unit",     0.0f,    {"Free", "Sync"},              0.0f, 1, 1, "unit"},
+        {1, 2, FxControl::Knob,   "Time",     0.4286f, {},                            0.0f, 1, 1, "time"},
+        {1, 3, FxControl::Knob,   "Feedback", 0.5f,    {},                            0.0f, 1, 1, "feedback"},
+        {1, 4, FxControl::Knob,   "Mod",      0.1f,    {},                            0.0f, 1, 1, "flutter"},
+        {1, 5, FxControl::Toggle, "Reverse",  0.0f,    {"Off", "On"},                 0.0f, 1, 1, "reverse"},
+        {1, 6, FxControl::Toggle, "Quality",  0.0f,    {"Lo-Fi", "Modern"},           0.0f, 1, 1, "quality"},
+        {2, 1, FxControl::Knob,   "Drive",    0.33f,   {},                            0.0f, 1, 1, "drive"},
+        {2, 2, FxControl::Knob,   "Offset",   0.5f,    {},                            0.0f, 1, 1, "offset"},
+        {2, 3, FxControl::Knob,   "Low Cut",  0.4f,    {},                            0.0f, 1, 1, "lowCut"},
+        {2, 4, FxControl::Knob,   "High Cut", 0.7f,    {},                            0.0f, 1, 1, "highCut"},
+        {2, 5, FxControl::Knob,   "Mix",      0.0f,    {},                            1.0f, 1, 1, "mix"},
+        {2, 6, FxControl::Radio,  "Mode",     0.0f,    {"Mono", "Stereo", "Ping-Pong"}, 0.0f, 1, 1, "stereoMode"},
     };
     return c;
 }
@@ -641,6 +645,20 @@ inline const std::vector<FxControl>& effect_controls(const std::string& fx) {
 
 class DdfxEditorView : public vw::DesignFrameView {
 public:
+    // Connect to the host's effect-chain engine (JUCE plugin). Reads the engine's
+    // current FX slots so the rack reflects real state, and routes future
+    // structural actions (pick/remove effect) to it. Null = standalone sandbox.
+    void attach_effect_host(EffectHost* h) {
+        host_ = h;
+        if (host_ == nullptr) return;
+        for (int m = 1; m <= 6; ++m) {
+            module_fx_[(size_t)m] = host_->getEffectType(m);
+            if (!module_fx_[(size_t)m].empty() && effect_has_controls(module_fx_[(size_t)m]))
+                init_delay_values(m);
+        }
+        request_repaint();
+    }
+
     DdfxEditorView(std::string svg, std::vector<vw::DesignFrameElement> els,
                    RadioInfo radio, std::vector<KnobHover> knobs, std::vector<HitTarget> hits,
                    std::vector<Preset> presets, std::vector<std::string> tags,
@@ -998,8 +1016,10 @@ public:
                         } else if (c.kind == FxControl::Toggle) {   // cycle the option
                             const int n = (int)c.options.size();
                             mod_val_[mm][ci] = (float)(((int)mod_val_[mm][ci] + 1) % n);
+                            push_ctl_to_host(mm, ci, false);        // → engine
                         } else if (opt >= 0) {                  // pick the radio option
                             mod_val_[mm][ci] = (float)opt;
+                            push_ctl_to_host(mm, ci, false);        // → engine
                         }
                         request_repaint(); return;
                     }
@@ -1024,6 +1044,7 @@ public:
                 if (cell >= 0) {   // pick an effect → go straight to its advanced page
                     const std::string& label = fx_types_[(size_t)cell].label;
                     module_fx_[(size_t)fx_menu_module_] = label;
+                    if (host_) host_->setEffectType(fx_menu_module_, label);   // insert into the engine
                     if (effect_has_controls(label)) {
                         fx_view_ = 1; init_delay_values(fx_menu_module_);
                         ctl_hover_ = ctl_hover_opt_ = -1; meter_hover_ = -1;
@@ -1116,8 +1137,10 @@ public:
                         drag_y0_ = py; drag_v0_ = mod_val_[sm][ci]; drag_dep0_ = mod_dep_[sm][ci];
                     } else if (c.kind == FxControl::Toggle) {
                         mod_val_[sm][ci] = (float)(((int)mod_val_[sm][ci] + 1) % (int)c.options.size());
+                        push_ctl_to_host(sm, ci, false);   // → engine
                     } else {
                         mod_val_[sm][ci] = (float)sr;
+                        push_ctl_to_host(sm, ci, false);   // → engine
                     }
                     request_repaint(); return;
                 }
@@ -1169,6 +1192,7 @@ public:
                     mod_dep_[slot_drag_m_][ci] = std::clamp(drag_dep0_ + delta, -1.0f, 1.0f);
                 else
                     mod_val_[slot_drag_m_][ci] = std::clamp(drag_v0_ + delta, 0.0f, 1.0f);
+                push_ctl_to_host(slot_drag_m_, ci, slot_drag_ring_);   // → engine (audible)
                 request_repaint();
             }
             return;
@@ -1183,6 +1207,7 @@ public:
                     mod_dep_[mm][knob_drag_] = std::clamp(drag_dep0_ + delta, -1.0f, 1.0f);
                 else                   // value drag sets the base value (0..1)
                     mod_val_[mm][knob_drag_] = std::clamp(drag_v0_ + delta, 0.0f, 1.0f);
+                push_ctl_to_host(mm, knob_drag_, knob_drag_ring_);   // → engine (audible)
                 request_repaint();
             }
             return;
@@ -2341,7 +2366,10 @@ private:
     }
     // Remove the open module's effect and drop back to the icon browser.
     void remove_effect() {
-        if (fx_menu_module_ >= 0) module_fx_[(size_t)fx_menu_module_].clear();
+        if (fx_menu_module_ >= 0) {
+            module_fx_[(size_t)fx_menu_module_].clear();
+            if (host_) host_->setEffectType(fx_menu_module_, "");   // clear the engine slot
+        }
         fx_view_ = 0; fx_hover_ = -1; remove_t_ = 0;
         for (float& tt : fx_cell_t_) tt = 0.0f;
         request_repaint();
@@ -2480,12 +2508,18 @@ private:
                 draw_ctl_radio(g, t, ccx, ry, k, c.options,
                                (int)mod_val_[mm][i], hov ? ctl_hover_opt_ : -1);
             }
-            // Param label at the cell bottom — JUCE getLabelFont is REGULAR weight
-            // (not bold like the toggle state text), CONTROL_LABEL brown, 14pt.
-            g.set_font("Inter", S(14.0f * k * CTL_FONT_K));
+            // Cell bottom: the param label — or, for a KNOB while hovered/dragged, its
+            // formatted VALUE readout (the effect's own units: "500 ms", "43%", …), in
+            // the same font + colour as the label. Toggles/radios already show their
+            // state, so no readout there.
+            g.set_font("Inter", S(14.0f * k * CTL_FONT_K));   // getLabelFont — regular
             g.set_fill_color(hex_color(CONTROL_LABEL));
-            const float w = g.measure_text(c.label);
-            g.fill_text(c.label, X(ccx) - w * 0.5f, Y(labY));
+            std::string readout;
+            if (host_ && c.kind == FxControl::Knob && (hov || knob_drag_ == i) && c.paramId[0] != '\0')
+                readout = host_->getEffectParamText(mm, c.paramId);
+            const std::string& cell_text = readout.empty() ? std::string(c.label) : readout;
+            const float w = g.measure_text(cell_text);
+            g.fill_text(cell_text, X(ccx) - w * 0.5f, Y(labY));
         }
     }
 
@@ -2642,12 +2676,40 @@ private:
     void init_delay_values(int m) {
         if (m < 0 || m >= 8) return;
         const auto& cs = mod_ctls(m);
-        for (size_t i = 0; i < cs.size() && i < 12; ++i) { mod_val_[m][i] = cs[i].def; mod_dep_[m][i] = cs[i].modDep; }
+        for (size_t i = 0; i < cs.size() && i < 12; ++i) {
+            // With a host attached, reflect the engine's current param values (so
+            // opening a page shows the real state); else use the definition defaults.
+            if (host_ && m >= 1 && m <= 6 && cs[i].paramId[0] != '\0') {
+                // Engine returns 0..1 for knobs, the option index for discrete —
+                // exactly what mod_val_ stores, so take it directly.
+                mod_val_[m][i] = host_->getEffectParam(m, cs[i].paramId);
+                mod_dep_[m][i] = host_->getEffectModDepth(m, cs[i].paramId);
+            } else {
+                mod_val_[m][i] = cs[i].def;
+                mod_dep_[m][i] = cs[i].modDep;
+            }
+        }
         // Default slot params = first two ASSIGNABLE controls (skip the GR meter).
         int found = 0;
         slot_vis_[m][0] = slot_vis_[m][1] = 0;
         for (int i = 0; i < (int)cs.size() && found < 2; ++i)
             if (cs[i].assignable()) slot_vis_[m][found++] = i;
+    }
+
+    // Push a control's live value (or Saturn-ring mod depth) to the host engine so
+    // the change is audible + recorded. Continuous knobs only for now; discrete
+    // toggles/radios need index→normalized mapping (next pass). No-op in sandbox.
+    void push_ctl_to_host(int m, int i, bool ring) {
+        if (host_ == nullptr || m < 1 || m > 6) return;
+        const auto& cs = mod_ctls(m);
+        if (i < 0 || i >= (int)cs.size()) return;
+        const auto& c = cs[(size_t)i];
+        if (c.paramId[0] == '\0') return;
+        if (ring) host_->setEffectModDepth(m, c.paramId, mod_dep_[m][(size_t)i]);
+        // mod_val_ already holds exactly what the engine expects: 0..1 for knobs,
+        // the option INDEX for discrete toggles/radios (the JUCE rack pushes the
+        // raw index too) — so push it directly, no normalization.
+        else      host_->setEffectParam(m, c.paramId, mod_val_[m][(size_t)i]);
     }
 
     // The module's macro value (0..1) drives every Saturn ring's modulated dot,
@@ -3461,12 +3523,17 @@ private:
     bool fx_closing_ = false;        // fading out → finalize when alpha hits 0
     float close_t_ = 0, remove_t_ = 0;   // hover progress for the close / remove buttons (grow + text)
     std::string module_fx_[8];       // chosen effect per module ("" = "---")
+    EffectHost* host_ = nullptr;     // host effect-chain engine (JUCE plugin); null in sandbox
     float fx_cell_t_[12] = {0};      // per-cell hover progress 0..1 (eased to grow the icon)
     static constexpr float FX_HOVER_SCALE = 1.18f;   // hovered icon grows to this
     static constexpr float FX_HOVER_DUR = 0.13f;     // seconds for the ease in/out
 };
 
-std::unique_ptr<vw::View> KnobProcessor::create_view() {
+// Factory for the native DDFX editor view — decoupled from any Processor so the
+// same builder serves both this sandbox (KnobProcessor::create_view) and the
+// DreamDateFX JUCE plugin (mounted via pulp_embed_create_from_view). Loads the
+// captured editor SVG, wires the controls, and returns the DdfxEditorView.
+std::unique_ptr<vw::View> make_ddfx_editor_view(EffectHost* host) {
 #ifdef DDFX_SVG
     std::string svg = read_file(DDFX_SVG);
     if (svg.empty()) return nullptr;
@@ -3490,6 +3557,15 @@ std::unique_ptr<vw::View> KnobProcessor::create_view() {
         k.hit_radius = hit;
         k.needle_d = m.needle_id;     // the tagged triangle the SDK rotates
         k.value = 0.0f;               // rest at value 0 (7 o'clock); drag up → 5 o'clock
+        // Host-parameter binding key = the DreamDateFX APVTS ParameterID. When
+        // mounted in the JUCE plugin (pulp_embed_create_from_view), the embed
+        // binds each element to its parameter by this string; harmless (visual-
+        // only) in the standalone sandbox. Knob order L→R: 0=LFO, 1-6=FX, 7=MASTER,
+        // then the Threshold SaturnRing. (AutomationParamLayout.cpp)
+        if (is_threshold)     k.param_key = "limiter_threshold";
+        else if (i == 0)      k.param_key = "lfo_macro";
+        else if (i == 7)      k.param_key = "master_output";
+        else                  k.param_key = "fx" + std::to_string(i) + "_macro";  // i = 1..6
         controls.push_back(std::move(k));
         // Hover: brighten the knob's cream ring (Threshold's ring is #a19b92)
         // plus its needle (re-drawn at the knob's live value, read in paint).
@@ -3555,9 +3631,11 @@ std::unique_ptr<vw::View> KnobProcessor::create_view() {
     // DesignFrameView rotates each needle on drag from its own element value, so
     // the knobs turn without any host binding. APVTS param binding (per-knob
     // gesture callbacks → store) is the next step, once the knobs track cleanly.
+    view->attach_effect_host(host);   // reflect the engine's chain + route structural actions
     view->set_requires_gpu_host(true);
     return view;
 #else
+    (void)host;
     return nullptr;
 #endif
 }
