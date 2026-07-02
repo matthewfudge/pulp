@@ -503,13 +503,19 @@ private:
     // Sync a user choice change (overlay widget -> element + on_element_changed).
     void  notify_choice(int i, int selected);
 
+protected:
     // User-gesture emit helpers: route to host_params() (when routing is on and
     // the element carries a key the surface resolves) AND fire the public
     // on_element_changed / on_gesture_* callback. Single funnel so every
-    // value-bearing gesture path stays consistent.
+    // value-bearing gesture path stays consistent. Protected so a subclass that
+    // draws + hit-tests its OWN controls (custom-paint editors, not the built-in
+    // element kinds) can drive a host param write for one of its param_key'd
+    // elements from its own on_mouse_* code, without the base's hit-testing.
     void emit_element_changed(int i, float value);
     void emit_gesture_begin(int i);
     void emit_gesture_end(int i);
+
+private:
     // Build the native-overlay child widgets (TextEditor / ComboBox / tabs) for
     // the non-knob elements of the active frame; called when a frame activates.
     void build_overlays();
