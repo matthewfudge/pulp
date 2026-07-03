@@ -1240,6 +1240,15 @@ public:
     void set_continuous_repaint(bool on) { wants_continuous_repaint_ = on; }
     bool wants_continuous_repaint() const { return wants_continuous_repaint_; }
 
+    /// Host tick hook: called once per host tick by the embedding runtime
+    /// (e.g. pulp_embed_tick's 30 Hz timer), on the UI thread, ON EVERY TICK
+    /// regardless of whether the view is rendering. A custom view overrides this
+    /// to recompute its `set_continuous_repaint()` liveness from host state
+    /// (audio meters, LFO activity, …) — this is the ONLY hook that runs while
+    /// the render loop is idle, so it is what wakes a dirty-gated editor when
+    /// live content resumes. Default no-op.
+    virtual void on_host_tick() {}
+
     /// RN textShadow per-attribute storage. Storage-only; SkPaint shadow
     /// integration is not wired here. Each slot is round-trippable so a
     /// commitUpdate that touches only one of the three preserves the others
