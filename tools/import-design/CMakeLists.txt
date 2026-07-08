@@ -11,13 +11,13 @@ add_executable(pulp-import-design
     # plugin. Compiled here rather than pulled from
     # pulp::runtime because that target's miniz include dirs are PRIVATE
     # and pulp::view doesn't re-export them.
-    ${CMAKE_SOURCE_DIR}/external/miniz/miniz.c
-    ${CMAKE_SOURCE_DIR}/external/miniz/miniz_tdef.c
-    ${CMAKE_SOURCE_DIR}/external/miniz/miniz_tinfl.c
-    ${CMAKE_SOURCE_DIR}/external/miniz/miniz_zip.c)
+    ${Pulp_SOURCE_DIR}/external/miniz/miniz.c
+    ${Pulp_SOURCE_DIR}/external/miniz/miniz_tdef.c
+    ${Pulp_SOURCE_DIR}/external/miniz/miniz_tinfl.c
+    ${Pulp_SOURCE_DIR}/external/miniz/miniz_zip.c)
 target_include_directories(pulp-import-design PRIVATE
-    ${CMAKE_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/external/miniz)
+    ${Pulp_SOURCE_DIR}
+    ${Pulp_SOURCE_DIR}/external/miniz)
 # Lets the CLI locate the offline .fig decoder (a Node subtool) in a dev build.
 # Installed builds fall back to $PULP_FIG_DECODE or an upward tools/ search.
 target_compile_definitions(pulp-import-design PRIVATE
@@ -26,7 +26,7 @@ target_link_libraries(pulp-import-design PRIVATE pulp::view pulp::state pulp::pl
 
 add_executable(pulp-design-import-bench
     design_import_benchmark.cpp)
-target_include_directories(pulp-design-import-bench PRIVATE ${CMAKE_SOURCE_DIR})
+target_include_directories(pulp-design-import-bench PRIVATE ${Pulp_SOURCE_DIR})
 target_link_libraries(pulp-design-import-bench PRIVATE
     pulp::view
     pulp::state
@@ -36,24 +36,24 @@ target_link_libraries(pulp-design-import-bench PRIVATE
 # Kept as a small static lib so the test target can link the parser/codegen core
 # directly (no CLI process spawn) while the CLI below drives it end-to-end.
 add_library(pulp-annotated-capture STATIC annotated_capture.cpp)
-target_include_directories(pulp-annotated-capture PUBLIC ${CMAKE_SOURCE_DIR})
+target_include_directories(pulp-annotated-capture PUBLIC ${Pulp_SOURCE_DIR})
 target_link_libraries(pulp-annotated-capture PUBLIC pulp::view)
 
 add_executable(pulp-annotated-capture-import annotated_capture_import.cpp)
-target_include_directories(pulp-annotated-capture-import PRIVATE ${CMAKE_SOURCE_DIR})
+target_include_directories(pulp-annotated-capture-import PRIVATE ${Pulp_SOURCE_DIR})
 target_link_libraries(pulp-annotated-capture-import PRIVATE
     pulp-annotated-capture pulp::view pulp::state pulp::platform)
 
 # svg_probe — diagnostic: render an SVG via DesignFrameView (SkSVGDOM) to PNG.
 add_executable(pulp-svg-probe svg_probe.cpp)
-target_include_directories(pulp-svg-probe PRIVATE ${CMAKE_SOURCE_DIR})
+target_include_directories(pulp-svg-probe PRIVATE ${Pulp_SOURCE_DIR})
 target_link_libraries(pulp-svg-probe PRIVATE pulp::view pulp::state pulp::platform)
 
 # Link-order fix for libskia.a → fontconfig on Linux+GNU ld: re-mention
 # fontconfig AFTER pulp::view's transitive skia::skia so the linker resolves
 # SkFontMgr_New_FontConfig's Fc* references. Caused v0.100.0 release-cli
 # linux-x64 to fail; was already in place for pulp-cli.
-include(${CMAKE_SOURCE_DIR}/tools/cmake/PulpLinkFontconfig.cmake)
+include(${Pulp_SOURCE_DIR}/tools/cmake/PulpLinkFontconfig.cmake)
 pulp_link_fontconfig_after_skia(pulp-import-design)
 pulp_link_fontconfig_after_skia(pulp-design-import-bench)
 pulp_link_fontconfig_after_skia(pulp-annotated-capture-import)
